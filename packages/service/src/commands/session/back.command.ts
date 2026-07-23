@@ -57,10 +57,12 @@ export class BackChatCommand implements ICommand<string, BackResult> {
       fromAgentId: fromAgent?.id,
       fromAgentName: fromAgent?.name,
       fromAgentRole: fromAgent?.role,
+      fromAvatarColor: fromAgent?.avatar?.color,
       fromSessionId,
       toAgentId: prevAgent.id,
       toAgentName: prevAgent.name,
       toAgentRole: prevAgent.role,
+      toAvatarColor: prevAgent.avatar?.color,
       toSessionId: prev.sessionId,
       handoffNote: 'Returning to parent session via /back',
       briefingContent: 'Return handoff to parent session.',
@@ -72,6 +74,7 @@ export class BackChatCommand implements ICommand<string, BackResult> {
       agentName: prevAgent.name,
       agentRole: prevAgent.role,
       llmModel: prevAgent.resolvedLlm?.model,
+      avatarColor: prevAgent.avatar?.color,
     });
 
     this.emitService.emit({

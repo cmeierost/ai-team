@@ -24,6 +24,7 @@ import { runDepCruiserAdapter } from './adapters/dep-cruiser.js';
 import { runJscpdAdapter } from './adapters/jscpd.js';
 import { runEslintAdapter } from './adapters/eslint.js';
 import { runCoverageAdapter } from './adapters/coverage.js';
+import { runReferenceGraphAdapter } from './adapters/reference-graph.js';
 import { detectModuleBoundaries } from './boundary-detector.js';
 import type { BoundaryDetectionOptions } from './boundary-detector.js';
 import { buildPathFilter } from '@aspect/collector-shared';
@@ -33,6 +34,7 @@ import { buildPathFilter } from '@aspect/collector-shared';
 export type CollectionAspect =
   | 'dependencyGraph'
   | 'entityExtraction'
+  | 'referenceGraph'
   | 'duplication'
   | 'lint'
   | 'coverage';
@@ -87,6 +89,7 @@ export interface CollectionResult {
 const ALL_ASPECTS: CollectionAspect[] = [
   'dependencyGraph',
   'entityExtraction',
+  'referenceGraph',
   'duplication',
   'lint',
   'coverage',
@@ -630,6 +633,33 @@ export async function collect(
       warnings.push(`coverage adapter failed: ${formatError(err)}`);
     }
     timing.coverage = Math.round(performance.now() - t0);
+  }
+
+  // 2f. Reference graph (symbol-level reference counting)
+  if (aspects.has('referenceGraph')) {
+    const t0 = performance.now();
+    try {
+      const result = await runReferenceGraphAdapter(
+        {
+          rootDir: options.rootDir,
+          tsConfigPath: options.tsConfigPath,
+        },
+        entities,
+      );
+      relationships.push(...result.relationships);
+      toolRuns.push({
+        tool: 'reference-graph',
+        version: '0.1.0',
+        aspect: 'referenceGraph',
+        exitCode: 0,
+        duration: Math.round(performance.now() - t0),
+        warnings: [],
+      });
+      usedTools.push('reference-graph');
+    } catch (err) {
+      warnings.push(`reference-graph adapter failed: ${formatError(err)}`);
+    }
+    timing.referenceGraph = Math.round(performance.now() - t0);
   }
 
   // Phase 2.5 — Filter out gitignored/external entities and their relationships

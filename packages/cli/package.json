@@ -28,6 +28,7 @@
   "dependencies": {
     "@ai-team/api-contracts": "workspace:*",
     "@ai-team/container": "workspace:*",
+    "@ai-team/tui": "workspace:*",
     "@ai-team/core": "workspace:*",
     "@ai-team/infrastructure": "workspace:*",
     "@ai-team/service": "workspace:*",

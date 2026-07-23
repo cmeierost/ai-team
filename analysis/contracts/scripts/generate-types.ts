@@ -24,6 +24,7 @@ const SCHEMAS: SchemaEntry[] = [
   { schemaPath: 'signals/duplication.schema.json', outputName: 'duplication' },
   { schemaPath: 'signals/coverage.schema.json', outputName: 'coverage' },
   { schemaPath: 'signals/lint.schema.json', outputName: 'lint' },
+  { schemaPath: 'signals/reference-graph.schema.json', outputName: 'reference-graph' },
   { schemaPath: 'collected-data.schema.json', outputName: 'collected-data' },
   { schemaPath: 'analyzed-data.schema.json', outputName: 'analyzed-data' },
   { schemaPath: 'protocol.schema.json', outputName: 'protocol' },

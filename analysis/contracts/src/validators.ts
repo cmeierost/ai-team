@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { CollectedCodeData } from './generated/collected-data.js';
 import type { AspectProtocolMessage } from './generated/protocol.js';
+import type { ReferenceGraphSignal } from './generated/reference-graph.js';
 
 // ---------------------------------------------------------------------------
 // Schema loading
@@ -36,6 +37,7 @@ const fileInventorySchema = loadSchema('common/file-inventory.schema.json');
 const duplicationSchema = loadSchema('signals/duplication.schema.json');
 const coverageSchema = loadSchema('signals/coverage.schema.json');
 const lintSchema = loadSchema('signals/lint.schema.json');
+const referenceGraphSchema = loadSchema('signals/reference-graph.schema.json');
 
 // Root schemas
 const collectedDataSchema = loadSchema('collected-data.schema.json');
@@ -64,6 +66,7 @@ ajv.addSchema(fileInventorySchema);
 ajv.addSchema(duplicationSchema);
 ajv.addSchema(coverageSchema);
 ajv.addSchema(lintSchema);
+ajv.addSchema(referenceGraphSchema);
 
 // ---------------------------------------------------------------------------
 // Compiled validators
@@ -71,6 +74,7 @@ ajv.addSchema(lintSchema);
 
 const validateCollectedDataFn: ValidateFunction = ajv.compile(collectedDataSchema);
 const validateProtocolFn: ValidateFunction = ajv.compile(protocolSchema);
+const validateReferenceGraphFn: ValidateFunction = ajv.compile(referenceGraphSchema);
 
 // ---------------------------------------------------------------------------
 // Public API — type-narrowing validators
@@ -98,5 +102,16 @@ export function getProtocolMessageErrors(): string | null {
   return ajv.errorsText(validateProtocolFn.errors);
 }
 
+/** Validates that `data` conforms to the ReferenceGraphSignal schema. */
+export function validateReferenceGraphSignal(data: unknown): data is ReferenceGraphSignal {
+  return validateReferenceGraphFn(data) as boolean;
+}
+
+/** Returns a human-readable error string from the last `validateReferenceGraphSignal` call, or `null`. */
+export function getReferenceGraphSignalErrors(): string | null {
+  if (!validateReferenceGraphFn.errors?.length) return null;
+  return ajv.errorsText(validateReferenceGraphFn.errors);
+}
+
 // Re-export internals for advanced usage
-export { validateCollectedDataFn, validateProtocolFn, ajv };
+export { validateCollectedDataFn, validateProtocolFn, validateReferenceGraphFn, ajv };

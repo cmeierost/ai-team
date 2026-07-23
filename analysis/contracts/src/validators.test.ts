@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   validateCollectedData,
   validateProtocolMessage,
+  validateReferenceGraphSignal,
   getCollectedDataErrors,
   getProtocolMessageErrors,
+  getReferenceGraphSignalErrors,
 } from './validators.js';
 import type { CollectedCodeData } from './generated/collected-data.js';
 import type {
@@ -14,6 +16,7 @@ import type {
 } from './generated/protocol.js';
 import type { Entity } from './generated/entity.js';
 import type { Relationship } from './generated/relationship.js';
+import type { ReferenceGraphSignal, ReferenceEdge } from './generated/reference-graph.js';
 
 // ---------------------------------------------------------------------------
 // Fixture helpers — minimal valid objects matching the JSON Schema
@@ -358,5 +361,168 @@ describe('getProtocolMessageErrors', () => {
     validateProtocolMessage(makeInvokeMessage());
 
     expect(getProtocolMessageErrors()).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ReferenceGraphSignal validation
+// ---------------------------------------------------------------------------
+
+function makeReferenceEdge(overrides?: Partial<ReferenceEdge>): ReferenceEdge {
+  return {
+    sourceEntityId: 'file:src/a.ts#helper',
+    targetEntityId: 'file:src/b.ts#used',
+    kind: 'reference',
+    scope: 'cross_package',
+    score: 5,
+    isBarrel: false,
+    sourceRange: makeSourceRange(),
+    targetRange: makeSourceRange(),
+    resolutionKind: 'resolved',
+    ...overrides,
+  };
+}
+
+function makeReferenceGraphSignal(
+  overrides?: Partial<ReferenceGraphSignal>
+): ReferenceGraphSignal {
+  return {
+    source: {
+      tool: 'reference-graph',
+      version: '0.1.0',
+      rootDir: '.',
+      tsconfig: 'tsconfig.json',
+      prodFileCount: 10,
+      testFileCount: 3,
+    },
+    edges: [makeReferenceEdge()],
+    summary: {
+      totalEdges: 1,
+      byKind: { reference: 1 },
+      byScope: { cross_package: 1 },
+      unresolvedCount: 0,
+    },
+    ...overrides,
+  };
+}
+
+describe('validateReferenceGraphSignal', () => {
+  it('accepts a minimal valid signal', () => {
+    expect(validateReferenceGraphSignal(makeReferenceGraphSignal())).toBe(true);
+  });
+
+  it('accepts a signal with empty edges', () => {
+    const signal = makeReferenceGraphSignal({
+      edges: [],
+      summary: { totalEdges: 0, byKind: {}, byScope: {}, unresolvedCount: 0 },
+    });
+    expect(validateReferenceGraphSignal(signal)).toBe(true);
+  });
+
+  it('accepts all reference kinds', () => {
+    const kinds: ReferenceEdge['kind'][] = ['reference', 'call', 'implement', 'extend', 're-export'];
+    for (const kind of kinds) {
+      const signal = makeReferenceGraphSignal({
+        edges: [makeReferenceEdge({ kind })],
+        summary: { totalEdges: 1, byKind: { [kind]: 1 }, byScope: { cross_package: 1 }, unresolvedCount: 0 },
+      });
+      expect(validateReferenceGraphSignal(signal)).toBe(true);
+    }
+  });
+
+  it('accepts all scope levels', () => {
+    const scopes: ReferenceEdge['scope'][] = [
+      'same_file',
+      'same_folder',
+      'sub_dir_barrel',
+      'sub_dir_deep',
+      'parent_barrel',
+      'sibling_barrel',
+      'sibling_deep',
+      'cross_package',
+    ];
+    for (const scope of scopes) {
+      const signal = makeReferenceGraphSignal({
+        edges: [makeReferenceEdge({ scope })],
+        summary: { totalEdges: 1, byKind: { reference: 1 }, byScope: { [scope]: 1 }, unresolvedCount: 0 },
+      });
+      expect(validateReferenceGraphSignal(signal)).toBe(true);
+    }
+  });
+
+  it('accepts an unresolved edge with null targetEntityId', () => {
+    const signal = makeReferenceGraphSignal({
+      edges: [
+        makeReferenceEdge({
+          targetEntityId: null,
+          targetRange: null,
+          resolutionKind: 'unresolved',
+        }),
+      ],
+      summary: { totalEdges: 1, byKind: { reference: 1 }, byScope: { cross_package: 1 }, unresolvedCount: 1 },
+    });
+    expect(validateReferenceGraphSignal(signal)).toBe(true);
+  });
+
+  it('accepts a barrel edge', () => {
+    const signal = makeReferenceGraphSignal({
+      edges: [makeReferenceEdge({ scope: 'sub_dir_barrel', isBarrel: true })],
+      summary: { totalEdges: 1, byKind: { reference: 1 }, byScope: { sub_dir_barrel: 1 }, unresolvedCount: 0 },
+    });
+    expect(validateReferenceGraphSignal(signal)).toBe(true);
+  });
+
+  it('rejects a signal with an unknown reference kind', () => {
+    const signal = makeReferenceGraphSignal({
+      edges: [makeReferenceEdge({ kind: 'unknown' as any })],
+    });
+    expect(validateReferenceGraphSignal(signal)).toBe(false);
+  });
+
+  it('rejects a signal with an unknown scope', () => {
+    const signal = makeReferenceGraphSignal({
+      edges: [makeReferenceEdge({ scope: 'unknown' as any })],
+    });
+    expect(validateReferenceGraphSignal(signal)).toBe(false);
+  });
+
+  it('rejects a signal missing the source block', () => {
+    const signal = makeReferenceGraphSignal();
+    delete (signal as any).source;
+    expect(validateReferenceGraphSignal(signal)).toBe(false);
+  });
+
+  it('rejects a signal with wrong tool constant', () => {
+    const signal = makeReferenceGraphSignal();
+    (signal.source as any).tool = 'something-else';
+    expect(validateReferenceGraphSignal(signal)).toBe(false);
+  });
+
+  it('rejects a signal with negative score', () => {
+    const signal = makeReferenceGraphSignal({
+      edges: [makeReferenceEdge({ score: -1 })],
+    });
+    expect(validateReferenceGraphSignal(signal)).toBe(false);
+  });
+
+  it('rejects a completely empty object', () => {
+    expect(validateReferenceGraphSignal({})).toBe(false);
+  });
+});
+
+describe('getReferenceGraphSignalErrors', () => {
+  it('returns a readable error string after failed validation', () => {
+    validateReferenceGraphSignal({ bad: true });
+
+    const errors = getReferenceGraphSignalErrors();
+    expect(errors).not.toBeNull();
+    expect(typeof errors).toBe('string');
+    expect(errors!.length).toBeGreaterThan(0);
+  });
+
+  it('returns null after successful validation', () => {
+    validateReferenceGraphSignal(makeReferenceGraphSignal());
+
+    expect(getReferenceGraphSignalErrors()).toBeNull();
   });
 });

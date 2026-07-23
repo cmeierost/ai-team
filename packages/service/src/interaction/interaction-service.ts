@@ -26,7 +26,8 @@ type ChatRunner = (
 export class InteractionService implements IInteractionService {
   constructor(
     private readonly workspaceRoot: string,
-    private readonly runChat: ChatRunner
+    private readonly runChat: ChatRunner,
+    private readonly emitService?: IEmitService
   ) {}
 
   async *stream<TCommand extends string = string>(
@@ -73,6 +74,7 @@ export class InteractionService implements IInteractionService {
     yield* interactionStream.stream({
       request,
       context: context as unknown as Record<string, unknown>,
+      emitService: this.emitService,
       invoke: async (invokeCtx: ExecutionContext, _emitService: IEmitService) => {
         await this.runChat(this.workspaceRoot, payload.agentId, options, callbacks, invokeCtx);
 

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { COMMAND_FACTORY_TOKENS } from '../types.js';
 import { buildInteractionService } from './register-service-layer-services.js';
 import { EmitService } from '../interaction/emit-service.js';
+import { CORE_SERVICE_TOKENS } from '@ai-team/core';
 
 describe('buildInteractionService', () => {
   it('does not replay response.data as token after chat dispatch completes', async () => {
@@ -10,23 +11,26 @@ describe('buildInteractionService', () => {
       message: 'completed',
       data: 'already streamed content',
     }));
-
-    const container = {
-      resolve: (token: unknown) => {
-        if (token === COMMAND_FACTORY_TOKENS.CommandDispatcher) {
-          return { dispatch };
-        }
-        throw new Error(`Unexpected token: ${String(token)}`);
-      },
-    } as any;
-
-    const interactionService = buildInteractionService(container, '/workspace');
     const runtimeEvents: Array<{ kind: string; text?: string }> = [];
     const emitService = new EmitService((event) => {
       if (event.kind === 'token' || event.kind === 'log' || event.kind === 'status') {
         runtimeEvents.push(event as { kind: string; text?: string });
       }
     });
+
+    const container = {
+      resolve: (token: unknown) => {
+        if (token === COMMAND_FACTORY_TOKENS.CommandDispatcher) {
+          return { dispatch };
+        }
+        if (token === CORE_SERVICE_TOKENS.EmitService) {
+          return emitService;
+        }
+        throw new Error(`Unexpected token: ${String(token)}`);
+      },
+    } as any;
+
+    const interactionService = buildInteractionService(container, '/workspace');
 
     const streamEvents: Array<{ kind: string; text?: string }> = [];
     for await (const event of interactionService.stream(

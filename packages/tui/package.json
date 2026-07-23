@@ -1,0 +1,32 @@
+{
+  "name": "@ai-team/tui",
+  "version": "0.1.0",
+  "description": "Terminal UI framework with differential rendering",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run --passWithNoTests",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "tui",
+    "terminal",
+    "ui",
+    "differential-rendering"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@ai-team/core": "workspace:*",
+    "marked": "^17.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.6"
+  }
+}

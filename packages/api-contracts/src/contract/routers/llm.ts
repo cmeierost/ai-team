@@ -1,4 +1,4 @@
-import { LlmProviderConfig } from './config';
+import { LlmProviderConfig } from './config.js';
 
 export interface TestConnectionOptions {
   provider?: string;

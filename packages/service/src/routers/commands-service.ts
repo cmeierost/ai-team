@@ -1,7 +1,7 @@
 import type { ChatCommandRegistryEntry, ICommandsService } from '@ai-team/api-contracts';
 import type {
   IConfigurationStorage,
-  ICommandRegistry,
+  ICommandDispatcher,
   IEmitService,
   ISkillManager,
   ISessionManager,
@@ -18,7 +18,7 @@ export class CommandsService implements ICommandsService {
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly commandRegistry: ICommandRegistry,
+    private readonly commandDispatcher: Pick<ICommandDispatcher, 'getCommands'>,
     private readonly skillManager: ISkillManager,
     private readonly configurationStorage: IConfigurationStorage,
     private readonly emitService: IEmitService,
@@ -30,8 +30,8 @@ export class CommandsService implements ICommandsService {
   ) {}
 
   async list(): Promise<ChatCommandRegistryEntry[]> {
-    const webChatCommandRegistry = this.commandRegistry.getAll({
-      availableIn: { chat: true },
+    const webChatCommandRegistry = this.commandDispatcher.getCommands({
+      chat: true,
     }) as ChatCommandRegistryEntry[];
     const reservedKeys = new Set<string>();
     for (const command of webChatCommandRegistry) {

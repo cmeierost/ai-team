@@ -183,6 +183,7 @@ function createDeps(overrides: {
     stepService,
     bootstrapResolver,
     emitService,
+    commandDispatcher,
   };
 }
 
@@ -325,7 +326,13 @@ describe('ChatDirectTurnCommand bootstrap', () => {
   });
 
   it('executes slash command directly without invoking LLM send-turn pipeline', async () => {
-    const { command, stepService, sessionManager, emitService } = createDeps({
+    const {
+      command,
+      stepService,
+      sessionManager,
+      emitService,
+      commandDispatcher,
+    } = createDeps({
       resolveLatestSessionForResume: async () => ({ id: 'sess-latest', agentId: 'michael-brown' }),
       getAgentAsync: async (id: string) => ({ id, name: 'Michael Brown', role: 'ceo' }),
       getLatestSession: async () => ({ id: 'sess-agent', agentId: 'michael-brown' }),
@@ -350,5 +357,46 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     expect(persisted.tool_calls?.[0]?.tool).toBe('slash:help');
     expect(persisted.tool_calls?.[0]?.params?.invokedBy).toBe('user');
     expect(emitService.toolEvent).toHaveBeenCalled();
+    expect(commandDispatcher.dispatch).toHaveBeenCalledWith(
+      'system-help',
+      'chat',
+      expect.anything()
+    );
+  });
+
+  it('does not dispatch commands that are unavailable in chat', async () => {
+    const { command, commandDispatcher, emitService } = createDeps({
+      resolveLatestSessionForResume: async () => ({
+        id: 'sess-latest',
+        agentId: 'michael-brown',
+      }),
+      getAgentAsync: async (id: string) => ({
+        id,
+        name: 'Michael Brown',
+        role: 'ceo',
+      }),
+      getLatestSession: async () => ({
+        id: 'sess-agent',
+        agentId: 'michael-brown',
+      }),
+      getSessionMessages: async () => [],
+    });
+    commandDispatcher.getCommands.mockReturnValue([]);
+
+    const response = await command.execute(
+      { options: { message: '/serve' } } as any,
+      { history: [] } as any
+    );
+
+    expect(response.status).toBe('ok');
+    expect(commandDispatcher.dispatch).not.toHaveBeenCalled();
+    expect(emitService.toolEvent).toHaveBeenCalledWith(
+      'slash:serve',
+      undefined,
+      'error',
+      'Unknown chat command: /serve',
+      undefined,
+      expect.anything()
+    );
   });
 });

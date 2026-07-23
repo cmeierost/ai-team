@@ -31,7 +31,7 @@ import { registerCliResultHandlers } from './handlers/result-renderers.js';
 import { createConsoleEmitService } from './emit/console-emit-service.js';
 import type { ChatOptions } from '@ai-team/api-contracts';
 import { CONTRACT_SERVICE_TOKENS } from '@ai-team/api-contracts';
-import { renderChat } from './handlers/chat.js';
+import { renderChat } from './handlers/chat-new.js';
 import { launchServer, launchServerWithUi } from './handlers/serve.js';
 import { launchUi } from './handlers/ui.js';
 import {
@@ -330,8 +330,9 @@ function registerCliChatRuntime(container: IServiceContainer): void {
   });
 }
 
+const cliQuestionService = createQuestionResponders();
 const commandContainer = createContainerWithBootstrap({ workspaceRoot }, (c) => {
-  c.registerInstance(TOKENS.QuestionService, createQuestionResponders());
+  c.registerInstance(TOKENS.QuestionService, cliQuestionService);
   // EmitService for the CLI — registered under both container and service-layer
   // tokens so both consumers can resolve it.
   const emitService = createConsoleEmitService();
@@ -375,6 +376,18 @@ class CliApplication {
   }): Promise<{ agentId?: string; agentName?: string; sessionId?: string }> {
     let resolvedAgentId = params.agentId?.trim() || undefined;
     let resolvedAgentName: string | undefined;
+
+    if (!resolvedAgentId && params.sessionId) {
+      try {
+        const sessionManager = this.deps.commandContainer.resolve(
+          CORE_SERVICE_TOKENS.SessionManager
+        );
+        const session = await sessionManager.getSession(params.sessionId);
+        resolvedAgentId = session?.agentId;
+      } catch {
+        // The normal startup path below will report an unknown session.
+      }
+    }
 
     if (resolvedAgentId) {
       const agentManager = this.deps.commandContainer.resolve(CORE_SERVICE_TOKENS.AgentManager);
@@ -720,10 +733,19 @@ class CliApplication {
     const runChat = async (...args: unknown[]) => {
       const opts = this.tryGetCommanderOptions(args) ?? {};
       const positionals = args.filter((a): a is string => typeof a === 'string');
-      const agentId = positionals[0];
+      const firstPositional = positionals[0];
       const positionalSessionId = positionals[1];
       const message = typeof opts.message === 'string' ? opts.message : undefined;
-      const sessionId = typeof opts.sessionId === 'string' ? opts.sessionId : positionalSessionId;
+      const explicitSessionId = typeof opts.sessionId === 'string' ? opts.sessionId : undefined;
+      const singlePositionalSession =
+        !explicitSessionId
+        && !positionalSessionId
+        && firstPositional?.startsWith('session-');
+      const agentId = singlePositionalSession ? undefined : firstPositional;
+      const sessionId =
+        explicitSessionId
+        ?? positionalSessionId
+        ?? (singlePositionalSession ? firstPositional : undefined);
       const rawMaxHops = opts.maxHops ?? opts['max-hops'];
       const parsedMaxHops =
         typeof rawMaxHops === 'number'
@@ -767,26 +789,6 @@ class CliApplication {
         }
       })();
 
-      if (message === undefined) {
-        await runCommandStream(
-          this.deps.commandClient,
-          {
-            command: 'chat-chat-startup',
-            payload: {
-              employeeId: resolvedAgentId,
-              options: {
-                sessionId: resolvedSessionId,
-                createNewSession,
-                introduction: true,
-              },
-            },
-          },
-          {
-            executionContext: this.toCliExecutionContext(args),
-          }
-        );
-      }
-
       return renderChat(
         this.deps.commandClient,
         resolvedAgentId,
@@ -803,7 +805,8 @@ class CliApplication {
           maxHops,
           autoReactMessage,
           ...(slashSuggestions ? { __slashSuggestions: slashSuggestions } : {}),
-        }
+        },
+        { questionService: cliQuestionService }
       );
     };
 

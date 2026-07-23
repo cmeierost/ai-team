@@ -1,0 +1,359 @@
+/**
+ * Main TUI class with differential rendering.
+ */
+
+import { Terminal } from './terminal.js';
+import { Component, Container, CURSOR_MARKER, isFocusable } from './component.js';
+
+/**
+ * TUI — Terminal UI manager with differential rendering.
+ *
+ * Manages a component tree and renders only the differences between
+ * the previous and current frame, minimizing terminal output.
+ */
+export class TUI {
+  private readonly terminal: Terminal;
+  private readonly root: Container;
+  private previousLines: string[] = [];
+  private focusedComponent: Component | null = null;
+  private running = false;
+  private onInput?: (data: string) => void;
+  private onResize?: () => void;
+
+  constructor(terminal: Terminal) {
+    this.terminal = terminal;
+    this.root = new Container();
+  }
+
+  /**
+   * Get the root container. Add components to this to build your UI.
+   */
+  get rootContainer(): Container {
+    return this.root;
+  }
+
+  /**
+   * Start the TUI loop.
+   */
+  start(): void {
+    this.running = true;
+    this.terminal.start(
+      (data) => this.handleInput(data),
+      () => this.handleResize()
+    );
+    this.terminal.hideCursor();
+    this.render();
+  }
+
+  /**
+   * Stop the TUI loop and restore terminal state.
+   */
+  stop(): void {
+    this.running = false;
+    this.terminal.showCursor();
+    this.terminal.stop();
+  }
+
+  /**
+   * Force a full re-render.
+   */
+  render(): void {
+    if (!this.running) return;
+
+    const width = this.terminal.columns;
+    const height = this.terminal.rows;
+
+    // Render component tree
+    const lines = this.root.render(width);
+
+    // Build a single output buffer (like pi-tui)
+    let buffer = '\x1b[2J\x1b[H'; // Clear screen + home
+
+    for (let i = 0; i < lines.length; i++) {
+      if (i > 0) buffer += '\r\n';
+      buffer += lines[i];
+      buffer += '\x1b[K'; // Clear to end of line
+    }
+
+    // Clear remaining lines
+    for (let i = lines.length; i < height; i++) {
+      buffer += '\r\n\x1b[K';
+    }
+
+    // Position cursor
+    this.positionCursorIntoBuffer(lines, buffer);
+
+    // Write entire buffer at once (avoids partial escape sequence corruption)
+    this.terminal.write(buffer);
+
+    // Update previous lines
+    this.previousLines = lines;
+  }
+
+  private positionCursorIntoBuffer(lines: string[], _buffer: string): void {
+    if (!this.focusedComponent || !isFocusable(this.focusedComponent)) return;
+
+    // Find cursor marker in rendered lines
+    for (let i = 0; i < lines.length; i++) {
+      const idx = lines[i].indexOf(CURSOR_MARKER);
+      if (idx !== -1) {
+        const cursorCol = this.visibleColumnAt(lines[i], idx);
+        this.terminal.write(`\x1b[${i + 1};${cursorCol + 1}H`);
+        return;
+      }
+    }
+  }
+
+  /**
+   * Set the focused component (for input handling and cursor position).
+   */
+  setFocused(component: Component | null): void {
+    // Unfocus previous
+    if (this.focusedComponent && isFocusable(this.focusedComponent)) {
+      this.focusedComponent.focused = false;
+    }
+
+    this.focusedComponent = component;
+
+    // Focus new
+    if (this.focusedComponent && isFocusable(this.focusedComponent)) {
+      this.focusedComponent.focused = true;
+    }
+
+    this.render();
+  }
+
+  /**
+   * Get the currently focused component.
+   */
+  getFocused(): Component | null {
+    return this.focusedComponent;
+  }
+
+  private renderDiff(lines: string[], width: number, height: number): void {
+    const prev = this.previousLines;
+    const maxLines = Math.max(prev.length, lines.length, height);
+
+    // Clear screen and move to home position
+    this.terminal.write('\x1b[2J\x1b[H');
+
+    // Write each line
+    for (let i = 0; i < maxLines; i++) {
+      if (i > 0) {
+        this.terminal.write('\r\n');
+      }
+
+      const newLine = i < lines.length ? lines[i] : '';
+
+      // Write full line content
+      if (newLine.length > 0) {
+        this.terminal.write(newLine);
+      }
+
+      // Clear rest of line
+      this.terminal.write('\x1b[K');
+    }
+
+    // Clear remaining lines
+    for (let i = maxLines; i < height; i++) {
+      this.terminal.write('\r\n\x1b[K');
+    }
+
+    // Position cursor
+    this.positionCursor(lines, width);
+  }
+
+  private positionCursor(lines: string[], width: number): void {
+    if (!this.focusedComponent || !isFocusable(this.focusedComponent)) return;
+
+    // Find cursor marker in rendered lines
+    for (let i = 0; i < lines.length; i++) {
+      const idx = lines[i].indexOf(CURSOR_MARKER);
+      if (idx !== -1) {
+        // Move cursor to the line and column
+        const cursorCol = this.visibleColumnAt(lines[i], idx);
+        this.terminal.write(`\x1b[${i + 1};${cursorCol + 1}H`);
+        return;
+      }
+    }
+  }
+
+  private visibleColumnAt(line: string, charIndex: number): number {
+    let col = 0;
+    for (let i = 0; i < charIndex && i < line.length; ) {
+      const cp = line.codePointAt(i);
+      if (cp === undefined) break;
+
+      if (cp === 0x1b) {
+        // Skip escape sequence
+        i = this.skipEscapeSequence(line, i);
+        continue;
+      }
+
+      col += (cp >= 0x1100 && this.isWideCodePoint(cp)) ? 2 : 1;
+      i++;
+    }
+    return col;
+  }
+
+  private skipEscapeSequence(str: string, start: number): number {
+    let i = start + 1;
+    if (i >= str.length) return i;
+
+    const second = str.codePointAt(i);
+    if (second === undefined) return i + 1;
+
+    if (second === 0x5b) {
+      return this.skipCsiSequence(str, i + 1);
+    }
+    if (second === 0x5d || second === 0x50) {
+      return this.skipOscOrApcSequence(str, i + 1);
+    }
+
+    return i;
+  }
+
+  private skipCsiSequence(str: string, i: number): number {
+    while (i < str.length) {
+      const cp = str.codePointAt(i);
+      if (cp !== undefined && cp >= 0x40 && cp <= 0x7e) return i + 1;
+      i++;
+    }
+    return i;
+  }
+
+  private skipOscOrApcSequence(str: string, i: number): number {
+    while (i < str.length) {
+      const cp = str.codePointAt(i);
+      if (cp === undefined) break;
+      if (cp === 0x07) return i + 1;
+      if (cp === 0x1b && str.codePointAt(i + 1) === 0x5c) return i + 2;
+      i++;
+    }
+    return i;
+  }
+
+  private isWideCodePoint(cp: number): boolean {
+    return (
+      (cp >= 0x1100 && cp <= 0x115f) ||
+      (cp >= 0x2329 && cp <= 0x232a) ||
+      (cp >= 0x2e80 && cp <= 0xa4cf && cp !== 0x303f) ||
+      (cp >= 0xac00 && cp <= 0xd7a3) ||
+      (cp >= 0xf900 && cp <= 0xfaff) ||
+      (cp >= 0xfe10 && cp <= 0xfe19) ||
+      (cp >= 0xfe30 && cp <= 0xfe6f) ||
+      (cp >= 0xff00 && cp <= 0xff60) ||
+      (cp >= 0xffe0 && cp <= 0xffe6) ||
+      (cp >= 0x20000 && cp <= 0x2fffd) ||
+      (cp >= 0x30000 && cp <= 0x3fffd)
+    );
+  }
+
+  private commonPrefixLength(newLine: string, prevLine: string, width: number): number {
+    let newCol = 0;
+    const idx = { pos: 0 }; // mutable wrapper for charIndex
+
+    while (newCol < width && idx.pos < newLine.length && idx.pos < prevLine.length) {
+      const newCp = newLine.codePointAt(idx.pos);
+      const prevCp = prevLine.codePointAt(idx.pos);
+
+      if (newCp === undefined || prevCp === undefined) break;
+
+      if (this.charsDiffer(newCp, prevCp, newLine, prevLine, idx)) break;
+
+      const charWidth = (newCp >= 0x1100 && this.isWideCodePoint(newCp)) ? 2 : 1;
+      newCol += charWidth;
+      idx.pos++;
+    }
+
+    return idx.pos;
+  }
+
+  private charsDiffer(newCp: number, prevCp: number, newLine: string, prevLine: string, idx: { pos: number }): boolean {
+    // Both are escape sequences
+    if (newCp === 0x1b && prevCp === 0x1b) {
+      const newSeqEnd = this.skipEscapeSequence(newLine, idx.pos);
+      const prevSeqEnd = this.skipEscapeSequence(prevLine, idx.pos);
+
+      if (newLine.slice(idx.pos, newSeqEnd) === prevLine.slice(idx.pos, prevSeqEnd)) {
+        idx.pos = newSeqEnd;
+        return false;
+      }
+      return true;
+    }
+
+    // One is escape, other isn't
+    if (newCp === 0x1b || prevCp === 0x1b) return true;
+
+    // Characters differ
+    return newCp !== prevCp;
+  }
+
+  private handleInput(data: string): void {
+    // Ctrl+C handling
+    if (data === '\x03') {
+      process.emit('SIGINT');
+      return;
+    }
+
+    // Enter key
+    if (data === '\r') {
+      this.onEnter();
+      return;
+    }
+
+    // Escape key
+    if (data === '\x1b') {
+      this.onEscape();
+      return;
+    }
+
+    // Dispatch to focused component
+    if (this.focusedComponent && isFocusable(this.focusedComponent) && this.focusedComponent.handleInput) {
+      this.focusedComponent.handleInput(data);
+      this.render();
+      return;
+    }
+
+    // Custom input handler
+    this.onInput?.(data);
+  }
+
+  private handleResize(): void {
+    this.invalidate();
+    this.onResize?.();
+  }
+
+  private onEnter(): void {
+    this.focusedComponent?.handleInput?.('\r');
+    if (this.focusedComponent?.handleInput) {
+      this.render();
+    }
+  }
+
+  private onEscape(): void {
+    // Could be used to cancel overlays, etc.
+  }
+
+  /**
+   * Invalidate all components and force full re-render.
+   */
+  invalidate(): void {
+    this.root.invalidate();
+    this.render();
+  }
+
+  /**
+   * Register a custom input handler.
+   */
+  onInputEvent(handler: (data: string) => void): void {
+    this.onInput = handler;
+  }
+
+  /**
+   * Register a resize handler.
+   */
+  onResizeEvent(handler: () => void): void {
+    this.onResize = handler;
+  }
+}

@@ -1,7 +1,7 @@
 import { CommandResponse } from '../shared-types.js';
 import type { ExecutionContext } from '@ai-team/core';
-import { ContextLevel, RoleType } from './agents';
-import { LlmProfile } from './config';
+import { ContextLevel, RoleType } from './agents.js';
+import { LlmProfile } from './config.js';
 
 export type RuntimeStreamEvent =
   | {
@@ -16,7 +16,19 @@ export type RuntimeStreamEvent =
       agentRole?: string;
       developerName?: string;
       llmModel?: string;
+      avatarColor?: string;
       message?: string;
+    }
+  | {
+      kind: 'history_message';
+      content: string;
+      isHuman: boolean;
+      developerName?: string;
+      agentId?: string;
+      agentName?: string;
+      agentRole?: string;
+      llmModel?: string;
+      avatarColor?: string;
     }
   | {
       kind: 'progress';
@@ -81,12 +93,18 @@ export type RuntimeStreamEvent =
       fromAgentId?: string;
       fromAgentName?: string;
       fromAgentRole?: string;
+      fromAvatarColor?: string;
+      fromLlmModel?: string;
       fromSessionId?: string;
       toAgentId?: string;
       toAgentName?: string;
       toAgentRole?: string;
+      toAvatarColor?: string;
+      toLlmModel?: string;
       toSessionId?: string;
       handoffNote?: string;
+      /** True when replaying persisted history; projections must not change active runtime state. */
+      historical?: boolean;
       /** LLM-generated briefing written in the FROM agent's voice */
       briefingContent?: string;
     }
@@ -115,6 +133,8 @@ export type RuntimeStreamEvent =
       agentId?: string;
       agentName?: string;
       agentRole?: string;
+      avatarColor?: string;
+      llmModel?: string;
       sessionId?: string;
     }
   | {
@@ -383,7 +403,22 @@ export type StreamEvent<TCommand extends string = string> =
       agentRole?: string;
       developerName?: string;
       llmModel?: string;
+      avatarColor?: string;
       message?: string;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
+      kind: 'history_message';
+      timestamp: string;
+      content: string;
+      isHuman: boolean;
+      developerName?: string;
+      agentId?: string;
+      agentName?: string;
+      agentRole?: string;
+      llmModel?: string;
+      avatarColor?: string;
     }
   | {
       requestId?: string;
@@ -447,12 +482,17 @@ export type StreamEvent<TCommand extends string = string> =
       fromAgentId: string;
       fromAgentName?: string;
       fromAgentRole?: string;
+      fromAvatarColor?: string;
+      fromLlmModel?: string;
       fromSessionId?: string;
       toAgentId: string;
       toAgentName?: string;
       toAgentRole?: string;
+      toAvatarColor?: string;
+      toLlmModel?: string;
       toSessionId?: string;
       handoffNote?: string;
+      historical?: boolean;
       briefingContent?: string;
       message?: string;
     }

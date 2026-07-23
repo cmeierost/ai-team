@@ -8,6 +8,7 @@ export { ALL_RIGHTS } from './rights.js';
 
 export type { PermissionDescriptor } from './tool-types.js';
 export * from './tool-results.js';
+export * from './tui.js';
 export * from './command-types.js';
 export * from './command-registry.js';
 export * from './access.js';

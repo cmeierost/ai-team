@@ -24,6 +24,10 @@ describe('ChatStartupCommand', () => {
       showSessionIntro: vi.fn(),
       showLoadedInstructions: vi.fn(),
       showSessionResume: vi.fn(),
+      showThreadResume: vi.fn(),
+    };
+    const chatThreadTranscriptService = {
+      load: vi.fn(async () => [{ kind: 'message', message: { content: 'earlier' } }]),
     };
     const introductionCommand = {
       execute: vi.fn(async () => undefined),
@@ -37,6 +41,7 @@ describe('ChatStartupCommand', () => {
       resolveChatSessionCommand as any,
       loadSessionMessagesCommand as any,
       introductionCommand as any,
+      chatThreadTranscriptService as any,
       chatInfoService as any,
       developerIdentityService as any
     );
@@ -64,7 +69,11 @@ describe('ChatStartupCommand', () => {
     expect(chatInfoService.showSessionIntro).toHaveBeenCalledWith(
       expect.objectContaining({ developerName: 'Clemens Meier' })
     );
-    expect(chatInfoService.showSessionResume).toHaveBeenCalled();
+    expect(chatThreadTranscriptService.load).toHaveBeenCalledWith('session-1');
+    expect(chatInfoService.showThreadResume).toHaveBeenCalledWith(
+      await chatThreadTranscriptService.load.mock.results[0].value,
+      'Clemens Meier'
+    );
 
     expect(response).toEqual({ status: 'ok', data: '', message: 'completed' });
   });
@@ -75,10 +84,12 @@ describe('ChatStartupCommand', () => {
       { execute: vi.fn() } as any,
       { execute: vi.fn() } as any,
       { execute: vi.fn() } as any,
+      { load: vi.fn() } as any,
       {
         showSessionIntro: vi.fn(),
         showLoadedInstructions: vi.fn(),
         showSessionResume: vi.fn(),
+        showThreadResume: vi.fn(),
       } as any,
       { getUserName: vi.fn(() => 'Clemens Meier') } as any
     );

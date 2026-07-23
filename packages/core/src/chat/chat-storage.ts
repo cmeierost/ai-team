@@ -1,4 +1,4 @@
-import { ChatMessage, MeetingSummary } from '../types';
+import { ChatMessage, MeetingSummary } from '../types/index.js';
 
 export interface IChatStorage {
   /**

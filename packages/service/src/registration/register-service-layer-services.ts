@@ -210,7 +210,11 @@ export function buildInteractionService(
     }
   };
 
-  return new InteractionService(workspaceRoot, runChat);
+  return new InteractionService(
+    workspaceRoot,
+    runChat,
+    c.resolve(CORE_SERVICE_TOKENS.EmitService)
+  );
 }
 
 export function registerServiceLayerServices(
@@ -845,7 +849,7 @@ export function registerServiceLayerServices(
     (c) =>
       new CommandsService(
         c.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
-        c.resolve(CORE_SERVICE_TOKENS.CommandRegistry),
+        c.resolve(CORE_SERVICE_TOKENS.CommandDispatcher),
         c.resolve(CORE_SERVICE_TOKENS.SkillManager),
         c.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
         c.resolve(CORE_SERVICE_TOKENS.EmitService),

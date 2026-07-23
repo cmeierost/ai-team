@@ -1,0 +1,187 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aspect.dev/schemas/signals/reference-graph.schema.json",
+  "title": "ReferenceGraphSignal",
+  "description": "Symbol-level reference graph produced by the TypeScript reference walker. Captures scored, weighted edges between entities (reference, call, implement, extend, re-export) with scope classification and barrel awareness. Used by the dead-code detector, SOLID calculator, structural pipeline, and LLM priority reader.",
+  "type": "object",
+  "required": [
+    "source",
+    "edges",
+    "summary"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "description": "Metadata about the tool that produced the reference graph.",
+      "type": "object",
+      "required": [
+        "tool",
+        "version",
+        "rootDir",
+        "tsconfig"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tool": {
+          "description": "Name of the tool that produced the signal.",
+          "type": "string",
+          "const": "reference-graph"
+        },
+        "version": {
+          "description": "Version of the reference-graph adapter.",
+          "type": "string"
+        },
+        "rootDir": {
+          "description": "Repository-relative root directory that was analysed.",
+          "type": "string"
+        },
+        "tsconfig": {
+          "description": "Path to the tsconfig.json used to build the TypeScript program.",
+          "type": "string"
+        },
+        "prodFileCount": {
+          "description": "Number of production source files included in reference counting.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "testFileCount": {
+          "description": "Number of test files excluded from reference counting.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "edges": {
+      "description": "Scored reference edges between entities.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/referenceEdge"
+      }
+    },
+    "summary": {
+      "description": "Aggregate counts over all edges.",
+      "type": "object",
+      "required": [
+        "totalEdges",
+        "byKind",
+        "byScope",
+        "unresolvedCount"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "totalEdges": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "byKind": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "byScope": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "unresolvedCount": {
+          "description": "Number of edges whose target could not be resolved to a known entity.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "referenceEdge": {
+      "description": "A single scored reference edge from a source entity to a target entity.",
+      "type": "object",
+      "required": [
+        "sourceEntityId",
+        "targetEntityId",
+        "kind",
+        "scope",
+        "score"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sourceEntityId": {
+          "description": "Identifier of the entity that contains the reference.",
+          "type": "string"
+        },
+        "targetEntityId": {
+          "description": "Identifier of the entity being referenced. Null when the target could not be resolved.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "description": "Semantic kind of the reference.",
+          "type": "string",
+          "enum": [
+            "reference",
+            "call",
+            "implement",
+            "extend",
+            "re-export"
+          ]
+        },
+        "scope": {
+          "description": "Scope level of the reference relative to the target's declaration.",
+          "type": "string",
+          "enum": [
+            "same_file",
+            "same_folder",
+            "sub_dir_barrel",
+            "sub_dir_deep",
+            "parent_barrel",
+            "sibling_barrel",
+            "sibling_deep",
+            "cross_package"
+          ]
+        },
+        "score": {
+          "description": "Weighted score for this edge (from SCORE_MATRIX[kind][scope]).",
+          "type": "number",
+          "minimum": 0
+        },
+        "isBarrel": {
+          "description": "True if the target declaration file is a barrel (index.ts/index.tsx/index.js/index.mjs).",
+          "type": "boolean"
+        },
+        "sourceRange": {
+          "description": "Source location of the reference.",
+          "$ref": "../common/source-range.schema.json"
+        },
+        "targetRange": {
+          "description": "Source location of the target symbol's declaration. Null when unresolved.",
+          "oneOf": [
+            {
+              "$ref": "../common/source-range.schema.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resolutionKind": {
+          "description": "How the target was resolved.",
+          "type": "string",
+          "enum": [
+            "resolved",
+            "unresolved"
+          ],
+          "default": "resolved"
+        }
+      }
+    }
+  }
+}

@@ -20,6 +20,7 @@ export interface RuntimeStreamEvent {
     | 'avatar-preview'
     | 'session_switched'
     | 'session_title_updated'
+    | 'history_message'
     | 'subworkflow_start'
     | 'subworkflow_end';
   [key: string]: unknown;

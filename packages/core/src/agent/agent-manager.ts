@@ -1,4 +1,4 @@
-import { Agent, AgentStatus, AgentSearchOptions, AgentSearchResult } from '../types';
+import { Agent, AgentStatus, AgentSearchOptions, AgentSearchResult } from '../types/index.js';
 import type { IAgentManager as IAgentManagerBase } from '../types/agent-models.js';
 
 export type RankedAgentResult = {

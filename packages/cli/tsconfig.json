@@ -6,11 +6,14 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "composite": true
+    "composite": true,
+    "module": "Node16",
+    "moduleResolution": "node16"
   },
   "references": [
     { "path": "../core" },
-    { "path": "../api-contracts" }
+    { "path": "../api-contracts" },
+    { "path": "../tui" }
   ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]

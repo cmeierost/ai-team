@@ -27,12 +27,17 @@ vi.mock('./adapters/coverage.js', () => ({
   runCoverageAdapter: vi.fn(),
 }));
 
+vi.mock('./adapters/reference-graph.js', () => ({
+  runReferenceGraphAdapter: vi.fn(),
+}));
+
 import { readdir } from 'node:fs/promises';
 import { runAstVisitor } from './adapters/ast-visitor.js';
 import { runDepCruiserAdapter } from './adapters/dep-cruiser.js';
 import { runJscpdAdapter } from './adapters/jscpd.js';
 import { runEslintAdapter } from './adapters/eslint.js';
 import { runCoverageAdapter } from './adapters/coverage.js';
+import { runReferenceGraphAdapter } from './adapters/reference-graph.js';
 
 import {
   collect,
@@ -51,6 +56,7 @@ const mockDepCruiser = vi.mocked(runDepCruiserAdapter);
 const mockJscpd = vi.mocked(runJscpdAdapter);
 const mockEslint = vi.mocked(runEslintAdapter);
 const mockCoverage = vi.mocked(runCoverageAdapter);
+const mockReferenceGraph = vi.mocked(runReferenceGraphAdapter);
 
 // ── Test fixtures ───────────────────────────────────────────────────────────
 
@@ -279,6 +285,28 @@ function setupDefaultMocks() {
     ],
     toolRun: makeCoverageToolRun(),
   });
+
+  // reference-graph
+  mockReferenceGraph.mockResolvedValue({
+    relationships: [],
+    signal: {
+      source: {
+        tool: 'reference-graph',
+        version: '0.1.0',
+        rootDir: '.',
+        tsconfig: 'tsconfig.json',
+        prodFileCount: 2,
+        testFileCount: 0,
+      },
+      edges: [],
+      summary: {
+        totalEdges: 0,
+        byKind: {},
+        byScope: {},
+        unresolvedCount: 0,
+      },
+    },
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -286,11 +314,12 @@ function setupDefaultMocks() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('resolveAspects', () => {
-  it('returns all 5 aspects by default', () => {
+  it('returns all 6 aspects by default', () => {
     const aspects = resolveAspects();
-    expect(aspects.size).toBe(5);
+    expect(aspects.size).toBe(6);
     expect(aspects.has('dependencyGraph')).toBe(true);
     expect(aspects.has('entityExtraction')).toBe(true);
+    expect(aspects.has('referenceGraph')).toBe(true);
     expect(aspects.has('duplication')).toBe(true);
     expect(aspects.has('lint')).toBe(true);
     expect(aspects.has('coverage')).toBe(true);
@@ -306,7 +335,7 @@ describe('resolveAspects', () => {
 
   it('excludes specified aspects from all', () => {
     const aspects = resolveAspects(undefined, ['coverage']);
-    expect(aspects.size).toBe(4);
+    expect(aspects.size).toBe(5);
     expect(aspects.has('coverage')).toBe(false);
     expect(aspects.has('dependencyGraph')).toBe(true);
   });
@@ -490,13 +519,14 @@ describe('collect', () => {
     expect(result.data.coverageSignals).toHaveLength(1);
 
     // Provenance
-    expect(result.data.provenance.toolRuns).toHaveLength(5);
+    expect(result.data.provenance.toolRuns).toHaveLength(6);
     expect(result.data.collector.tools).toEqual([
       'typescript-ast',
       'dependency-cruiser',
       'jscpd',
       'eslint',
       'lcov',
+      'reference-graph',
     ]);
 
     // Timing

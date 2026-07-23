@@ -223,12 +223,18 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     const commandKey = resolvedCommand?.canonicalKey ?? parsed.commandToken;
     const slashToolName = `slash:${parsed.commandToken}`;
 
-    const dispatched = await this.plugins.commandDispatcher.dispatch(
-      commandKey,
-      parsed.rawArgs,
-      ctx
-    );
-    const commandResponse = this.toCoreCommandResponse(dispatched);
+    const commandResponse = resolvedCommand
+      ? this.toCoreCommandResponse(
+          await this.plugins.commandDispatcher.dispatch(
+            commandKey,
+            parsed.rawArgs,
+            ctx
+          )
+        )
+      : {
+          status: 'error' as const,
+          message: `Unknown chat command: /${parsed.commandToken}`,
+        };
 
     const responseText = this.toSlashResponseText(commandResponse);
 
@@ -299,14 +305,6 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
   private resolveSlashCommand(
     commandToken: string
   ): { canonicalKey: string; descriptorKey: string } | undefined {
-    const direct = this.plugins.commandDispatcher.getCommand(commandToken);
-    if (direct) {
-      return {
-        canonicalKey: direct.group ? `${direct.group}-${direct.key}` : direct.key,
-        descriptorKey: direct.key,
-      };
-    }
-
     const matched = this.plugins.commandDispatcher
       .getCommands({ chat: true })
       .find(

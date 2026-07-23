@@ -92,10 +92,12 @@ export class ChatHandoffTransitionService {
       fromAgentId: fromAgent.id,
       fromAgentName: fromAgent.name,
       fromAgentRole: fromAgent.role,
+      fromAvatarColor: fromAgent.avatar?.color,
       fromSessionId,
       toAgentId: target.id,
       toAgentName: target.name,
       toAgentRole: target.role,
+      toAvatarColor: target.avatar?.color,
       toSessionId,
       handoffNote,
       briefingContent,
@@ -108,6 +110,7 @@ export class ChatHandoffTransitionService {
       agentName: target.name,
       agentRole: target.role,
       llmModel: target.resolvedLlm?.model,
+      avatarColor: target.avatar?.color,
     });
 
     ctx.agent = target;

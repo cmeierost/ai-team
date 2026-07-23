@@ -7,13 +7,33 @@ import type {
   QuestionPasswordRequest,
   QuestionSelectRequest,
 } from '@ai-team/api-contracts';
-import type { IQuestionService } from '@ai-team/service';
+import type { IQuestionService } from '@ai-team/core';
 
 // Route all inquirer UI output to stderr so it is never captured by the
 // stdout patch that STDOUT_CAPTURE_SCOPE applies during command execution.
 const prompt = inquirer.createPromptModule({ output: process.stderr });
+type PromptRunner = <T extends Record<string, unknown>>(questions: unknown[]) => Promise<T>;
 
 export class InquirerQuestionService implements IQuestionService {
+  private beforeQuestion?: () => void;
+  private afterQuestion?: () => void;
+
+  constructor(private readonly promptRunner: PromptRunner = prompt as PromptRunner) {}
+
+  setLifecycleHooks(hooks?: { beforeQuestion(): void; afterQuestion(): void }): void {
+    this.beforeQuestion = hooks?.beforeQuestion;
+    this.afterQuestion = hooks?.afterQuestion;
+  }
+
+  private async runQuestion<T>(question: () => Promise<T>): Promise<T> {
+    this.beforeQuestion?.();
+    try {
+      return await question();
+    } finally {
+      this.afterQuestion?.();
+    }
+  }
+
   private readTrimmedString(value: unknown): string {
     return typeof value === 'string' ? value.trim() : '';
   }
@@ -73,28 +93,32 @@ export class InquirerQuestionService implements IQuestionService {
   }
 
   async input(request: QuestionInputRequest): Promise<string> {
-    const answer = await prompt<{ value: string }>([
-      {
-        type: 'input',
-        name: 'value',
-        message: request.message,
-        validate: request.validate,
-        transformer: (val: string) => chalk.white(val),
-      },
-    ]);
-    return answer.value;
+    return this.runQuestion(async () => {
+      const answer = await this.promptRunner<{ value: string }>([
+        {
+          type: 'input',
+          name: 'value',
+          message: request.message,
+          validate: request.validate,
+          transformer: (val: string) => chalk.white(val),
+        },
+      ]);
+      return answer.value;
+    });
   }
 
   async confirm(request: QuestionConfirmRequest): Promise<boolean> {
-    const answer = await prompt<{ value: boolean }>([
-      {
-        type: 'confirm',
-        name: 'value',
-        message: request.message,
-        default: request.default,
-      },
-    ]);
-    return answer.value;
+    return this.runQuestion(async () => {
+      const answer = await this.promptRunner<{ value: boolean }>([
+        {
+          type: 'confirm',
+          name: 'value',
+          message: request.message,
+          default: request.default,
+        },
+      ]);
+      return answer.value;
+    });
   }
 
   async select(request: QuestionSelectRequest): Promise<string> {
@@ -104,28 +128,32 @@ export class InquirerQuestionService implements IQuestionService {
     }
 
     const defaultValue = typeof request.default === 'string' ? request.default : undefined;
-    const answer = await prompt<{ value: string }>([
-      {
-        type: 'select',
-        name: 'value',
-        message: request.message,
-        choices,
-        default: defaultValue,
-      },
-    ]);
-    return answer.value;
+    return this.runQuestion(async () => {
+      const answer = await this.promptRunner<{ value: string }>([
+        {
+          type: 'select',
+          name: 'value',
+          message: request.message,
+          choices,
+          default: defaultValue,
+        },
+      ]);
+      return answer.value;
+    });
   }
 
   async password(request: QuestionPasswordRequest): Promise<string> {
-    const answer = await prompt<{ value: string }>([
-      {
-        type: 'password',
-        name: 'value',
-        message: request.message,
-        mask: request.mask,
-      },
-    ]);
-    return answer.value;
+    return this.runQuestion(async () => {
+      const answer = await this.promptRunner<{ value: string }>([
+        {
+          type: 'password',
+          name: 'value',
+          message: request.message,
+          mask: request.mask,
+        },
+      ]);
+      return answer.value;
+    });
   }
 
   async checklist(request: QuestionChecklistRequest): Promise<string[]> {
@@ -134,19 +162,21 @@ export class InquirerQuestionService implements IQuestionService {
           (value): value is string => typeof value === 'string' && value.trim().length > 0
         )
       : undefined;
-    const answer = await prompt<{ value: string[] }>([
-      {
-        type: 'checkbox',
-        name: 'value',
-        message: request.message,
-        choices: request.choices,
-        default: defaultValues,
-      },
-    ]);
-    return answer.value;
+    return this.runQuestion(async () => {
+      const answer = await this.promptRunner<{ value: string[] }>([
+        {
+          type: 'checkbox',
+          name: 'value',
+          message: request.message,
+          choices: request.choices,
+          default: defaultValues,
+        },
+      ]);
+      return answer.value;
+    });
   }
 }
 
-export function createQuestionResponders(): IQuestionService {
+export function createQuestionResponders(): InquirerQuestionService {
   return new InquirerQuestionService();
 }

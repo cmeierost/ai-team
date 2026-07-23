@@ -12,6 +12,7 @@ import { runChatSessionStartup, type ChatSessionStartupResult } from './chat-ses
 import { ResolveChatSessionCommand } from './resolve-chat-session.command.js';
 import { LoadSessionMessagesCommand } from './load-session-messages.command.js';
 import { IntroductionCommand } from './introduction.command.js';
+import { ChatThreadTranscriptService } from './chat-thread-transcript.js';
 
 const chatStartupParamsSchema = z.object({
   employeeId: z.string().optional(),
@@ -42,6 +43,7 @@ export class ChatStartupCommand implements ICommand<ChatStartupParams, string> {
     private readonly resolveChatSessionCommand: ResolveChatSessionCommand,
     private readonly loadSessionMessagesCommand: LoadSessionMessagesCommand,
     private readonly introductionCommand: IntroductionCommand,
+    private readonly chatThreadTranscriptService: ChatThreadTranscriptService,
     private readonly chatInfoService: IChatInfoService,
     private readonly developerIdentityService: Pick<IDeveloperIdentityService, 'getUserName'>
   ) {}
@@ -92,7 +94,8 @@ export class ChatStartupCommand implements ICommand<ChatStartupParams, string> {
       }
     );
 
-    this.chatInfoService.showSessionResume(startup.history, agent.name, developerName);
+    const transcript = await this.chatThreadTranscriptService.load(startup.sessionId);
+    this.chatInfoService.showThreadResume(transcript, developerName);
 
     return { status: 'ok', data: '', message: 'completed' };
   }

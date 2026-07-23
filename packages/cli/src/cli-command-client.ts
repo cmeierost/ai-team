@@ -288,7 +288,7 @@ export class CliCommandClient implements ICliCommandClient {
       }
     };
 
-    if (request.command === 'chat') {
+    if (request.command === 'chat-chat') {
       const hookOptions = {
         invocationSurface: context.invocationSurface as 'cli' | 'web' | 'api' | undefined,
         calledByHuman:

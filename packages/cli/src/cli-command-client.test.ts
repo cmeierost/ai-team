@@ -4,8 +4,20 @@ import type { CommandAvailability, ExecutionContext } from '@ai-team/core';
 import { CliCommandClient } from './cli-command-client.js';
 
 function createClient(): CliCommandClient {
+  const handlers = new Map<string, DirectHandler>();
   return new CliCommandClient(
-    { getCommands: () => [], dispatch: async () => ({ status: 'ok', message: '' }) } as any,
+    {
+      getCommands: () => [],
+      register: (entry: { key: string; handler: DirectHandler }) => {
+        handlers.set(entry.key, entry.handler);
+      },
+      dispatch: async (key: string, payload: unknown, ctx: ExecutionContext) => {
+        const handler = handlers.get(key);
+        return handler
+          ? handler(ctx.workspaceRoot ?? '', payload, ctx)
+          : { status: 'ok' as const, message: '' };
+      },
+    } as any,
     {
       emit: () => {},
       status: () => {},
@@ -125,5 +137,41 @@ describe('CliCommandClient.invokeTool stdout capture', () => {
     expect(emitService.emit).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'token', text: 'demo output\n' })
     );
+  });
+});
+
+describe('CliCommandClient.streamInteraction shared chat path', () => {
+  it('delegates chat-chat to the injected interaction service', async () => {
+    const interactionService = {
+      stream: vi.fn(async function* () {
+        yield {
+          command: 'chat-chat',
+          kind: 'done',
+          timestamp: new Date().toISOString(),
+        };
+      }),
+    };
+    const dispatcher = {
+      getCommands: () => [],
+      dispatch: vi.fn(),
+    };
+    const client = new CliCommandClient(
+      dispatcher as any,
+      createEmitServiceStub() as any,
+      { write: vi.fn() } as any,
+      interactionService as any
+    );
+
+    const events = [];
+    for await (const event of client.streamInteraction({
+      command: 'chat-chat',
+      payload: { agentId: 'michael-brown', message: 'hello' },
+    })) {
+      events.push(event);
+    }
+
+    expect(interactionService.stream).toHaveBeenCalledTimes(1);
+    expect(dispatcher.dispatch).not.toHaveBeenCalled();
+    expect(events).toHaveLength(1);
   });
 });
