@@ -54,6 +54,18 @@ describe('HandoffSubWorkflow', () => {
       recordReturn: vi.fn(async () => ({
         rootSessionId: 'sess-michael',
         activeSessionId: 'sess-michael',
+        navigationStack: [
+          {
+            agentId: 'emily-davis',
+            agentName: 'Emily Davis',
+            sessionId: 'sess-emily',
+          },
+        ],
+        updatedAt: new Date().toISOString(),
+      })),
+      recordBack: vi.fn(async () => ({
+        rootSessionId: 'sess-michael',
+        activeSessionId: 'sess-emily',
         navigationStack: [],
         updatedAt: new Date().toISOString(),
       })),
@@ -162,8 +174,22 @@ describe('HandoffSubWorkflow', () => {
     expect(firstDeltaCallOrder).toBeLessThan(firstPersistenceCallOrder);
   });
 
-  it('treats a handoff to the delegation stack top as a summarized return', async () => {
+  it('treats a handoff to the parent session as a summarized return', async () => {
     const { agentManager, sessionManager, threadManager, llmService, emitService } = makeDeps();
+    sessionManager.getSession.mockImplementation(async (sessionId: string) =>
+      sessionId === 'sess-emily'
+        ? {
+            id: 'sess-emily',
+            agentId: 'emily-davis',
+            developerId: 'dev-1',
+            previousSessionId: 'sess-michael',
+          }
+        : {
+            id: 'sess-michael',
+            agentId: 'michael-brown',
+            developerId: 'dev-1',
+          }
+    );
     threadManager.resolveActiveSession.mockResolvedValue({
       session: { id: 'sess-emily' },
       state: {
@@ -194,13 +220,53 @@ describe('HandoffSubWorkflow', () => {
     });
 
     expect(threadManager.resolveHandoffSession).not.toHaveBeenCalled();
-    expect(threadManager.recordReturn).toHaveBeenCalledWith('sess-emily', 'sess-michael');
+    expect(threadManager.recordReturn).toHaveBeenCalledWith(
+      'sess-emily',
+      'sess-michael',
+      expect.objectContaining({ agentId: 'emily-davis' })
+    );
     expect(result.toSessionId).toBe('sess-michael');
-    expect(result.navigationStack).toEqual([]);
+    expect(result.navigationStack).toEqual([expect.objectContaining({ sessionId: 'sess-emily' })]);
     expect(sessionManager.appendMessage).toHaveBeenCalledTimes(2);
     const firstMessage = sessionManager.appendMessage.mock.calls[0][1];
     const secondMessage = sessionManager.appendMessage.mock.calls[1][1];
     expect(firstMessage.handoffId).toBe(secondMessage.handoffId);
+  });
+
+  it('uses conversational history for /back independently of delegation ancestry', async () => {
+    const { agentManager, sessionManager, threadManager, llmService, emitService } = makeDeps();
+    threadManager.resolveActiveSession.mockResolvedValue({
+      session: { id: 'sess-emily' },
+      state: {
+        rootSessionId: 'sess-michael',
+        activeSessionId: 'sess-emily',
+        navigationStack: [
+          {
+            agentId: 'michael-brown',
+            agentName: 'Michael Brown',
+            sessionId: 'sess-michael',
+          },
+        ],
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    const workflow = new HandoffSubWorkflow(
+      agentManager,
+      sessionManager,
+      threadManager,
+      llmService,
+      emitService
+    );
+
+    const result = await workflow.executeAsync({
+      ctx: { agent: EMILY, sessionId: 'sess-emily', history: [] } as any,
+      targetAgentQuery: 'michael',
+      navigationIntent: 'back',
+    });
+
+    expect(threadManager.recordBack).toHaveBeenCalledWith('sess-emily');
+    expect(threadManager.recordReturn).not.toHaveBeenCalled();
+    expect(result.toSessionId).toBe('sess-michael');
   });
 
   it('compensates the first mirrored write when the second write fails', async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ChatInfoService } from './chat-info-service.js';
+import { HANDOFF_AUTO_REACT_MESSAGE } from '../../workflow/chat/handoff-auto-react.js';
 
 describe('ChatInfoService', () => {
   it('emits workspace and Git branch metadata for runtime clients', () => {
@@ -221,5 +222,26 @@ describe('ChatInfoService', () => {
         output: 'Project documentation',
       })
     );
+  });
+
+  it('does not replay legacy internal handoff continuations as developer messages', () => {
+    const emitService = { emit: vi.fn(), log: vi.fn() };
+    const service = new ChatInfoService(emitService as any);
+
+    service.showThreadResume(
+      [
+        {
+          kind: 'message',
+          message: {
+            content: HANDOFF_AUTO_REACT_MESSAGE,
+            from: 'human',
+            isHuman: true,
+          },
+        },
+      ] as any,
+      'Clemens Meier'
+    );
+
+    expect(emitService.emit).not.toHaveBeenCalled();
   });
 });

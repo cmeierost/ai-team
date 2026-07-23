@@ -2,8 +2,8 @@
  * Extension registry types.
  */
 
-import { Component } from '@ai-team/tui';
-import { StreamEvent } from '@ai-team/api-contracts';
+import type { Component } from '@ai-team/tui';
+import type { StreamEvent } from '@ai-team/api-contracts';
 
 /**
  * Custom view provider — renders a named view region.
@@ -32,11 +32,34 @@ export interface StreamEventHandler {
 /**
  * Custom tool renderer.
  */
+export type ToolRenderTarget = 'transcript' | 'composer';
+
+export interface ToolRenderPlacement {
+  target: ToolRenderTarget;
+  component: Component;
+}
+
+export interface NormalizedToolEvent {
+  toolName: string;
+  phase: 'request' | 'start' | 'result' | 'error' | 'denied';
+  callId?: string;
+  request?: unknown;
+  output?: unknown;
+  error?: unknown;
+  denial?: unknown;
+  historical: boolean;
+}
+
+export interface ToolRenderDecision {
+  handled: boolean;
+  placements: ToolRenderPlacement[];
+}
+
 export interface ToolRenderer {
   /** Tool name pattern to match (supports * wildcard) */
   toolName: string;
-  /** Render a tool event as a component */
-  render(toolName: string, input: unknown, output?: unknown): Component;
+  /** Render a normalized lifecycle event into explicit layout targets. */
+  render(event: NormalizedToolEvent): ToolRenderDecision;
 }
 
 /**

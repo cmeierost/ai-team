@@ -25,7 +25,7 @@ export interface ChatRuntimeTurnInput {
   sessionId?: string;
   createNewSession?: boolean;
   options: {
-    skipPersist: boolean;
+    messageOrigin: 'developer' | 'internal';
   };
 }
 
@@ -135,7 +135,6 @@ export interface IChatRuntime {
 
 interface ChatRuntimeState {
   input: ChatRuntimeRunInput;
-  explicitAutoReactMessage?: string;
   autoReactMessage: string;
   maxHops: number;
   hop: number;
@@ -143,6 +142,7 @@ interface ChatRuntimeState {
   currentSessionId?: string;
   createNewSession?: boolean;
   currentMessage: string;
+  currentMessageOrigin: 'developer' | 'internal';
   lastText: string;
   status: ChatLoopOutput['status'];
   done: boolean;
@@ -182,7 +182,6 @@ export class ChatRuntime implements IChatRuntime {
 
     const initialState: ChatRuntimeState = {
       input,
-      explicitAutoReactMessage: input.autoReactMessage,
       autoReactMessage: input.autoReactMessage ?? HANDOFF_AUTO_REACT_MESSAGE,
       maxHops: input.maxHops ?? 10,
       hop: 0,
@@ -190,6 +189,7 @@ export class ChatRuntime implements IChatRuntime {
       currentSessionId: input.sessionId,
       createNewSession: input.createNewSession,
       currentMessage: input.message,
+      currentMessageOrigin: 'developer',
       lastText: '',
       status: 'completed',
       done: false,
@@ -280,6 +280,7 @@ export class ChatRuntime implements IChatRuntime {
                 ...state,
                 preturn,
                 currentMessage: preturn.autoMessage ?? state.autoReactMessage,
+                currentMessageOrigin: 'internal',
               };
             }
 
@@ -304,11 +305,7 @@ export class ChatRuntime implements IChatRuntime {
                 sessionId: state.currentSessionId,
                 createNewSession: state.createNewSession,
                 options: {
-                  skipPersist: this.shouldSkipPersist(
-                    state.currentMessage,
-                    state.hop,
-                    state.explicitAutoReactMessage
-                  ),
+                  messageOrigin: state.currentMessageOrigin,
                 },
               }),
               applyResult: (state, raw) => {
@@ -325,6 +322,9 @@ export class ChatRuntime implements IChatRuntime {
                   shouldContinueAppliedTransition: Boolean(sendTurn.followUpMessage),
                   lastText: sendTurn.text,
                   currentMessage: sendTurn.followUpMessage ?? state.currentMessage,
+                  currentMessageOrigin: sendTurn.followUpMessage
+                    ? 'internal'
+                    : state.currentMessageOrigin,
                   hop: sendTurn.followUpMessage ? state.hop + 1 : state.hop,
                   currentAgentId: sendTurn.agentId ?? state.currentAgentId,
                   currentSessionId: sendTurn.sessionId ?? state.currentSessionId,
@@ -522,6 +522,7 @@ export class ChatRuntime implements IChatRuntime {
                   ...state,
                   handoff,
                   currentMessage: handoff.autoMessage ?? state.autoReactMessage,
+                  currentMessageOrigin: 'internal',
                   hop: state.hop + 1,
                   currentAgentId: handoff.agentId ?? state.currentAgentId,
                   currentSessionId: handoff.sessionId ?? state.currentSessionId,
@@ -602,22 +603,6 @@ export class ChatRuntime implements IChatRuntime {
       stepId: step,
       ...(signal ? { signal } : {}),
     };
-  }
-
-  private shouldSkipPersist(
-    message: string,
-    hop: number,
-    explicitAutoReactMessage?: string
-  ): boolean {
-    if (hop > 0) {
-      return true;
-    }
-
-    if (!explicitAutoReactMessage) {
-      return false;
-    }
-
-    return message === explicitAutoReactMessage;
   }
 
   private toErrorMessage(error: unknown): string {

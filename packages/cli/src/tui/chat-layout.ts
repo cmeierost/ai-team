@@ -1,8 +1,7 @@
 import type { ITerminal } from '@ai-team/core';
-import type { Component, Loader } from '@ai-team/tui';
+import { ComponentSlot, type Component, type Loader } from '@ai-team/tui';
 import type { ChatView } from './chat-view.js';
 import type { HeaderBar } from './header-bar.js';
-import type { Prompt } from './prompt.js';
 import type { StatusLine } from './status-line.js';
 
 /**
@@ -12,20 +11,25 @@ import type { StatusLine } from './status-line.js';
 export class ChatLayout implements Component {
   _parent: import('@ai-team/tui').Container | null = null;
   private isFocused = false;
+  private readonly composer: ComponentSlot;
 
   constructor(
     private readonly terminal: ITerminal,
     private readonly header: HeaderBar,
     private readonly chat: ChatView,
     private readonly spinner: Loader,
-    private prompt: Prompt,
+    composer: Component,
     private readonly footer: StatusLine
-  ) {}
+  ) {
+    this.composer = new ComponentSlot(composer);
+  }
 
-  setPrompt(prompt: Prompt): void {
-    this.prompt.focused = false;
-    this.prompt = prompt;
-    this.prompt.focused = this.isFocused;
+  setComposer(component: Component): void {
+    this.composer.set(component);
+  }
+
+  pushComposer(component: Component): () => void {
+    return this.composer.push(component);
   }
 
   get focused(): boolean {
@@ -34,7 +38,7 @@ export class ChatLayout implements Component {
 
   set focused(value: boolean) {
     this.isFocused = value;
-    this.prompt.focused = value;
+    this.composer.focused = value;
   }
 
   handleInput(data: string): void {
@@ -47,7 +51,7 @@ export class ChatLayout implements Component {
       this.chat.handleInput(data);
       return;
     }
-    this.prompt.handleInput(data);
+    this.composer.handleInput(data);
   }
 
   remove(): void {
@@ -58,7 +62,7 @@ export class ChatLayout implements Component {
     this.header.invalidate();
     this.chat.invalidate();
     this.spinner.invalidate();
-    this.prompt.invalidate();
+    this.composer.invalidate();
     this.footer.invalidate();
   }
 
@@ -66,7 +70,7 @@ export class ChatLayout implements Component {
     const headerLines = this.header.render(width);
     const topLines = headerLines.length > 0 ? [...headerLines, ''] : [];
     const spinnerLines = this.spinner.render(width);
-    const promptLines = this.prompt.render(width);
+    const promptLines = this.composer.render(width);
     const footerLines = this.footer.render(width);
     const fixedRows =
       topLines.length + spinnerLines.length + promptLines.length + footerLines.length;

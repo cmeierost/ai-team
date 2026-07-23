@@ -24,10 +24,16 @@ import type {
   TurnResult,
 } from '../runtime/pipeline.js';
 import { ToolIdentity } from '../../tooling/manager/tool-manager.js';
+import { isHandoffAutoReactMessage } from './handoff-auto-react.js';
 
 function historyToMessages(history: ChatMessage[]): ILlmChatMessageParam[] {
   return history
-    .filter((msg) => !msg.archived && !msg.hiddenFromLlm)
+    .filter(
+      (msg) =>
+        !msg.archived &&
+        !msg.hiddenFromLlm &&
+        !(msg.isHuman && isHandoffAutoReactMessage(msg.content))
+    )
     .map((msg) => ({
       role: msg.from === 'human' ? ('user' as const) : ('assistant' as const),
       content: msg.content,

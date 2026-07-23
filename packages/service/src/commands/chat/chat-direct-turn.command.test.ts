@@ -15,8 +15,7 @@ function createDeps(overrides: {
   const agentManager = {
     getAgentAsync: vi.fn(overrides.getAgentAsync ?? (async (_id: string) => undefined)),
     resolveAgentForOperationAsync: vi.fn(
-      overrides.resolveAgentForOperationAsync ??
-        (async (query: string) => ({ id: query }))
+      overrides.resolveAgentForOperationAsync ?? (async (query: string) => ({ id: query }))
     ),
   } as any;
 
@@ -27,7 +26,8 @@ function createDeps(overrides: {
     ),
     getSessionMessages: vi.fn(overrides.getSessionMessages ?? (async () => [])),
     createSession: vi.fn(
-      overrides.createSession ?? (async (_agentId: string, _developerId: string) => ({ id: 'new-session' }))
+      overrides.createSession ??
+        (async (_agentId: string, _developerId: string) => ({ id: 'new-session' }))
     ),
     getLatestSession: vi.fn(overrides.getLatestSession ?? (async () => null)),
     appendMessage: vi.fn(async () => null),
@@ -35,7 +35,9 @@ function createDeps(overrides: {
 
   const developerIdentityService = {
     getUserName: vi.fn(overrides.getUserName ?? (() => 'Clemens Meier')),
-    toDeveloperId: vi.fn(overrides.toDeveloperId ?? ((name: string) => name.toLowerCase().replace(/\s+/g, '-'))),
+    toDeveloperId: vi.fn(
+      overrides.toDeveloperId ?? ((name: string) => name.toLowerCase().replace(/\s+/g, '-'))
+    ),
   } as any;
 
   const stepService = {
@@ -43,7 +45,10 @@ function createDeps(overrides: {
     persistUserMessageAsync: vi.fn(async () => undefined),
     prepareMessagesAsync: vi.fn(async () => []),
     resolveSkillsAndToolsAsync: vi.fn(async () => ({ skills: [], tools: [] })),
-    invokeTurnLlmAsync: vi.fn(async () => ({ fullResponse: 'assistant output', structuredResults: [] })),
+    invokeTurnLlmAsync: vi.fn(async () => ({
+      fullResponse: 'assistant output',
+      structuredResults: [],
+    })),
     persistAssistantMessageAsync: vi.fn(async () => ({
       persistedMessage: {
         id: 1,
@@ -107,12 +112,16 @@ function createDeps(overrides: {
         }
 
         if (!agent && query) {
-          const resolved = await agentManager.resolveAgentForOperationAsync(query, 'chat direct turn');
+          const resolved = await agentManager.resolveAgentForOperationAsync(
+            query,
+            'chat direct turn'
+          );
           agent = await agentManager.getAgentAsync(resolved.id);
         }
 
         if (!agent) {
-          const latestResumeSession = await sessionManager.resolveLatestSessionForResume(developerId);
+          const latestResumeSession =
+            await sessionManager.resolveLatestSessionForResume(developerId);
           if (latestResumeSession?.agentId) {
             agent = await agentManager.getAgentAsync(latestResumeSession.agentId);
           }
@@ -250,7 +259,7 @@ describe('ChatDirectTurnCommand bootstrap', () => {
 
   it('resolves fuzzy/alias agent query via resolveAgentForOperationAsync', async () => {
     const { command, agentManager } = createDeps({
-      resolveAgentForOperationAsync: async () => ({ id: 'clara-bishop' } as any),
+      resolveAgentForOperationAsync: async () => ({ id: 'clara-bishop' }) as any,
       getAgentAsync: async (id: string) => ({ id, name: 'Clara Bishop', role: 'frontend' }),
       getLatestSession: async () => ({ id: 'sess-clara', agentId: 'clara-bishop' }),
       getSessionMessages: async () => [],
@@ -325,26 +334,51 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     expect(Array.isArray((ctx.workflowState as any).chatRuntime.history)).toBe(true);
   });
 
-  it('executes slash command directly without invoking LLM send-turn pipeline', async () => {
-    const {
-      command,
-      stepService,
-      sessionManager,
-      emitService,
-      commandDispatcher,
-    } = createDeps({
+  it('uses an internal continuation as transient system context without persisting a human message', async () => {
+    const { command, stepService, sessionManager } = createDeps({
       resolveLatestSessionForResume: async () => ({ id: 'sess-latest', agentId: 'michael-brown' }),
       getAgentAsync: async (id: string) => ({ id, name: 'Michael Brown', role: 'ceo' }),
       getLatestSession: async () => ({ id: 'sess-agent', agentId: 'michael-brown' }),
       getSessionMessages: async () => [],
     });
-    commandDispatcher.dispatch.mockImplementationOnce(async (_key: string, _args: unknown, ctx: any) => {
-      expect(ctx.invocationSurface).toBe('slash');
-      expect(ctx.calledByHuman).toBe(true);
-      expect(ctx.callerType).toBe('human');
-      ctx.sessionId = 'session-after-slash';
-      return { status: 'ok', message: 'Help output', data: 'Help output' };
+
+    const response = await command.execute(
+      {
+        options: {
+          message: '[Handoff received] continue naturally',
+          messageOrigin: 'internal',
+        },
+      } as any,
+      { history: [] } as any
+    );
+
+    expect(response.status).toBe('ok');
+    expect(stepService.persistUserMessageAsync).not.toHaveBeenCalled();
+    expect(sessionManager.appendMessage).not.toHaveBeenCalled();
+    expect(stepService.prepareMessagesAsync).toHaveBeenCalledWith(
+      '[Handoff received] continue naturally',
+      expect.anything(),
+      expect.anything(),
+      { internalInstruction: '[Handoff received] continue naturally' }
+    );
+  });
+
+  it('executes slash command directly without invoking LLM send-turn pipeline', async () => {
+    const { command, stepService, sessionManager, emitService, commandDispatcher } = createDeps({
+      resolveLatestSessionForResume: async () => ({ id: 'sess-latest', agentId: 'michael-brown' }),
+      getAgentAsync: async (id: string) => ({ id, name: 'Michael Brown', role: 'ceo' }),
+      getLatestSession: async () => ({ id: 'sess-agent', agentId: 'michael-brown' }),
+      getSessionMessages: async () => [],
     });
+    commandDispatcher.dispatch.mockImplementationOnce(
+      async (_key: string, _args: unknown, ctx: any) => {
+        expect(ctx.invocationSurface).toBe('slash');
+        expect(ctx.calledByHuman).toBe(true);
+        expect(ctx.callerType).toBe('human');
+        ctx.sessionId = 'session-after-slash';
+        return { status: 'ok', message: 'Help output', data: 'Help output' };
+      }
+    );
 
     const outerContext = { history: [], invocationSurface: 'cli', calledByHuman: true } as any;
     const response = await command.execute(

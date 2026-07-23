@@ -91,7 +91,7 @@ class CliChatRuntimeBridge {
                   options: {
                     message: turnInput.userMessage,
                     disableProcessExit: true,
-                    suppressAutoIntroduction: turnInput.options.skipPersist,
+                    messageOrigin: turnInput.options.messageOrigin,
                     sessionId: turnInput.sessionId,
                     createNewSession: turnInput.createNewSession,
                   },

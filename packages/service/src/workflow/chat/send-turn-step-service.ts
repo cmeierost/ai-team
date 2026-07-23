@@ -127,7 +127,8 @@ export class SendTurnStepService implements ISendTurnStepService {
   async prepareMessagesAsync(
     userMessage: string,
     plugins: ResolvedPlugins,
-    ctx: ExecutionContext
+    ctx: ExecutionContext,
+    options?: { internalInstruction?: string }
   ): Promise<ILlmChatMessageParam[]> {
     const compressed = await plugins.compressor.compress(ctx.history, ctx);
     const messages = await plugins.contextBuilder.build(compressed, ctx);
@@ -143,6 +144,15 @@ export class SendTurnStepService implements ISendTurnStepService {
       role: 'system',
       content: this.buildConversationParticipantsPrompt(),
     });
+
+    if (options?.internalInstruction) {
+      messages.push({
+        role: 'system',
+        content:
+          'Internal conversation transition (not written by the developer): ' +
+          options.internalInstruction,
+      });
+    }
 
     const ragSnippet = await plugins.ragProvider.retrieve(userMessage, ctx);
     if (ragSnippet) {

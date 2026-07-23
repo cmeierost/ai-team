@@ -32,8 +32,15 @@ export interface IThreadManager {
     returnFrame: SessionNavEntry
   ): Promise<SessionThreadState>;
 
-  /** Persist a successful summarized return handoff and pop its return frame. */
-  recordReturn(fromSessionId: string, toSessionId: string): Promise<SessionThreadState>;
+  /** Persist a summarized return handoff while retaining its source in conversation history. */
+  recordReturn(
+    fromSessionId: string,
+    toSessionId: string,
+    returnFrame: SessionNavEntry
+  ): Promise<SessionThreadState>;
+
+  /** Navigate to and remove the latest conversational history entry. */
+  recordBack(fromSessionId: string): Promise<SessionThreadState>;
 
   /**
    * Walk the previousSessionId chain from the given session back to the root.

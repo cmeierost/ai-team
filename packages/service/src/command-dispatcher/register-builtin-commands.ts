@@ -834,6 +834,7 @@ export function registerBuiltInCommands(
       );
       return new BackChatCommand(
         handoffSubWorkflow,
+        r.resolve(CORE_SERVICE_TOKENS.ThreadManager),
         r.resolve(CORE_SERVICE_TOKENS.EmitService)
       );
     }

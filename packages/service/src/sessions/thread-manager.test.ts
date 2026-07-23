@@ -310,11 +310,7 @@ describe('ThreadManager active thread navigation', () => {
 
   it('resolves every member of a thread to the persisted active handoff target', async () => {
     const michael = await sessionManager.createSession('michael-brown', 'dev-1');
-    const emily = await sessionManager.createHandoffSession(
-      'emily-davis',
-      'dev-1',
-      michael.id
-    );
+    const emily = await sessionManager.createHandoffSession('emily-davis', 'dev-1', michael.id);
 
     await threadManager.recordHandoff(michael.id, emily.id, {
       agentId: 'michael-brown',
@@ -334,34 +330,39 @@ describe('ThreadManager active thread navigation', () => {
     });
   });
 
-  it('persists a return to the delegating session and pops the navigation stack', async () => {
+  it('records an explicit return as conversational history and lets /back revisit its source', async () => {
     const michael = await sessionManager.createSession('michael-brown', 'dev-1');
-    const emily = await sessionManager.createHandoffSession(
-      'emily-davis',
-      'dev-1',
-      michael.id
-    );
+    const emily = await sessionManager.createHandoffSession('emily-davis', 'dev-1', michael.id);
 
     await threadManager.recordHandoff(michael.id, emily.id, {
       agentId: 'michael-brown',
       agentName: 'Michael Brown',
       sessionId: michael.id,
     });
-    await threadManager.recordReturn(emily.id, michael.id);
+    await threadManager.recordReturn(emily.id, michael.id, {
+      agentId: 'emily-davis',
+      agentName: 'Emily Davis',
+      sessionId: emily.id,
+    });
 
     const resolved = await threadManager.resolveActiveSession(emily.id);
 
     expect(resolved.session?.id).toBe(michael.id);
-    expect(resolved.state.navigationStack).toEqual([]);
+    expect(resolved.state.navigationStack).toEqual([
+      { agentId: 'michael-brown', agentName: 'Michael Brown', sessionId: michael.id },
+      { agentId: 'emily-davis', agentName: 'Emily Davis', sessionId: emily.id },
+    ]);
+
+    const afterBack = await threadManager.recordBack(michael.id);
+    expect(afterBack.activeSessionId).toBe(emily.id);
+    expect(afterBack.navigationStack).toEqual([
+      { agentId: 'michael-brown', agentName: 'Michael Brown', sessionId: michael.id },
+    ]);
   });
 
   it('seeds legacy threads deterministically at their newest leaf', async () => {
     const michael = await sessionManager.createSession('michael-brown', 'dev-1');
-    const emily = await sessionManager.createHandoffSession(
-      'emily-davis',
-      'dev-1',
-      michael.id
-    );
+    const emily = await sessionManager.createHandoffSession('emily-davis', 'dev-1', michael.id);
 
     const resolved = await threadManager.resolveActiveSession(michael.id);
 

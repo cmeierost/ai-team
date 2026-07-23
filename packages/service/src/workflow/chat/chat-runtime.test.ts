@@ -60,13 +60,15 @@ function createResolver(): IServiceContainer {
 describe('ChatRuntime handoff routing', () => {
   it('dispatches the acknowledgement turn to the session returned by the handoff transition', async () => {
     const sendTurn = vi
-      .fn<(input: ChatRuntimeTurnInput) => Promise<{
-        text: string;
-        toolRoundNeeded: false;
-        handoffTargetId?: string;
-        agentId?: string;
-        sessionId?: string;
-      }>>()
+      .fn<
+        (input: ChatRuntimeTurnInput) => Promise<{
+          text: string;
+          toolRoundNeeded: false;
+          handoffTargetId?: string;
+          agentId?: string;
+          sessionId?: string;
+        }>
+      >()
       .mockResolvedValueOnce({
         text: 'I will hand this over.',
         toolRoundNeeded: false,
@@ -166,14 +168,8 @@ describe('ChatRuntime handoff routing', () => {
         createChatRuntimeStepCommand('preturn', async () => ({ outcome: 'continue' as const })),
       ],
       ['sendTurn', createChatRuntimeStepCommand('sendTurn', sendTurn)],
-      [
-        'postTurnResolution',
-        createChatRuntimeStepCommand('postTurnResolution', postTurn),
-      ],
-      [
-        'handoffTransition',
-        createChatRuntimeStepCommand('handoffTransition', handoffTransition),
-      ],
+      ['postTurnResolution', createChatRuntimeStepCommand('postTurnResolution', postTurn)],
+      ['handoffTransition', createChatRuntimeStepCommand('handoffTransition', handoffTransition)],
     ]);
     const runtime = new ChatRuntime(
       ((step) => steps.get(step)) as ChatRuntimeStepResolver,
@@ -197,7 +193,9 @@ describe('ChatRuntime handoff routing', () => {
         userMessage: 'Continue naturally after the return.',
         agentId: 'michael',
         sessionId: 'session-michael',
-        options: { skipPersist: true },
+        options: {
+          messageOrigin: 'internal',
+        },
       })
     );
     expect(postTurn).toHaveBeenCalledOnce();

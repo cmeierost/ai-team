@@ -20,6 +20,7 @@ const chatDirectTurnParamsSchema = z.object({
   agentId: z.string().optional(),
   options: z.object({
     message: z.string().min(1),
+    messageOrigin: z.enum(['developer', 'internal']).optional(),
     sessionId: z.string().optional(),
     createNewSession: z.boolean().optional(),
   }),
@@ -88,7 +89,10 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     turnContext.history.push(...bootstrap.history);
     const sessionBeforeSlash = turnContext.sessionId;
 
-    const slashHandled = await this.tryHandleSlashCommandAsync(payload.options.message, turnContext);
+    const isInternal = payload.options.messageOrigin === 'internal';
+    const slashHandled = isInternal
+      ? null
+      : await this.tryHandleSlashCommandAsync(payload.options.message, turnContext);
     if (slashHandled) {
       this.bootstrapResolver.updateCachedRuntimeState(ctx, {
         agentId: turnContext.agent?.id ?? bootstrap.agent.id,
@@ -112,12 +116,15 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     }
 
     await this.stepService.ensureTurnStartAsync();
-    await this.stepService.persistUserMessageAsync(payload.options.message, turnContext);
+    if (!isInternal) {
+      await this.stepService.persistUserMessageAsync(payload.options.message, turnContext);
+    }
 
     const messages = await this.stepService.prepareMessagesAsync(
       payload.options.message,
       this.plugins,
-      turnContext
+      turnContext,
+      isInternal ? { internalInstruction: payload.options.message } : undefined
     );
     const resolved = await this.stepService.resolveSkillsAndToolsAsync(
       payload.options.message,

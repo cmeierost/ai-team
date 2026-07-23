@@ -19,7 +19,7 @@ tags:
   - cli
   - web
 createdAt: 2026-07-23T13:52:59.8550948+02:00
-updatedAt: 2026-07-23T19:06:35+02:00
+updatedAt: 2026-07-23T19:23:00+02:00
 ---
 
 ## Goal
@@ -73,11 +73,12 @@ to. That briefing receives a fresh `handoffId`, is stored in both sessions, is
 shown once as `Current Agent → Previous Agent`, and is followed by a normal
 response from the restored agent to the developer.
 
-The same rule applies when an agent calls `com_handoff` and explicitly targets
-the agent from which the current delegation came. Return behavior is determined
-from the persisted delegation/navigation stack, not from whether the user typed
-`/back`. Both `/back` and an explicit handoff to the delegating agent use one
-return-handoff implementation:
+The same summary rule applies when an agent calls `com_handoff` and explicitly
+targets the session identified by the current session's `previousSessionId`.
+Delegation ancestry and conversational navigation are separate concepts:
+`previousSessionId` determines whether an explicit handoff is a return to the
+delegator, while the persisted navigation stack records which active
+conversations `/back` may revisit.
 
 - The current agent summarizes the work, relevant discoveries, decisions,
   unresolved questions, and recommended next step for the delegating agent.
@@ -91,12 +92,17 @@ return-handoff implementation:
   its only newly shared context; the full delegated agent history is not copied.
 - The delegating agent then writes a normal response to the developer so the
   visible conversation continues naturally.
-- The navigation frame is popped only after the mirrored summary and target
-  context transition succeed.
+- An explicit return pushes its source onto conversational history just like any
+  other successful handoff, so `/back` can revisit the agent that performed the
+  return.
+- `/back` pops exactly one conversational history frame only after the mirrored
+  summary and target context transition succeed.
 
 A handoff to some other agent already present in the thread is not automatically
-classified as “back.” It is a normal handoff unless that target is the current
-top delegation frame. This keeps nested delegation behavior deterministic.
+classified as a delegation return. It is a return only when the target session
+is the current session's direct `previousSessionId`; otherwise it is a normal
+handoff. This keeps delegation ancestry deterministic while allowing
+conversational navigation to revisit agents in either direction.
 
 ## Thread Navigation and Resume
 
@@ -106,7 +112,8 @@ therefore needs persisted navigation state owned by the service layer:
 
 - The state is keyed by the thread root resolved through `previousSessionId`.
 - It records the active session ID and an ordered navigation stack.
-- A normal handoff pushes the source frame and activates the target session.
+- Every explicit handoff, including a return to the delegator, pushes the source
+  frame and activates the target session.
 - `/back` pops the previous frame only after its summarized return handoff has
   persisted successfully.
 - Returning or handing off to an existing agent reuses that agent's session;
@@ -388,6 +395,24 @@ briefing, and rendering chooses the briefing over the internal note rather than
 showing both. This establishes that tools can emit correctly attributed visible
 content during execution without bypassing the shared event stream.
 
+The target acknowledgement previously used a literal `[Handoff received]`
+auto-react string as if it were a developer message. The CLI bridge dropped the
+runtime's skip-persistence intent, `ChatDirectTurnCommand` persisted the string
+with `from: human`, and the model received it with the `user` role. Internal
+continuations now carry an explicit service-owned message origin. They bypass
+slash parsing and developer-message persistence and are supplied to the model
+as transient system context. Exact legacy rows are filtered from resumed
+transcripts and model context without mutating stored history.
+
+The observed `/back` error after Emily explicitly handed the conversation to
+Michael was a separate state-model defect. The same stack represented both
+delegation ancestry and browser-like conversation history, so the explicit
+return popped Emily before the developer could type `/back`. Delegation returns
+are now classified from `previousSessionId`. Successful handoffs push their
+source into conversational history, while only `/back` pops that history. The
+command resolves the persisted thread state rather than trusting a stale
+execution-context stack.
+
 ## Action Items
 
 - [x] Capture the current handoff, `/back`, startup, thread traversal, persistence, and event-emission paths in focused characterization tests before changing behavior.
@@ -398,7 +423,7 @@ content during execution without bypassing the shared event stream.
 - [x] Define the canonical thread glossary and invariants in code comments/tests, mapping user-facing `parentId` terminology to the existing `previousSessionId` storage field.
 - [x] Design the minimal core interfaces and storage contract for thread active-session state and a persisted navigation stack keyed by root session ID.
 - [x] Add a migration and repository implementation for thread navigation state without placing storage implementation in core or service.
-- [ ] Add service methods that resolve a member session to its thread root, load or seed its active cursor, activate a target session, push a handoff frame, and atomically pop a `/back` frame.
+- [x] Add service methods that resolve a member session to its thread root, load or seed its active cursor, activate a target session, push a conversational history frame, and atomically pop a `/back` frame.
 - [x] Replace `lastActivityAt`-based bare resume selection with most-recent-thread plus persisted-active-session resolution.
 - [x] Make explicit member-session resume resolve the containing thread and its active session while preserving explicit new-thread behavior.
 - [x] Make `ait chat <agent-name>` start a new root session while bare `ait chat` and session-based invocations resume the persisted active thread agent.
@@ -406,7 +431,7 @@ content during execution without bypassing the shared event stream.
 - [x] Build the whole-thread transcript from all sessions linked by `previousSessionId`, using timestamp plus persisted message ID ordering rather than BFS/session order.
 - [x] Deduplicate the two persisted copies of each handoff briefing by `handoffId` and render one logical Agent A to Agent B entry.
 - [x] Stream live tool-owned handoff briefings through a phased `handoffId` lifecycle, render one source-to-target component, and never concatenate duplicate note/briefing content.
-- [ ] Preserve normal developer and agent messages once in their chronological positions without leaking hidden, archived, low-importance, or internal control messages.
+- [x] Preserve normal developer and agent messages once in their chronological positions without leaking hidden, archived, low-importance, or internal control messages.
 - [ ] Consolidate slash-command, tool-initiated, natural-language, and workflow-initiated handoffs onto one service transition that resolves or creates the target session exactly once.
 - [ ] Make `/handoff`, model tool calls, and workflow delegation return the same typed transition result and prove each path reaches the same XState target-agent/session state.
 - [x] Keep `com_handoff` in every agent's available tool set regardless of whether that agent has configured `handoffs` targets.
@@ -421,10 +446,10 @@ content during execution without bypassing the shared event stream.
 - [x] Make a successful handoff persist the mirrored briefing, update the active cursor/navigation stack, replace `ctx.agent`, `ctx.agentId`, `ctx.sessionId`, and `ctx.history`, and only then expose the transition as complete.
 - [x] Generate and persist a normal target-agent acknowledgement addressed to the developer after every successful handoff, using only the target session's private history plus the received briefing.
 - [x] Reimplement `/back` as a summarized reverse handoff with a fresh `handoffId`, mirrored briefing persistence, stack pop, restored private context, and target acknowledgement.
-- [x] Detect an explicit `com_handoff` to the current top delegation frame as the same summarized return-handoff operation used by `/back`.
+- [x] Detect an explicit `com_handoff` to the session identified by `previousSessionId` as a summarized delegation return, independently of `/back` history.
 - [ ] Define and test the return-summary prompt so it transfers discoveries, decisions, unresolved questions, and recommended next action without copying the returning agent's full private history.
 - [x] Persist one return summary in both source and delegating-agent sessions with one fresh `handoffId`, then deduplicate it into one visible source-to-target thread entry.
-- [x] Pop the delegation frame only after return-summary persistence and target context activation succeed; preserve the frame and both contexts on failure.
+- [x] Pop conversational history only for `/back`, after return-summary persistence and target context activation succeed; preserve history and both contexts on failure.
 - [ ] Ensure failed briefing generation, persistence, target resolution, acknowledgement, cancellation, or context loading cannot partially switch the active cursor or runtime identity.
 - [ ] Emit one coherent typed lifecycle containing handoff, session switch, active agent/model, and target acknowledgement data for both local CLI and API-server consumers.
 - [ ] Ensure every service path that loads or activates an agent resolves and emits its ID, name, role, configured avatar color, and resolved LLM model in one authoritative identity payload.

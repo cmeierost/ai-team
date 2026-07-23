@@ -15,10 +15,7 @@ import { ExtensionRegistry } from '../extensions/index.js';
 import { HeaderBar } from '../tui/header-bar.js';
 import { ChatView } from '../tui/chat-view.js';
 import { WorkflowEventRegistry, type WorkflowEventState } from './workflow-event-registry.js';
-import {
-  normalizeAgentDisplayName,
-  resolveAgentDisplay,
-} from '../tui/agent-color.js';
+import { normalizeAgentDisplayName, resolveAgentDisplay } from '../tui/agent-color.js';
 import { Prompt } from '../tui/prompt.js';
 import { UserMessage } from '../tui/user-message.js';
 import { ChatLayout } from '../tui/chat-layout.js';
@@ -158,14 +155,7 @@ function buildChatCtx(
     headerBar.setAgent(eventState.currentAgent);
   }
 
-  const layout = new ChatLayout(
-    terminal,
-    headerBar,
-    chatView,
-    spinner,
-    prompt,
-    statusLine
-  );
+  const layout = new ChatLayout(terminal, headerBar, chatView, spinner, prompt, statusLine);
   tui.addChild(layout);
 
   const ctx = {
@@ -211,13 +201,9 @@ function handleStreamEvent(ctx: ChatCtx, event: unknown): boolean {
       return true;
     case 'workspace_info':
       ctx.workspaceRoot =
-        typeof (event as any).workspace === 'string'
-          ? (event as any).workspace
-          : ctx.workspaceRoot;
+        typeof (event as any).workspace === 'string' ? (event as any).workspace : ctx.workspaceRoot;
       ctx.gitBranch =
-        typeof (event as any).gitBranch === 'string'
-          ? (event as any).gitBranch
-          : undefined;
+        typeof (event as any).gitBranch === 'string' ? (event as any).gitBranch : undefined;
       updateStatusLine(ctx);
       ctx.tui.invalidate();
       return true;
@@ -233,8 +219,7 @@ function handleStreamEvent(ctx: ChatCtx, event: unknown): boolean {
       return true;
     case 'session_switched':
       ctx.sessionId = (event as any).sessionId ?? ctx.sessionId;
-      ctx.eventState.currentAgentId =
-        (event as any).agentId ?? ctx.eventState.currentAgentId;
+      ctx.eventState.currentAgentId = (event as any).agentId ?? ctx.eventState.currentAgentId;
       updateStatusLine(ctx);
       ctx.tui.invalidate();
       return true;
@@ -316,9 +301,7 @@ function handleSubworkflowStart(ctx: ChatCtx, event: unknown): void {
   ctx.tui.invalidate();
 }
 
-function formatThinkingMessage(
-  agent: WorkflowEventState['currentAgent']
-): string {
+function formatThinkingMessage(agent: WorkflowEventState['currentAgent']): string {
   if (!agent) return 'Agent is thinking…';
   const { r, g, b } = agent.color;
   return `\x1b[38;2;${r};${g};${b}m${agent.name} is thinking…\x1b[0m`;
@@ -334,12 +317,7 @@ function handleSubworkflowEnd(ctx: ChatCtx): void {
 function updateStatusLine(
   ctx: Pick<
     ChatCtx,
-    | 'statusLine'
-    | 'eventState'
-    | 'workspaceRoot'
-    | 'gitBranch'
-    | 'sessionId'
-    | 'sessionTitle'
+    'statusLine' | 'eventState' | 'workspaceRoot' | 'gitBranch' | 'sessionId' | 'sessionTitle'
   >
 ): void {
   const workspace = ctx.gitBranch
@@ -352,8 +330,7 @@ function updateStatusLine(
   if (agent?.name) {
     const color = agent.color;
     const coloredName =
-      `\x1b[22m\x1b[38;2;${color.r};${color.g};${color.b}m`
-      + `${agent.name}\x1b[39m\x1b[2m`;
+      `\x1b[22m\x1b[38;2;${color.r};${color.g};${color.b}m` + `${agent.name}\x1b[39m\x1b[2m`;
     right.push(agent.model ? `${coloredName} (${agent.model})` : coloredName);
   }
   if (ctx.sessionId) right.push(`session id: ${ctx.sessionId}`);
@@ -386,10 +363,7 @@ async function streamTurn(
   return true;
 }
 
-async function promptForMessage(
-  ctx: ChatCtx,
-  signal: AbortSignal
-): Promise<string> {
+async function promptForMessage(ctx: ChatCtx, signal: AbortSignal): Promise<string> {
   const promptText = '\x1b[1m>\x1b[0m ';
 
   // Create new prompt that resolves the returned promise
@@ -486,7 +460,14 @@ export async function renderChat(
       ctx.tui.invalidate();
 
       const turnPayload = buildTurnPayload(ctx, requestPayload, agentId, options, message);
-      const ok = await streamTurn(ctx, client, requestCommand, turnPayload, workspaceRoot, abortControl.signal);
+      const ok = await streamTurn(
+        ctx,
+        client,
+        requestCommand,
+        turnPayload,
+        workspaceRoot,
+        abortControl.signal
+      );
 
       if (!ok || options.oneShot || !interactiveLoop) break;
       message = undefined;

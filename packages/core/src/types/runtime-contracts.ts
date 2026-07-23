@@ -69,7 +69,8 @@ export interface ISendTurnStepService<
   prepareMessagesAsync(
     userMessage: string,
     plugins: TPlugins,
-    ctx: ExecutionContext
+    ctx: ExecutionContext,
+    options?: { internalInstruction?: string }
   ): Promise<ILlmChatMessageParam[]>;
   resolveSkillsAndToolsAsync(
     userMessage: string,

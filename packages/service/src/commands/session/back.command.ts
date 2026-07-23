@@ -4,6 +4,7 @@ import type {
   ICommand,
   CommandResponse,
   ICommandDescriptor,
+  IThreadManager,
 } from '@ai-team/core';
 import { HandoffSubWorkflow } from '../../workflow/chat/handoff-subworkflow.js';
 
@@ -25,11 +26,16 @@ export class BackChatCommand implements ICommand<string, BackResult> {
 
   constructor(
     private readonly handoffSubWorkflow: HandoffSubWorkflow,
+    private readonly threadManager: IThreadManager,
     private readonly emitService: IEmitService
   ) {}
 
   async execute(_args: string, ctx: ExecutionContext): Promise<CommandResponse<BackResult>> {
-    const previous = ctx.navStack?.at(-1);
+    if (!ctx.sessionId) {
+      return { status: 'error', message: 'No previous agent to return to.' };
+    }
+    const active = await this.threadManager.resolveActiveSession(ctx.sessionId);
+    const previous = active.state.navigationStack.at(-1);
     if (!previous) {
       return { status: 'error', message: 'No previous agent to return to.' };
     }
@@ -37,6 +43,7 @@ export class BackChatCommand implements ICommand<string, BackResult> {
       ctx,
       targetAgentQuery: previous.agentId,
       handoffNote: 'Returning to the delegating agent via /back.',
+      navigationIntent: 'back',
     });
 
     ctx.agent = transition.targetAgent;

@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Agent, StructuredToolResult, ExecutionContext } from '@ai-team/core';
 import {
+  DefaultContextBuilder,
   DefaultToolResolver,
   HandoffToolResultParser,
   buildDefaultTurnResultParsers,
 } from './runtime-defaults.js';
+import { HANDOFF_AUTO_REACT_MESSAGE } from './handoff-auto-react.js';
 
 function makeAgent(id: string, name = id): Agent {
   return { id, name, role: 'assistant', systemPrompt: '' } as unknown as Agent;
@@ -163,6 +165,34 @@ describe('Parser chain priority', () => {
     const result = runChain([], 'Just a normal reply.', 'Just a normal reply.', ctx);
 
     expect(result).toBeNull();
+  });
+});
+
+describe('DefaultContextBuilder', () => {
+  it('excludes legacy persisted handoff continuations from model context', async () => {
+    const builder = new DefaultContextBuilder();
+
+    const messages = await builder.build(
+      [
+        {
+          from: 'human',
+          to: 'michael-brown',
+          isHuman: true,
+          content: HANDOFF_AUTO_REACT_MESSAGE,
+          timestamp: new Date().toISOString(),
+        },
+        {
+          from: 'michael-brown',
+          to: 'human',
+          isHuman: false,
+          content: 'Welcome back.',
+          timestamp: new Date().toISOString(),
+        },
+      ],
+      { history: [] } as any
+    );
+
+    expect(messages).toEqual([{ role: 'assistant', content: 'Welcome back.' }]);
   });
 });
 

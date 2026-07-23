@@ -16,6 +16,7 @@ export interface HandoffSubWorkflowInput {
   ctx: ExecutionContext;
   targetAgentQuery: string;
   handoffNote?: string;
+  navigationIntent?: 'handoff' | 'back';
 }
 
 export interface HandoffSubWorkflowResult {
@@ -42,7 +43,7 @@ export class HandoffSubWorkflow {
   ) {}
 
   async executeAsync(input: HandoffSubWorkflowInput): Promise<HandoffSubWorkflowResult> {
-    const { ctx, targetAgentQuery, handoffNote } = input;
+    const { ctx, targetAgentQuery, handoffNote, navigationIntent = 'handoff' } = input;
 
     if (!ctx.agent?.id || !ctx.sessionId) {
       throw new Error('Handoff requires an active agent and session context.');
@@ -64,13 +65,26 @@ export class HandoffSubWorkflow {
     const currentSession = await this.sessionManager.getSession(fromSessionId);
     const developerId = currentSession?.developerId ?? 'unknown';
     const activeThread = await this.threadManager.resolveActiveSession(fromSessionId);
-    const returnFrame = activeThread.state.navigationStack.at(-1);
-    const isReturnHandoff = returnFrame?.agentId === target.id;
-    const toSessionId = isReturnHandoff
-      ? returnFrame.sessionId
-      : (
-          await this.threadManager.resolveHandoffSession(target.id, fromSessionId, developerId)
-        ).session.id;
+    const backFrame = activeThread.state.navigationStack.at(-1);
+    if (navigationIntent === 'back' && !backFrame) {
+      throw new Error('No previous agent to return to.');
+    }
+    const parentSession = currentSession?.previousSessionId
+      ? await this.sessionManager.getSession(currentSession.previousSessionId)
+      : null;
+    const parentAgentIds = parentSession
+      ? parentSession.agentIds?.length
+        ? parentSession.agentIds
+        : [parentSession.agentId]
+      : [];
+    const isReturnHandoff = navigationIntent === 'handoff' && parentAgentIds.includes(target.id);
+    const toSessionId =
+      navigationIntent === 'back'
+        ? backFrame!.sessionId
+        : isReturnHandoff
+          ? currentSession!.previousSessionId!
+          : (await this.threadManager.resolveHandoffSession(target.id, fromSessionId, developerId))
+              .session.id;
 
     const handoffId = randomUUID();
     const handoffEventBase = {
@@ -130,13 +144,19 @@ export class HandoffSubWorkflow {
       targetBriefingPersisted = true;
       await this.sessionManager.appendMessage(fromSessionId, briefingMsg);
       sourceBriefingPersisted = true;
-      threadState = isReturnHandoff
-        ? await this.threadManager.recordReturn(fromSessionId, toSessionId)
-        : await this.threadManager.recordHandoff(fromSessionId, toSessionId, {
-            agentId: fromAgent.id,
-            agentName: fromAgent.name,
-            sessionId: fromSessionId,
-          });
+      const sourceFrame = {
+        agentId: fromAgent.id,
+        agentName: fromAgent.name,
+        sessionId: fromSessionId,
+      };
+      threadState =
+        navigationIntent === 'back'
+          ? await this.threadManager.recordBack(fromSessionId)
+          : isReturnHandoff
+            ? await this.threadManager.recordReturn(fromSessionId, toSessionId, sourceFrame)
+            : await this.threadManager.recordHandoff(fromSessionId, toSessionId, {
+                ...sourceFrame,
+              });
     } catch (error) {
       if (sourceBriefingPersisted) {
         await this.sessionManager.deleteSessionMessage(fromSessionId, briefingMsg.timestamp);

@@ -2,7 +2,7 @@
  * Extension registry — manages installed extensions and their providers.
  */
 
-import { Component } from '@ai-team/tui';
+import type { Component } from '@ai-team/tui';
 import {
   type CustomViewProvider,
   type StreamEventHandler,
@@ -10,6 +10,8 @@ import {
   type QuestionResponder,
   type SlashCommandHandler,
   type ExtensionManifest,
+  type NormalizedToolEvent,
+  type ToolRenderDecision,
 } from './types.js';
 
 /**
@@ -75,13 +77,19 @@ export class ExtensionRegistry {
   /**
    * Try to render a tool event with a custom renderer.
    */
-  renderTool(toolName: string, input: unknown, output?: unknown): Component | null {
+  renderTool(event: NormalizedToolEvent): ToolRenderDecision {
+    const exact = this.toolRenderers.find((renderer) => renderer.toolName === event.toolName);
+    if (exact) return exact.render(event);
+
     for (const renderer of this.toolRenderers) {
-      if (this.matchesToolPattern(renderer.toolName, toolName)) {
-        return renderer.render(toolName, input, output);
+      if (
+        renderer.toolName !== event.toolName
+        && this.matchesToolPattern(renderer.toolName, event.toolName)
+      ) {
+        return renderer.render(event);
       }
     }
-    return null;
+    return { handled: false, placements: [] };
   }
 
   /**

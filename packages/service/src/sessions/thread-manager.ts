@@ -124,16 +124,28 @@ export class ThreadManager implements IThreadManager {
     return state;
   }
 
-  async recordReturn(fromSessionId: string, toSessionId: string): Promise<SessionThreadState> {
+  async recordReturn(
+    fromSessionId: string,
+    toSessionId: string,
+    returnFrame: SessionNavEntry
+  ): Promise<SessionThreadState> {
+    return this.recordHandoff(fromSessionId, toSessionId, returnFrame);
+  }
+
+  async recordBack(fromSessionId: string): Promise<SessionThreadState> {
     const resolved = await this.resolveActiveSession(fromSessionId);
     const top = resolved.state.navigationStack.at(-1);
-    if (!top || top.sessionId !== toSessionId) {
-      throw new Error(`Session ${toSessionId} is not the current thread return target`);
+    if (!top) {
+      throw new Error('No previous agent to return to.');
+    }
+    const target = await this.sessionManager.getSession(top.sessionId);
+    if (!target) {
+      throw new Error(`Previous session ${top.sessionId} not found`);
     }
 
     const state: SessionThreadState = {
       ...resolved.state,
-      activeSessionId: toSessionId,
+      activeSessionId: top.sessionId,
       navigationStack: resolved.state.navigationStack.slice(0, -1),
       updatedAt: new Date().toISOString(),
     };

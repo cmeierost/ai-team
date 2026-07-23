@@ -1,5 +1,6 @@
 import type { Agent, ChatMessage, IEmitService } from '@ai-team/core';
 import type { ChatThreadTranscriptEntry } from './chat-thread-transcript.js';
+import { isHandoffAutoReactMessage } from '../../workflow/chat/handoff-auto-react.js';
 
 export interface IChatInfoService {
   showSessionIntro(args: {
@@ -82,7 +83,13 @@ export class ChatInfoService implements IChatInfoService {
     agent: Agent,
     developerName: string | undefined
   ): void {
-    const visible = history.filter((m) => !m.archived && !m.handoffType && m.importance !== 'low');
+    const visible = history.filter(
+      (m) =>
+        !m.archived &&
+        !m.handoffType &&
+        m.importance !== 'low' &&
+        !(m.isHuman && isHandoffAutoReactMessage(m.content))
+    );
     if (visible.length === 0) return;
 
     for (const msg of visible) {
@@ -110,7 +117,13 @@ export class ChatInfoService implements IChatInfoService {
   ): void {
     for (const entry of entries) {
       const message = entry.message;
-      if (message.archived || message.importance === 'low') continue;
+      if (
+        message.archived ||
+        message.importance === 'low' ||
+        (message.isHuman && isHandoffAutoReactMessage(message.content))
+      ) {
+        continue;
+      }
 
       if (entry.kind === 'handoff') {
         const fromAgent = entry.fromAgent;

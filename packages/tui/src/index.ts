@@ -22,3 +22,4 @@ export { Loader } from './components/loader.js';
 export { Spacer } from './components/spacer.js';
 export { Image, detectImageProtocol, type TerminalImageOptions } from './components/image.js';
 export { Markdown, type MarkdownTheme } from './components/markdown.js';
+export { ComponentSlot } from './components/component-slot.js';

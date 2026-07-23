@@ -53,7 +53,9 @@ function createStepService(overrides?: {
   const toolSchemaService =
     overrides?.toolSchemaService ??
     ({
-      buildToolDefinitions: vi.fn((tools: any[]) => tools.map((t) => ({ name: `${t.metadata.group}_${t.metadata.key}` }))),
+      buildToolDefinitions: vi.fn((tools: any[]) =>
+        tools.map((t) => ({ name: `${t.metadata.group}_${t.metadata.key}` }))
+      ),
     } as any);
   const runtimeHooks = overrides?.runtimeHooks ?? ({} as any);
   const emitService =
@@ -127,10 +129,43 @@ describe('SendTurnStepService.prepareMessagesAsync', () => {
     expect(messages[0]?.content).toContain(
       'Clemens Meier is the author of messages with the user role'
     );
-    expect(messages[0]?.content).toContain(
-      'usually use their first name, Clemens'
-    );
+    expect(messages[0]?.content).toContain('usually use their first name, Clemens');
     expect(messages[1]).toEqual({ role: 'user', content: "what's up today?" });
+  });
+
+  it('labels a handoff continuation as internal system context', async () => {
+    const plugins = {
+      compressor: { compress: vi.fn(async (history: unknown[]) => history) },
+      contextBuilder: { build: vi.fn(async () => []) },
+      enrichers: [],
+      ragProvider: { retrieve: vi.fn(async () => null) },
+    } as any;
+    const ctx = {
+      agent: { id: 'michael-brown', name: 'Michael Brown' },
+      sessionId: 'session-1',
+      history: [],
+    } as unknown as ExecutionContext;
+    const { stepService } = createStepService();
+
+    const messages = await stepService.prepareMessagesAsync(
+      '[Handoff received] continue naturally',
+      plugins,
+      ctx,
+      { internalInstruction: '[Handoff received] continue naturally' }
+    );
+
+    expect(messages).toContainEqual({
+      role: 'system',
+      content: expect.stringContaining(
+        'Internal conversation transition (not written by the developer)'
+      ),
+    });
+    expect(messages).not.toContainEqual(
+      expect.objectContaining({
+        role: 'user',
+        content: expect.stringContaining('[Handoff received]'),
+      })
+    );
   });
 });
 
