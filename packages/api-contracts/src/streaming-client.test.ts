@@ -9,6 +9,34 @@ vi.mock('./websocket.js', () => ({
 }));
 
 describe('StreamingClient', () => {
+  it('supports the service chat command used by the web frontend', () => {
+    streamViaWebSocketMock.mockReturnValue((async function* () {})());
+    const client = new StreamingClient('http://localhost:3002', 'ws://localhost:3002');
+
+    client.stream(
+      {
+        command: 'chat-chat',
+        payload: {
+          agentId: 'michael-brown',
+          message: 'hello',
+          sessionId: 'session-1',
+          createNewSession: true,
+        },
+      },
+      { signal: new AbortController().signal } as any
+    );
+
+    expect(streamViaWebSocketMock).toHaveBeenCalledWith(
+      'michael-brown',
+      'hello',
+      expect.objectContaining({
+        url: 'ws://localhost:3002',
+        sessionId: 'session-1',
+        messageOptions: expect.objectContaining({ createNewSession: true }),
+      })
+    );
+  });
+
   it('uses legacy ctx question handlers when no .on handlers are registered', async () => {
     streamViaWebSocketMock.mockImplementation(async function* (
       _agentId: string,

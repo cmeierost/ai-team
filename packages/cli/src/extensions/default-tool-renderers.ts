@@ -1,8 +1,14 @@
 import type { ExtensionManifest, NormalizedToolEvent, ToolRenderDecision } from './types.js';
-import { AskResult, FileTreeResult, SlashCommandResult } from '../tui/tool-results.js';
+import {
+  AskResult,
+  FileTreeResult,
+  RunCommandResult,
+  SlashCommandResult,
+} from '../tui/tool-results.js';
 
 export function createDefaultToolRendererManifest(): ExtensionManifest {
   const completedAskCalls = new Set<string>();
+  const streamingRunCalls = new Map<string, RunCommandResult>();
   return {
     name: 'cli-default-tool-renderers',
     toolRenderers: [
@@ -17,6 +23,14 @@ export function createDefaultToolRendererManifest(): ExtensionManifest {
         )),
       },
       {
+        toolName: 'slash:run',
+        render: (event) => renderStreamingRun(event, streamingRunCalls),
+      },
+      {
+        toolName: 'cli_run',
+        render: (event) => renderStreamingRun(event, streamingRunCalls),
+      },
+      {
         toolName: 'slash:*',
         render: (event) => terminalTranscriptResult(event, new SlashCommandResult(
           event.error ?? event.output
@@ -24,6 +38,76 @@ export function createDefaultToolRendererManifest(): ExtensionManifest {
       },
     ],
   };
+}
+
+function renderStreamingRun(
+  event: NormalizedToolEvent,
+  activeCalls: Map<string, RunCommandResult>
+): ToolRenderDecision {
+  if (event.historical || !event.callId) {
+    return terminalTranscriptResult(
+      event,
+      new RunCommandResult(formatTerminalValue(event.error ?? event.output))
+    );
+  }
+
+  const update = asCommandOutputUpdate(event.output);
+  if (event.phase === 'start' && update) {
+    const existing = activeCalls.get(event.callId);
+    if (existing) {
+      existing.append(update.text);
+      return { handled: true, placements: [] };
+    }
+
+    const component = new RunCommandResult();
+    component.append(update.text);
+    activeCalls.set(event.callId, component);
+    return {
+      handled: true,
+      placements: [{ target: 'transcript', component }],
+    };
+  }
+
+  if (
+    event.phase === 'result'
+    || event.phase === 'error'
+    || event.phase === 'denied'
+  ) {
+    const existing = activeCalls.get(event.callId);
+    if (existing) {
+      existing.complete(formatTerminalValue(event.error ?? event.output));
+      activeCalls.delete(event.callId);
+      return { handled: true, placements: [] };
+    }
+  }
+
+  return terminalTranscriptResult(
+    event,
+    new RunCommandResult(formatTerminalValue(event.error ?? event.output))
+  );
+}
+
+function asCommandOutputUpdate(value: unknown): { text: string } | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    record['type'] !== 'command_output_start'
+    && record['type'] !== 'command_output_delta'
+  ) {
+    return undefined;
+  }
+  return typeof record['text'] === 'string' ? { text: record['text'] } : undefined;
+}
+
+function formatTerminalValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value instanceof Error) return value.message;
+  if (value === undefined || value === null) return '';
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function renderAsk(

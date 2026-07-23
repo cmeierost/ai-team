@@ -134,6 +134,43 @@ Runtime state + external integrations
 - Boundary rule: `@ai-team/service` depends on `@ai-team/core` interfaces and container tokens only. Concrete implementations are selected during bootstrap and must not be imported directly from service code or service tests.
 - Shortcut rule: **container command definitions may call `@ai-team/infrastructure` directly when the command is purely a config/data read with no orchestration logic, governance, or side-effects.** These commands do not need a service adapter layer. Commands with LLM orchestration, governance policy enforcement, agent mutation, or workflow state must continue to route through `@ai-team/service`.
 
+## Unified command dispatch and parameter semantics
+
+`ICommand` is the shared callable primitive for CLI, chat slash, workflow, and
+LLM tool surfaces. `ICommandDescriptor.parameters` defines the canonical Zod
+input object; adapters do not define independent parameter contracts.
+
+`CommandDispatcher` owns the human-facing pipeline:
+
+1. preserve the slash invocation and pass its raw argument tail to dispatch
+2. parse schema-shaped JSON or normalize quoted/named/positional tokens
+3. map a declared variadic tail to one array property
+4. fill missing same-name values from `ExecutionContext`
+5. apply explicit `contextParameters` and `workflowInputBindings`
+6. ask an attached question service for required human values still missing
+7. enforce `requiredAtRuntime` and perform final Zod parsing
+8. execute the command with one validated object
+
+Explicit caller values have precedence; runtime binding only fills missing or
+`undefined` paths. Workflow bindings can read from the previous step result or
+the workflow-carried state bag.
+
+`ToolManager` reuses the runtime binding and validation logic for agent calls,
+then performs authorization. It does not prompt. Context-owned,
+workflow-bound, and explicitly hidden parameters are removed from the
+LLM-facing schema.
+
+Every tool-exposed command requires a group. Its canonical model-facing
+identity is derived as snake-case `group_key`, avoiding hand-authored aliases
+that drift from registration metadata.
+
+Slash commands persist the original developer line and a separate
+`slash:<token>` tool result. Commands return presentation data in
+`CommandResponse`; UI adapters render the tool lifecycle event rather than
+commands writing directly to a terminal. The detailed contract and `/run`
+example live in
+[`docs/implementation/command-dispatch-and-parameters.md`](docs/implementation/command-dispatch-and-parameters.md).
+
 ### `@ai-team/api-contracts`
 
 - Defines the service interface contracts and wire protocol types.

@@ -6,18 +6,128 @@ import type {
   CommandResponse,
   ICommandDescriptor,
   IConfigurationStorage,
+  IEmitService,
 } from '@ai-team/core';
 import { withTimeout } from '../../utils/with-timeout.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
+const WINDOWS_CMD_META_CHARS = /([()\][%!^"`<>&|;, *?])/g;
 
 function normalizeExecutableName(command: string): string | undefined {
   const trimmed = command.trim();
   if (!trimmed) return undefined;
   if (trimmed.includes(' ') || trimmed.includes('/') || trimmed.includes('\\')) return undefined;
   return trimmed.toLowerCase();
+}
+
+function escapeWindowsCmdCommand(value: string): string {
+  return value.replace(WINDOWS_CMD_META_CHARS, '^$1');
+}
+
+function escapeWindowsCmdArgument(value: string, doubleEscapeMetaChars: boolean): string {
+  let escaped = value
+    .replace(/(?=(\\+?)?)\1"/g, '$1$1\\"')
+    .replace(/(?=(\\+?)?)\1$/, '$1$1');
+  escaped = `"${escaped}"`.replace(WINDOWS_CMD_META_CHARS, '^$1');
+  return doubleEscapeMetaChars
+    ? escaped.replace(WINDOWS_CMD_META_CHARS, '^$1')
+    : escaped;
+}
+
+async function resolveWindowsCommandShim(
+  command: string,
+  cwd: string
+): Promise<string | undefined> {
+  try {
+    const result = (await execFileAsync('where.exe', [command], {
+      cwd,
+      windowsHide: true,
+    })) as { stdout?: string };
+    return (result.stdout ?? '')
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .find((entry) => /\.(?:cmd|bat)$/i.test(entry));
+  } catch {
+    return undefined;
+  }
+}
+
+async function executeCommand(
+  command: string,
+  args: string[],
+  cwd: string,
+  onOutput?: (stream: 'stdout' | 'stderr', text: string) => void
+): Promise<{ stdout?: string; stderr?: string; exitCode: number }> {
+  const options = {
+    cwd,
+    windowsHide: true,
+    maxBuffer: 1024 * 1024 * 8,
+  };
+
+  if (process.platform === 'win32') {
+    const shim = await resolveWindowsCommandShim(command, cwd);
+    if (shim) {
+      const doubleEscapeMetaChars = /node_modules[\\/]\.bin[\\/][^\\/]+\.cmd$/i.test(shim);
+      const shellCommand = [
+        escapeWindowsCmdCommand(shim),
+        ...args.map((arg) => escapeWindowsCmdArgument(arg, doubleEscapeMetaChars)),
+      ].join(' ');
+      const commandProcessor = process.env.ComSpec ?? process.env.COMSPEC ?? 'cmd.exe';
+      return executeFileWithStreaming(
+        commandProcessor,
+        ['/d', '/s', '/c', `"${shellCommand}"`],
+        {
+          ...options,
+          windowsVerbatimArguments: true,
+        },
+        onOutput
+      );
+    }
+  }
+
+  return executeFileWithStreaming(command, args, options, onOutput);
+}
+
+function executeFileWithStreaming(
+  file: string,
+  args: string[],
+  options: {
+    cwd: string;
+    windowsHide: boolean;
+    maxBuffer: number;
+    windowsVerbatimArguments?: boolean;
+  },
+  onOutput?: (stream: 'stdout' | 'stderr', text: string) => void
+): Promise<{ stdout?: string; stderr?: string; exitCode: number }> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      file,
+      args,
+      { ...options, encoding: 'utf8' },
+      (error, stdout, stderr) => {
+        const errorCode = (error as { code?: unknown } | null)?.code;
+        if (error && typeof errorCode !== 'number') {
+          reject(error);
+          return;
+        }
+        resolve({
+          stdout,
+          stderr,
+          exitCode: typeof errorCode === 'number' ? errorCode : 0,
+        });
+      }
+    );
+    child.stdout?.on('data', (chunk: string | Buffer) => {
+      const text = String(chunk);
+      if (text) onOutput?.('stdout', text);
+    });
+    child.stderr?.on('data', (chunk: string | Buffer) => {
+      const text = String(chunk);
+      if (text) onOutput?.('stderr', text);
+    });
+  });
 }
 
 export interface RunCliParams {
@@ -32,6 +142,7 @@ export interface RunCliResult {
   cwd: string;
   stdout: string;
   stderr?: string;
+  exitCode: number;
 }
 
 export const RunCliParamsSchema = z.object({
@@ -58,7 +169,8 @@ export const RunCliToolMetadata = {
 async function runCommand(
   params: RunCliParams,
   workspaceRoot: string,
-  allowedCommands?: string[]
+  allowedCommands?: string[],
+  onOutput?: (stream: 'stdout' | 'stderr', text: string) => void
 ): Promise<RunCliResult> {
   const { command, args = [], cwd } = params;
   const normalized = normalizeExecutableName(command);
@@ -83,14 +195,10 @@ async function runCommand(
   }
 
   const result = (await withTimeout(
-    execFileAsync(normalized, args, {
-      cwd: execCwd,
-      windowsHide: true,
-      maxBuffer: 1024 * 1024 * 8,
-    }),
+    executeCommand(normalized, args, execCwd, onOutput),
     60_000,
     `run timed out after 60s (${normalized})`
-  )) as { stdout?: string; stderr?: string };
+  )) as { stdout?: string; stderr?: string; exitCode: number };
 
   return {
     command: normalized,
@@ -98,6 +206,7 @@ async function runCommand(
     cwd: execCwd,
     stdout: (result.stdout ?? '').trim(),
     stderr: (result.stderr ?? '').trim() || undefined,
+    exitCode: result.exitCode,
   };
 }
 
@@ -127,13 +236,48 @@ function getAgentAllowedCommands(
   });
 }
 
+function createCommandOutputEmitter(
+  context: ExecutionContext,
+  emitService: IEmitService | undefined,
+  invocation: string
+): (stream: 'stdout' | 'stderr', text: string) => void {
+  const correlation = context.commandInvocation;
+  const emit = (
+    type: 'command_output_start' | 'command_output_delta',
+    text: string,
+    outputStream?: 'stdout' | 'stderr'
+  ) => {
+    if (!correlation || !emitService) return;
+    emitService.toolEvent(
+      correlation.toolName,
+      correlation.callId,
+      'start',
+      undefined,
+      undefined,
+      {
+        toolName: correlation.toolName,
+        outcome: 'start',
+        resultLlm: {
+          type,
+          ...(outputStream ? { stream: outputStream } : {}),
+          text,
+        },
+      }
+    );
+  };
+
+  emit('command_output_start', `${invocation}\n\n`);
+  return (stream, text) => emit('command_output_delta', text, stream);
+}
+
 /** Structured, LLM-callable surface. Authorization is enforced by ToolManager and cliTools. */
 export class RunCliTool implements ICommand<RunCliParams, RunCliResult> {
   readonly metadata = RunCliToolMetadata;
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly configurationStorage: IConfigurationStorage
+    private readonly configurationStorage: IConfigurationStorage,
+    private readonly emitService?: IEmitService
   ) {}
 
   formatForLlm(result: unknown): unknown {
@@ -142,7 +286,10 @@ export class RunCliTool implements ICommand<RunCliParams, RunCliResult> {
     const cmd = `$ ${r.command}${r.args?.length ? ' ' + r.args.join(' ') : ''}`;
     const out = r.stdout?.trim() || '(no output)';
     const err = r.stderr?.trim();
-    return err ? `${cmd}\n\n${out}\n\nstderr:\n${err}` : `${cmd}\n\n${out}`;
+    const rendered = err ? `${cmd}\n\n${out}\n\nstderr:\n${err}` : `${cmd}\n\n${out}`;
+    return r.exitCode
+      ? `${rendered}\n\nCommand exited with code ${r.exitCode}.`
+      : rendered;
   }
 
   async execute(
@@ -156,12 +303,24 @@ export class RunCliTool implements ICommand<RunCliParams, RunCliResult> {
       this.configurationStorage,
       context.agent.cliTools ?? []
     );
-    const result = await runCommand(params, this.workspaceRoot, allowedCommands);
-    return {
-      status: 'ok',
-      message: 'Command executed successfully.',
-      data: result,
-    };
+    const invocation = `$ ${params.command}${params.args?.length ? ` ${params.args.join(' ')}` : ''}`;
+    const result = await runCommand(
+      params,
+      this.workspaceRoot,
+      allowedCommands,
+      createCommandOutputEmitter(context, this.emitService, invocation)
+    );
+    return result.exitCode === 0
+      ? {
+          status: 'ok',
+          message: 'Command executed successfully.',
+          data: result,
+        }
+      : {
+          status: 'error',
+          message: `Command exited with code ${result.exitCode}.`,
+          data: result,
+        };
   }
 }
 
@@ -178,6 +337,9 @@ export const RunShellChatCommandMetadata = {
     variadicParameter: 'args',
     jsonSignature: true,
   },
+  help: {
+    examples: [{ value: 'git status', surfaces: ['chat'] }],
+  },
 } satisfies ICommandDescriptor;
 
 export class RunShellChatCommand implements ICommand<RunCliParams, RunCliResult> {
@@ -185,7 +347,8 @@ export class RunShellChatCommand implements ICommand<RunCliParams, RunCliResult>
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly configurationStorage: IConfigurationStorage
+    private readonly configurationStorage: IConfigurationStorage,
+    private readonly emitService?: IEmitService
   ) {}
 
   async execute(
@@ -197,9 +360,17 @@ export class RunShellChatCommand implements ICommand<RunCliParams, RunCliResult>
       const result = await runCommand(
         params,
         this.workspaceRoot,
-        getGlobalAllowedCommands(this.configurationStorage) ?? []
+        getGlobalAllowedCommands(this.configurationStorage) ?? [],
+        createCommandOutputEmitter(_ctx, this.emitService, invocation)
       );
       const out = [result.stdout, result.stderr].filter(Boolean).join('\n\n') || '(no output)';
+      if (result.exitCode !== 0) {
+        return {
+          status: 'error',
+          message: `${invocation}\n\n${out}\n\nCommand exited with code ${result.exitCode}.`,
+          data: result,
+        };
+      }
       return {
         status: 'ok',
         message: `${invocation}\n\n${out}\n\n(Result not in context — use /context add to include it.)`,

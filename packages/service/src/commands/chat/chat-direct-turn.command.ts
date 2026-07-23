@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import type {
   Agent,
   ChatMessage,
@@ -254,16 +255,22 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
 
     const resolvedCommand = this.resolveSlashCommand(parsed.commandToken);
     const commandKey = resolvedCommand?.canonicalKey ?? parsed.commandToken;
-    const slashToolName = `slash:${parsed.commandToken}`;
+    const slashToolName = `slash:${resolvedCommand?.descriptorKey ?? parsed.commandToken}`;
+    const slashCallId = randomUUID();
 
     let commandResponse;
     if (resolvedCommand) {
       const previousInvocationSurface = ctx.invocationSurface;
       const previousCalledByHuman = ctx.calledByHuman;
       const previousCallerType = ctx.callerType;
+      const previousCommandInvocation = ctx.commandInvocation;
       ctx.invocationSurface = 'slash';
       ctx.calledByHuman = true;
       ctx.callerType = 'human';
+      ctx.commandInvocation = {
+        callId: slashCallId,
+        toolName: slashToolName,
+      };
       try {
         commandResponse = this.toCoreCommandResponse(
           await this.plugins.commandDispatcher.dispatch(commandKey, parsed.rawArgs, ctx)
@@ -272,6 +279,7 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
         ctx.invocationSurface = previousInvocationSurface;
         ctx.calledByHuman = previousCalledByHuman;
         ctx.callerType = previousCallerType;
+        ctx.commandInvocation = previousCommandInvocation;
       }
     } else {
       commandResponse = {
@@ -311,7 +319,7 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
 
     this.emitService.toolEvent(
       slashToolName,
-      undefined,
+      slashCallId,
       commandResponse.status === 'ok' ? 'result' : 'error',
       responseText,
       undefined,

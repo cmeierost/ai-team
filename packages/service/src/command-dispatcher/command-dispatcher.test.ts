@@ -317,6 +317,56 @@ describe('CommandDispatcher typed dispatch', () => {
     expect(prompts[0]).toContain("'path'");
   });
 
+  it('parses a prompted variadic invocation through the normal command input mapping', async () => {
+    const prompts: string[] = [];
+    const questionService: IQuestionService = {
+      input: async (request) => {
+        prompts.push(request.message);
+        return 'git status';
+      },
+      confirm: async () => true,
+      select: async () => 'unused',
+      password: async () => 'unused',
+      checklist: async () => [],
+    };
+    const { dispatcher, registry } = makeDispatcher(questionService);
+    const command: ICommand<
+      { command: string; args: string[] },
+      { command: string; args: string[] }
+    > = {
+      metadata: {
+        key: 'run',
+        description: 'run a command',
+        availableIn: { chat: true },
+        parameters: z.object({
+          command: z.string().min(1),
+          args: z.array(z.string()).default([]),
+        }),
+        input: {
+          mode: 'structured',
+          variadicParameter: 'args',
+          jsonSignature: true,
+        },
+        help: {
+          examples: [{ value: 'git status', surfaces: ['chat'] }],
+        },
+      },
+      execute: async (params) => ({ status: 'ok', message: '', data: params }),
+    };
+    registry.register(command.metadata, () => command as ICommand<unknown, unknown>);
+
+    const result = await dispatcher.dispatch('run', '', {
+      invocationSurface: 'slash',
+      history: [],
+    });
+
+    expect(result.status).toBe('ok');
+    expect(result.data).toEqual({ command: 'git', args: ['status'] });
+    expect(prompts).toEqual([
+      expect.stringContaining('git status'),
+    ]);
+  });
+
   it('asks only for required fields still missing after partial JSON input and context derivation', async () => {
     const prompts: string[] = [];
     const questionService: IQuestionService = {

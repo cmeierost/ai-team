@@ -1,4 +1,10 @@
-import { Markdown, truncateToWidth, type Component } from '@ai-team/tui';
+import {
+  Markdown,
+  sliceByColumn,
+  truncateToWidth,
+  visibleWidth,
+  type Component,
+} from '@ai-team/tui';
 
 export class SlashCommandResult implements Component {
   _parent: import('@ai-team/tui').Container | null = null;
@@ -19,6 +25,69 @@ export class SlashCommandResult implements Component {
   remove(): void {
     this._parent?.removeChild(this);
   }
+}
+
+export class RunCommandResult implements Component {
+  _parent: import('@ai-team/tui').Container | null = null;
+  private value: string;
+
+  constructor(value = '') {
+    this.value = sanitizeCommandOutput(value);
+  }
+
+  append(text: string): void {
+    this.value += sanitizeCommandOutput(text);
+  }
+
+  complete(text: string): void {
+    if (!text) return;
+    const liveWithoutTrailingWhitespace = this.value.trimEnd();
+    if (liveWithoutTrailingWhitespace && text.startsWith(liveWithoutTrailingWhitespace)) {
+      this.append(text.slice(liveWithoutTrailingWhitespace.length));
+      return;
+    }
+    const separator = this.value && !this.value.endsWith('\n\n') ? '\n\n' : '';
+    this.append(`${separator}${text}`);
+  }
+
+  render(width: number): string[] {
+    return wrapCommandOutput(this.value, width);
+  }
+
+  invalidate(): void {}
+
+  remove(): void {
+    this._parent?.removeChild(this);
+  }
+}
+
+function sanitizeCommandOutput(value: string): string {
+  return value
+    .replace(
+      /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)?|P[^\x07]*(?:\x07|\x1b\\)?|.)/g,
+      ''
+    )
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[^\P{C}\n\t]/gu, '');
+}
+
+function wrapCommandOutput(value: string, width: number): string[] {
+  const safeWidth = Math.max(1, width);
+  const rendered: string[] = [];
+  for (const logicalLine of value.split('\n')) {
+    if (logicalLine.length === 0) {
+      rendered.push('');
+      continue;
+    }
+    let column = 0;
+    const lineWidth = visibleWidth(logicalLine);
+    while (column < lineWidth) {
+      rendered.push(sliceByColumn(logicalLine, column, safeWidth));
+      column += safeWidth;
+    }
+  }
+  return rendered.length > 0 ? rendered : [''];
 }
 
 export class AskResult implements Component {

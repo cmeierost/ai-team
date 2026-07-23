@@ -196,6 +196,24 @@ The active architecture transition is about separating:
 - outward **UI notifier** delivery
 - UI-specific **surface handlers/controllers**
 
+## Unified command parameters
+
+CLI commands, chat slash commands, workflows, and LLM tools converge on one
+service-owned command dispatch pipeline. Human callers may use a schema-shaped
+JSON object or positional syntax; both normalize to the same parameter object.
+
+Before a command executes, the dispatcher fills missing runtime-owned values
+from `ExecutionContext`, applies declared workflow bindings, asks human callers
+for required values that are still missing, and performs final Zod validation.
+Tool calls follow the same binding and validation path without interactive
+questions. Runtime-owned and workflow-bound properties are omitted from the
+LLM-facing schema.
+
+Tool identities derive from command metadata as `group_key`; the group is
+required for every tool-exposed command. See
+[Command Dispatch and Parameter Resolution](../implementation/command-dispatch-and-parameters.md)
+for precedence, variadic argument handling, and `/run` examples.
+
 ## Onboarding and hiring runtime (current)
 
 Onboarding is now implemented as a workflow-driven orchestration path rather than a large imperative command.

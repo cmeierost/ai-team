@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Text } from '@ai-team/tui';
 import { ExtensionRegistry } from './registry.js';
+import { RunCommandResult } from '../tui/tool-results.js';
 
 const baseEvent = {
   phase: 'result' as const,
@@ -24,6 +25,97 @@ describe('ExtensionRegistry tool renderers', () => {
 
     const decision = registry.renderTool({ ...baseEvent, toolName: 'slash:help' });
     expect(decision.placements[0]?.component.render(80)).toEqual(['custom help']);
+  });
+
+  it('updates one live slash:run result and appends terminal completion', () => {
+    const registry = new ExtensionRegistry();
+    const started = registry.renderTool({
+      toolName: 'slash:run',
+      phase: 'start',
+      callId: 'run-1',
+      output: { type: 'command_output_start', text: '$ pnpm build\n\n' },
+      historical: false,
+    });
+    const component = started.placements[0]?.component;
+    expect(component).toBeInstanceOf(RunCommandResult);
+
+    const delta = registry.renderTool({
+      toolName: 'slash:run',
+      phase: 'start',
+      callId: 'run-1',
+      output: { type: 'command_output_delta', stream: 'stdout', text: 'building...\n' },
+      historical: false,
+    });
+    const completed = registry.renderTool({
+      toolName: 'slash:run',
+      phase: 'result',
+      callId: 'run-1',
+      output: '$ pnpm build\n\nbuilding...\ndone',
+      historical: false,
+    });
+
+    expect(delta.placements).toEqual([]);
+    expect(completed.placements).toEqual([]);
+    expect(component?.render(80).join('\n')).toContain('done');
+  });
+
+  it('uses the same streaming renderer for agent-invoked cli_run', () => {
+    const registry = new ExtensionRegistry();
+    const started = registry.renderTool({
+      toolName: 'cli_run',
+      phase: 'start',
+      callId: 'tool-run-1',
+      output: { type: 'command_output_delta', stream: 'stdout', text: 'live\n' },
+      historical: false,
+    });
+
+    expect(started.handled).toBe(true);
+    expect(started.placements[0]?.component.render(80).join('\n')).toContain('live');
+  });
+
+  it('does not shrink streamed output when a run command finishes with a shorter error', () => {
+    const registry = new ExtensionRegistry();
+    const started = registry.renderTool({
+      toolName: 'slash:run',
+      phase: 'start',
+      callId: 'run-help',
+      output: {
+        type: 'command_output_delta',
+        stream: 'stdout',
+        text: 'long help output\nsecond line\nthird line',
+      },
+      historical: false,
+    });
+    const component = started.placements[0]?.component;
+
+    registry.renderTool({
+      toolName: 'slash:run',
+      phase: 'error',
+      callId: 'run-help',
+      error: 'Command exited with code 1.',
+      historical: false,
+    });
+
+    const rendered = component?.render(80).join('\n');
+    expect(rendered).toContain('long help output');
+    expect(rendered).toContain('Command exited with code 1.');
+  });
+
+  it('sanitizes terminal control sequences in streamed run output', () => {
+    const registry = new ExtensionRegistry();
+    const started = registry.renderTool({
+      toolName: 'slash:run',
+      phase: 'start',
+      callId: 'run-controls',
+      output: {
+        type: 'command_output_delta',
+        stream: 'stdout',
+        text: '\x1b[2Jvisible',
+      },
+      historical: false,
+    });
+
+    expect(started.placements[0]?.component.render(80)).toEqual(['visible']);
   });
 
   it('supports handled-without-output and reports unhandled tools', () => {

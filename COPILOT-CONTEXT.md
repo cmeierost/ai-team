@@ -50,6 +50,15 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 - Mirrored handoff summaries share one `handoffId` and appear once in the presentation transcript. Never pass the full thread transcript to an agent model.
 - Startup selection and handoff transitions are service-owned; adapters pass intent and render typed events, including `cancelled` command outcomes.
 
+## Command parameter invariant
+
+- A command receives one schema-validated object regardless of whether it was invoked with JSON, positional slash syntax, a workflow, or an LLM tool call.
+- `CommandDispatcher` owns parsing, context/workflow derivation, human completion of missing required values, and final validation. Command implementations do not parse raw slash tails.
+- Explicit caller values win; missing `agentId`/`sessionId`-style fields may come from `ExecutionContext`, and declared workflow bindings may come from the last result or workflow state.
+- Agent tool calls use the same binding and validation path but never prompt. Runtime-owned and workflow-bound fields are hidden from LLM schemas.
+- Tool names derive from required command metadata as `group_key`; for example `group: cli`, `key: run` becomes `cli_run`.
+- Deep reference: `docs/implementation/command-dispatch-and-parameters.md`.
+
 ## Permission model essentials
 
 - File rights are enforced through `packages/core/src/context/index.ts`, backed by `fs-context` (`ContextRuntime` + parsers/matchers).

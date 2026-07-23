@@ -1,6 +1,10 @@
 import type { ExecutionContext, IServiceContainer, ICommandDescriptor } from '@ai-team/core';
 import { CORE_SERVICE_TOKENS } from '../types.js';
-import { getPathValue, setPathValue } from './command-adapters.js';
+import {
+  getPathValue,
+  parseArgsIntelligently,
+  setPathValue,
+} from './command-adapters.js';
 import type { IQuestionService } from '../interaction/question-service.js';
 import { ZodSchemaTools } from '../utils/zod-schema.js';
 
@@ -51,7 +55,36 @@ export class CommandParameterCompletionService {
         continue;
       }
 
-      const answered = await this.promptForFieldValue(questionService, descriptor.key, field);
+      const acceptsInvocation = this.isLeadingVariadicField(descriptor, field.path);
+      const example = acceptsInvocation
+        ? this.findHumanExample(descriptor, ctx.invocationSurface)
+        : undefined;
+      const answered = await this.promptForFieldValue(
+        questionService,
+        descriptor.key,
+        field,
+        example
+      );
+      if (acceptsInvocation && typeof answered === 'string') {
+        const parsed = parseArgsIntelligently(
+          answered,
+          descriptor.parameters,
+          descriptor.input
+        );
+        if (
+          parsed
+          && typeof parsed === 'object'
+          && !Array.isArray(parsed)
+          && getPathValue(parsed, field.path) !== undefined
+        ) {
+          for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+            if (base[key] === undefined) {
+              base[key] = value;
+            }
+          }
+          continue;
+        }
+      }
       setPathValue(base, field.path, answered);
     }
 
@@ -125,7 +158,8 @@ export class CommandParameterCompletionService {
   private async promptForFieldValue(
     questionService: IQuestionService,
     commandKey: string,
-    field: RequiredFieldMetadata
+    field: RequiredFieldMetadata,
+    invocationExample?: string
   ): Promise<unknown> {
     const fieldLabel = `'${field.path}'`;
     const descriptionSuffix = field.description ? ` — ${field.description}` : '';
@@ -144,7 +178,9 @@ export class CommandParameterCompletionService {
     }
 
     const value = await questionService.input({
-      message: `Enter value for /${commandKey} ${fieldLabel}${descriptionSuffix}`,
+      message: invocationExample
+        ? `Enter command invocation for /${commandKey} (example: ${invocationExample})`
+        : `Enter value for /${commandKey} ${fieldLabel}${descriptionSuffix}`,
       validate: (input) => input.trim().length > 0 || `${field.path} is required`,
     });
 
@@ -154,6 +190,37 @@ export class CommandParameterCompletionService {
     }
 
     return value;
+  }
+
+  private isLeadingVariadicField(
+    descriptor: ICommandDescriptor,
+    fieldPath: string
+  ): boolean {
+    const variadicParameter = descriptor.input?.variadicParameter;
+    if (!variadicParameter || fieldPath.includes('.') || !descriptor.parameters) {
+      return false;
+    }
+
+    const schema = this.schemaTools.toJsonSchema(descriptor.parameters);
+    if (!schema || typeof schema !== 'object') return false;
+    const properties = (schema as { properties?: unknown }).properties;
+    if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+      return false;
+    }
+
+    const propertyNames = Object.keys(properties as Record<string, unknown>);
+    const variadicIndex = propertyNames.indexOf(variadicParameter);
+    return variadicIndex > 0 && propertyNames[0] === fieldPath;
+  }
+
+  private findHumanExample(
+    descriptor: ICommandDescriptor,
+    invocationSurface: ExecutionContext['invocationSurface']
+  ): string | undefined {
+    const surface = invocationSurface === 'cli' ? 'cli' : 'chat';
+    return descriptor.help?.examples?.find(
+      (example) => !example.surfaces || example.surfaces.includes(surface)
+    )?.value;
   }
 
   private toMutablePayload(payload: unknown): Record<string, unknown> {

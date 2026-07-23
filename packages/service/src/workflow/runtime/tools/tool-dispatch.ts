@@ -92,7 +92,12 @@ export class ToolDispatcher implements IToolDispatchService {
 
     this.emitToolLifecycle('start', toolName, toolCallId, 'In progress', args);
 
-    const executionContext = this.buildExecutionContext(ctx, contextFiles);
+    const executionContext = this.buildExecutionContext(
+      ctx,
+      contextFiles,
+      toolName,
+      toolCallId
+    );
 
     const execResult = await this.toolManager.execute(
       ctx.agent!,
@@ -259,7 +264,12 @@ export class ToolDispatcher implements IToolDispatchService {
     } as RuntimeStreamEvent);
   }
 
-  private buildExecutionContext(ctx: ExecutionContext, contextFiles?: string[]) {
+  private buildExecutionContext(
+    ctx: ExecutionContext,
+    contextFiles: string[] | undefined,
+    toolName: string,
+    toolCallId: string
+  ) {
     const clonedWorkflowState =
       ctx.workflowState && typeof ctx.workflowState === 'object'
         ? ({
@@ -275,6 +285,7 @@ export class ToolDispatcher implements IToolDispatchService {
       workflowId: ctx.workflowId,
       workflowInstanceId: ctx.workflowInstanceId,
       stepId: ctx.stepId,
+      commandInvocation: { callId: toolCallId, toolName },
       workflowState: clonedWorkflowState,
       workflowLastResult: ctx.workflowLastResult,
       navStack: ctx.navStack,

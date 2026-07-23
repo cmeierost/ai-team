@@ -465,7 +465,8 @@ export function registerServiceLayerServices(
       (r) =>
         new RunCliTool(
           r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
-          r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage)
+          r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
+          r.resolve(CORE_SERVICE_TOKENS.EmitService)
         )
     );
     registry.register(

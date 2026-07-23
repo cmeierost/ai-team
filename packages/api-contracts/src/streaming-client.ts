@@ -25,11 +25,29 @@ export class StreamingClient implements IStreamingClient {
     handlers: QuestionHandlerMap
   ): AsyncIterable<StreamEvent<TCommand>> {
     const { command, payload } = request;
-    if (command !== 'chat') {
+    if (command !== 'chat' && command !== 'chat-chat') {
       throw new Error(`Unsupported stream command: ${command}`);
     }
 
-    const chatPayload = payload as { employeeId?: string; options: ChatOptions };
+    const chatPayload = payload as
+      | { employeeId?: string; options?: ChatOptions }
+      | {
+          agentId?: string;
+          message?: string;
+          sessionId?: string;
+          createNewSession?: boolean;
+        };
+    const isServiceChatRequest = command === 'chat-chat';
+    const agentId = isServiceChatRequest
+      ? (chatPayload as { agentId?: string }).agentId
+      : (chatPayload as { employeeId?: string }).employeeId;
+    const options = isServiceChatRequest
+      ? {
+          message: (chatPayload as { message?: string }).message,
+          sessionId: (chatPayload as { sessionId?: string }).sessionId,
+          createNewSession: (chatPayload as { createNewSession?: boolean }).createNewSession,
+        }
+      : (chatPayload as { options?: ChatOptions }).options;
 
     const onQuestion = Object.values(handlers).some((handler) => typeof handler === 'function')
       ? async (question: Record<string, unknown>): Promise<unknown> => {
@@ -50,10 +68,10 @@ export class StreamingClient implements IStreamingClient {
         }
       : undefined;
 
-    return streamViaWebSocket(chatPayload.employeeId ?? '', chatPayload.options?.message ?? '', {
+    return streamViaWebSocket(agentId ?? '', options?.message ?? '', {
       url: this.wsBaseUrl,
-      sessionId: chatPayload.options?.sessionId,
-      messageOptions: chatPayload.options as Record<string, unknown> | undefined,
+      sessionId: options?.sessionId,
+      messageOptions: options as Record<string, unknown> | undefined,
       signal: handlers.signal,
       onQuestion,
     }) as AsyncIterable<StreamEvent<TCommand>>;

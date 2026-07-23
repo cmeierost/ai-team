@@ -91,6 +91,18 @@ describe('dispatchToolCall denial metadata', () => {
       { phase: 'start', toolCallId: 'tc-order-1' },
       { phase: 'result', toolCallId: 'tc-order-1' },
     ]);
+    expect(toolManager.execute).toHaveBeenCalledWith(
+      expect.anything(),
+      'tool_list',
+      { includeHidden: false },
+      expect.objectContaining({
+        commandInvocation: {
+          callId: 'tc-order-1',
+          toolName: 'tool_list',
+        },
+      }),
+      expect.anything()
+    );
   });
 
   it('uses extended timeout for com_ask interactive tool calls', async () => {

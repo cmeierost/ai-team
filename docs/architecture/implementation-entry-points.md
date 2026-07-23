@@ -4,23 +4,26 @@ Use this only when the task needs code-level navigation across runtime layers.
 
 ## Service/runtime
 
-| What                                                                                     | Where                                                     |
-| ---------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| Mediator command payload/response/event contracts                                        | `packages/service/src/contracts.ts`                       |
-| Service command dispatch, `invoke()`, `stream()`, and runtime event bridging             | `packages/service/src/index.ts`                           |
-| Thin chat bootstrap: env checks, agent resolution, session selection, orchestrator setup | `packages/service/src/commands/chat/chat.command.ts`      |
-| Chat turn controller: slash commands, NL forwarding, handoffs, turn loop                 | `packages/service/src/orchestrator/chat-orchestrator.ts`  |
-| Single-turn LLM pipeline: context build, tool dispatch, handoff/hire detection           | `packages/service/src/orchestrator/send-turn.ts`          |
-| Handoff protocol and context mutation                                                    | `packages/service/src/orchestrator/handoff.ts`            |
-| Pipeline extension interfaces                                                            | `packages/service/src/orchestrator/pipeline.ts`           |
-| Workflow continuation persistence                                                        | `packages/service/src/workflow-state.ts`                  |
-| Workflow engine and command/tool execution runtime                                       | `packages/service/src/workflow/runner.ts`                 |
-| Workflow parameter interpolation / conditions / result projection                        | `packages/service/src/workflow/param-resolver.ts`         |
-| Onboarding command entry point                                                           | `packages/service/src/commands/hr/onboard.ts`             |
-| Onboarding workflow definition                                                           | `packages/service/src/commands/hr/onboarding-workflow.ts` |
-| Hire sub-workflow definition                                                             | `packages/service/src/commands/hr/hire-workflow.ts`       |
-| Session lifecycle and persisted chat behavior                                            | `packages/service/src/session-manager.ts`                 |
-| Task lifecycle and task-oriented state                                                   | `packages/service/src/task-manager.ts`                    |
+| What                                                                                     | Where                                                                                                                             |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Mediator command payload/response/event contracts                                        | `packages/service/src/contracts.ts`                                                                                               |
+| Service command dispatch, `invoke()`, `stream()`, and runtime event bridging             | `packages/service/src/index.ts`                                                                                                   |
+| Thin chat bootstrap: env checks, agent resolution, session selection, orchestrator setup | `packages/service/src/commands/chat/chat.command.ts`                                                                              |
+| Chat turn controller: slash commands, NL forwarding, handoffs, turn loop                 | `packages/service/src/orchestrator/chat-orchestrator.ts`                                                                          |
+| Single-turn LLM pipeline: context build, tool dispatch, handoff/hire detection           | `packages/service/src/orchestrator/send-turn.ts`                                                                                  |
+| Handoff protocol and context mutation                                                    | `packages/service/src/orchestrator/handoff.ts`                                                                                    |
+| Pipeline extension interfaces                                                            | `packages/service/src/orchestrator/pipeline.ts`                                                                                   |
+| Workflow continuation persistence                                                        | `packages/service/src/workflow-state.ts`                                                                                          |
+| Workflow engine and command/tool execution runtime                                       | `packages/service/src/workflow/runner.ts`                                                                                         |
+| Workflow parameter interpolation / conditions / result projection                        | `packages/service/src/workflow/param-resolver.ts`                                                                                 |
+| Unified command dispatch and parameter completion                                        | `packages/service/src/command-dispatcher/command-dispatcher.ts`, `command-adapters.ts`, `command-parameter-completion-service.ts` |
+| Command registry and canonical `group_key` tool identities                               | `packages/service/src/command-dispatcher/command-registry.ts`                                                                     |
+| Agent tool parameter binding, validation, and authorization                              | `packages/service/src/tooling/manager/tool-manager.ts`                                                                            |
+| Onboarding command entry point                                                           | `packages/service/src/commands/hr/onboard.ts`                                                                                     |
+| Onboarding workflow definition                                                           | `packages/service/src/commands/hr/onboarding-workflow.ts`                                                                         |
+| Hire sub-workflow definition                                                             | `packages/service/src/commands/hr/hire-workflow.ts`                                                                               |
+| Session lifecycle and persisted chat behavior                                            | `packages/service/src/session-manager.ts`                                                                                         |
+| Task lifecycle and task-oriented state                                                   | `packages/service/src/task-manager.ts`                                                                                            |
 
 ## API/adapter/runtime edges
 

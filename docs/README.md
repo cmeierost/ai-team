@@ -27,6 +27,8 @@ Use this file to keep context loading small and predictable.
 - **Cross-package/backend architecture change**: Depth 0 + Depth 1, then open targeted section in Depth 2
 - **API route or WS event work**: Depth 0 + `docs/api/contracts.md`
 - **Frontend state architecture work**: Depth 0 + `docs/implementation/web-state-architecture.md`
+- **Command, slash, workflow input, or tool parameter work**: Depth 0 +
+  `docs/implementation/command-dispatch-and-parameters.md`
 
 ## Cost guardrail
 

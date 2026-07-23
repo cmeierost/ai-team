@@ -104,6 +104,29 @@ flowchart TD
   HANDOFF --> ORCH
 ```
 
+## Unified command parameter flow
+
+All command surfaces converge before execution; only human surfaces may ask
+for missing required values.
+
+```mermaid
+flowchart TD
+  HUMAN[CLI or slash text] --> PARSE[JSON / named / positional / variadic parser]
+  WORKFLOW[Workflow object args] --> OBJECT[Partial parameter object]
+  TOOL[LLM tool JSON args] --> OBJECT
+  PARSE --> OBJECT
+  OBJECT --> CONTEXT[Fill missing ExecutionContext values]
+  CONTEXT --> BIND[Apply last-result and workflow-data bindings]
+  BIND --> SURFACE{Human surface with question service?}
+  SURFACE -->|yes| COMPLETE[Ask for still-missing required values]
+  SURFACE -->|no| VALIDATE[Runtime requirements + Zod validation]
+  COMPLETE --> VALIDATE
+  VALIDATE --> AUTHORIZE[Permission / workflow policy]
+  AUTHORIZE --> EXECUTE[ICommand.execute]
+  EXECUTE --> RESPONSE[Typed CommandResponse]
+  RESPONSE --> UI[Surface-specific renderer]
+```
+
 ## After a message reaches the server (WebSocket path)
 
 This sequence focuses on what happens immediately after the browser sends a chat message.

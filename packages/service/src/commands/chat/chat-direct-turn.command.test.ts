@@ -655,7 +655,7 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     expect(commandDispatcher.dispatch).not.toHaveBeenCalled();
     expect(emitService.toolEvent).toHaveBeenCalledWith(
       'slash:serve',
-      undefined,
+      expect.any(String),
       'error',
       'Unknown chat command: /serve',
       undefined,

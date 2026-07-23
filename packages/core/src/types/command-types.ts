@@ -79,6 +79,13 @@ export interface WorkflowInputBinding {
   fromWorkflowData?: string;
 }
 
+export interface CommandInvocationContext {
+  /** Runtime-only correlation ID shared by streaming and terminal command events. */
+  callId: string;
+  /** Canonical presentation/tool identity, for example `slash:run`. */
+  toolName: string;
+}
+
 // ── ExecutionContext ─────────────────────────────────────────────────────────
 
 /**
@@ -110,6 +117,8 @@ export interface ExecutionContext {
   workflowInstanceId?: string;
   /** Current workflow step being executed. */
   stepId?: string;
+  /** Active command invocation correlation, when the calling surface provides one. */
+  commandInvocation?: CommandInvocationContext;
   /** Result payload from the last completed workflow step — used by workflowInputBindings. */
   workflowLastResult?: JsonValue;
   /** Abort signal from the calling surface. */
