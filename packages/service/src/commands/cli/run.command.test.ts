@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type {
-  ChatCommandEmitter,
-  ExecutionContext,
-  ICommand,
-  IServiceContainer,
-} from '@ai-team/core';
+import type { ExecutionContext, ICommand, IServiceContainer } from '@ai-team/core';
 import { CommandDispatcher } from '../../command-dispatcher/command-dispatcher.js';
 import { CommandRegistry } from '../../command-dispatcher/command-registry.js';
 import {
@@ -26,17 +21,10 @@ describe('/run command', () => {
   });
 
   it('executes positional input after dispatcher normalization', async () => {
-    const output: string[] = [];
-    const emitter: ChatCommandEmitter = {
-      write: (message) => output.push(message),
-      warn: (message) => output.push(message),
-      error: (message) => output.push(message),
-      event: () => undefined,
-    };
     const configurationStorage = {
       get: (key: string) => (key === 'allowedCliTools' ? ['node'] : undefined),
     } as never;
-    const command = new RunShellChatCommand(process.cwd(), emitter, configurationStorage);
+    const command = new RunShellChatCommand(process.cwd(), configurationStorage);
     const registry = new CommandRegistry();
     registry.register(
       RunShellChatCommandMetadata,
@@ -58,7 +46,9 @@ describe('/run command', () => {
     );
 
     expect(result.status).toBe('ok');
-    expect(output).toContain('run-ok');
+    expect(result.message).toContain('$ node -e');
+    expect(result.message).toContain('run-ok');
+    expect(result.message).toContain('Result not in context');
   });
 
   it('declares the structured agent tool surface as cli_run', () => {

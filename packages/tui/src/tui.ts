@@ -241,6 +241,16 @@ export class TUI extends Container {
       }
       const newlyCommitted = Math.max(0, desiredCommitted - this.inlineCommittedLines);
       if (newlyCommitted > 0) {
+        // Transcript rows are inserted above fixed composer/footer rows. Paint
+        // the updated frame before scrolling so the physical rows committed to
+        // native history are the new transcript rows, not stale fixed rows
+        // from the previous frame.
+        const currentFrame = allLines.slice(
+          this.inlineCommittedLines,
+          this.inlineCommittedLines + height
+        );
+        this.writeLines(currentFrame, width, height);
+
         // Scroll the current top row into native history, then populate the
         // newly opened bottom row. Repeating this also handles a single update
         // that adds more than one terminal-height of tool output.

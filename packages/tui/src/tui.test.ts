@@ -263,4 +263,39 @@ describe('TUI rendering', () => {
     expect(terminal.writes.join('')).toContain('thirteen');
     tui.stop();
   });
+
+  it('repaints an inline frame before committing content inserted above fixed footer rows', async () => {
+    const terminal = new FakeTerminal();
+    terminal.rows = 4;
+    const tui = new TUI(terminal, { inline: true });
+    const component = new MutableComponent();
+    component.lines = ['message-1', 'message-2', 'prompt', 'footer'];
+    tui.addChild(component);
+
+    tui.start();
+    await flushRender();
+    terminal.clearWrites();
+
+    component.lines = [
+      'message-1',
+      'message-2',
+      'tool-1',
+      'tool-2',
+      'tool-3',
+      'tool-4',
+      'prompt',
+      'footer',
+    ];
+    tui.invalidate();
+    await flushRender();
+
+    const output = terminal.writes.join('');
+    const firstScroll = output.indexOf('\x1b[4;1H\r\n');
+    expect(firstScroll).toBeGreaterThan(-1);
+    expect(output).toContain('tool-1');
+    expect(output).toContain('tool-2');
+    expect(output.indexOf('tool-1')).toBeLessThan(firstScroll);
+    expect(output.indexOf('tool-2')).toBeLessThan(firstScroll);
+    tui.stop();
+  });
 });

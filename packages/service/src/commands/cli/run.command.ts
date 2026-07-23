@@ -5,7 +5,6 @@ import type {
   ExecutionContext,
   CommandResponse,
   ICommandDescriptor,
-  ChatCommandEmitter,
   IConfigurationStorage,
 } from '@ai-team/core';
 import { withTimeout } from '../../utils/with-timeout.js';
@@ -181,17 +180,19 @@ export const RunShellChatCommandMetadata = {
   },
 } satisfies ICommandDescriptor;
 
-export class RunShellChatCommand implements ICommand<RunCliParams, void> {
+export class RunShellChatCommand implements ICommand<RunCliParams, RunCliResult> {
   readonly metadata = RunShellChatCommandMetadata;
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly emitter: ChatCommandEmitter,
     private readonly configurationStorage: IConfigurationStorage
   ) {}
 
-  async execute(params: RunCliParams, _ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    this.emitter.write(`\n$ ${params.command}${params.args?.length ? ` ${params.args.join(' ')}` : ''}`);
+  async execute(
+    params: RunCliParams,
+    _ctx: ExecutionContext
+  ): Promise<CommandResponse<RunCliResult>> {
+    const invocation = `$ ${params.command}${params.args?.length ? ` ${params.args.join(' ')}` : ''}`;
     try {
       const result = await runCommand(
         params,
@@ -199,12 +200,16 @@ export class RunShellChatCommand implements ICommand<RunCliParams, void> {
         getGlobalAllowedCommands(this.configurationStorage) ?? []
       );
       const out = [result.stdout, result.stderr].filter(Boolean).join('\n\n') || '(no output)';
-      this.emitter.write(out);
-      this.emitter.write('\n(Result not in context — use /context add to include it.)');
-      return { status: 'ok', message: 'Command executed successfully.' };
+      return {
+        status: 'ok',
+        message: `${invocation}\n\n${out}\n\n(Result not in context — use /context add to include it.)`,
+        data: result,
+      };
     } catch (err: any) {
-      this.emitter.write(`Command failed: ${err.message}`);
-      return { status: 'error', message: `Command failed: ${err.message}` };
+      return {
+        status: 'error',
+        message: `${invocation}\n\nCommand failed: ${err.message}`,
+      };
     }
   }
 }

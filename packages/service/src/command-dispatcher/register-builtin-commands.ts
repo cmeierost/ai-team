@@ -916,7 +916,6 @@ export function registerBuiltInCommands(
     (r) =>
       new RunShellChatCommand(
         r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
-        r.resolve(CORE_SERVICE_TOKENS.EmitService),
         r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage)
       )
   );
