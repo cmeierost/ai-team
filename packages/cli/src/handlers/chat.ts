@@ -11,10 +11,7 @@ import type { ITerminal } from '@ai-team/core';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import { findWorkspaceRoot } from '@ai-team/infrastructure';
 import { TUI, ProcessTerminal, Loader } from '@ai-team/tui';
-import {
-  ExtensionRegistry,
-  type ToolRenderDecision,
-} from '../extensions/index.js';
+import { ExtensionRegistry, type ToolRenderDecision } from '../extensions/index.js';
 import { ChatView } from '../tui/chat-view.js';
 import { WorkflowEventRegistry, type WorkflowEventState } from './workflow-event-registry.js';
 import { normalizeAgentDisplayName, resolveAgentDisplay } from '../tui/agent-color.js';
@@ -100,7 +97,7 @@ function buildChatCtx(
   terminal: ITerminal,
   workspaceRoot: string
 ): Omit<ChatCtx, 'setSpinnerActive'> {
-  const tui = new TUI(terminal);
+  const tui = new TUI(terminal, { inline: true });
 
   const extensionRegistry = new ExtensionRegistry();
   const eventRegistry = new WorkflowEventRegistry();
@@ -156,7 +153,7 @@ function buildChatCtx(
     });
   }
 
-  const layout = new ChatLayout(terminal, chatView, spinner, prompt, statusLine);
+  const layout = new ChatLayout(terminal, chatView, spinner, prompt, statusLine, true);
   tui.addChild(layout);
 
   const ctx = {
@@ -184,12 +181,7 @@ function addToChatView(ctx: ChatCtx, component: unknown): void {
 }
 
 function isToolRenderDecision(value: unknown): value is ToolRenderDecision {
-  return Boolean(
-    value
-    && typeof value === 'object'
-    && 'handled' in value
-    && 'placements' in value
-  );
+  return Boolean(value && typeof value === 'object' && 'handled' in value && 'placements' in value);
 }
 
 function applyProjection(ctx: ChatCtx, projection: unknown, event: unknown): boolean {
@@ -373,7 +365,7 @@ function updateStatusLine(
       `\x1b[22m\x1b[38;2;${color.r};${color.g};${color.b}m` + `${agent.name}\x1b[39m\x1b[2m`;
     right.push(agent.model ? `${coloredName} (${agent.model})` : coloredName);
   }
-  if (ctx.sessionId) right.push(`session id: ${ctx.sessionId}`);
+  if (ctx.sessionId) right.push(`${ctx.sessionId}`);
   ctx.statusLine.setRight(right.join(' - '));
 }
 
@@ -451,11 +443,9 @@ export async function renderChat(
   );
 
   const questionPresenter = new TuiQuestionPresenter(ctx.layout, ctx.tui);
-  const detachQuestionPresenter =
-    dependencies.questionService?.attachPresenter(questionPresenter);
-  const abortQuestions = () => questionPresenter.abort(
-    abortControl.signal.reason ?? new Error('Chat aborted')
-  );
+  const detachQuestionPresenter = dependencies.questionService?.attachPresenter(questionPresenter);
+  const abortQuestions = () =>
+    questionPresenter.abort(abortControl.signal.reason ?? new Error('Chat aborted'));
   abortControl.signal.addEventListener('abort', abortQuestions, { once: true });
 
   ctx.tui.start();

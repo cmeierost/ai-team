@@ -41,6 +41,17 @@ describe('Prompt', () => {
     expect(prompt.render(80)).toHaveLength(4);
   });
 
+  it('normalizes PowerShell CR-only multiline paste without dropping the first line', () => {
+    const prompt = new Prompt('> ', vi.fn());
+    prompt.focused = true;
+
+    prompt.handleInput('\x1b[200~first line\rsecond line\rthird line\x1b[201~');
+
+    expect(prompt.value).toBe('first line\nsecond line\nthird line');
+    expect(prompt.render(80).join('\n')).toContain('first line');
+    expect(prompt.render(80).join('\n')).toContain('second line');
+  });
+
   it('grows for explicit and wrapped multiline input', () => {
     const resolve = vi.fn();
     const prompt = new Prompt('> ', resolve);
@@ -59,6 +70,25 @@ describe('Prompt', () => {
     expect(resolve).toHaveBeenCalledWith(
       'first line\nsecond line that wraps'
     );
+  });
+
+  it('supports Ctrl+Enter line breaks and moving the cursor through the message', () => {
+    const prompt = new Prompt('> ', vi.fn());
+    prompt.focused = true;
+    prompt.handleInput('first');
+    prompt.handleInput('\x1b[13;5~');
+    prompt.handleInput('second');
+
+    expect(prompt.value).toBe('first\nsecond');
+    expect(prompt.render(80).join('\n')).toContain('second');
+
+    prompt.handleInput('\x1b[D');
+    const before = prompt.render(80).join('\n');
+    expect(before).toContain('secon');
+    expect(before).toContain(`${CURSOR_MARKER}d`);
+
+    prompt.handleInput('\x1b[C');
+    expect(prompt.render(80).join('\n')).toContain(`second${CURSOR_MARKER}`);
   });
 
   it('renders and applies slash-command suggestions inside the TUI', () => {

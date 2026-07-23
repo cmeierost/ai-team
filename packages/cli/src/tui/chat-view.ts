@@ -79,4 +79,9 @@ remove(): void {
   render(width: number): string[] {
     return this.container.render(width);
   }
+
+  /** Render every transcript row without applying the internal viewport. */
+  renderAll(width: number): string[] {
+    return this.viewport.renderAll(width);
+  }
 }

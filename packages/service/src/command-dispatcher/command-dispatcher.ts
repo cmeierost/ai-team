@@ -188,7 +188,7 @@ export class CommandDispatcher implements ICommandDispatcher {
     try {
       const parsed =
         typeof payload === 'string'
-          ? parseArgsIntelligently(payload, descriptor.parameters)
+          ? parseArgsIntelligently(payload, descriptor.parameters, descriptor.input)
           : payload;
       const withContextDefaults = this.applyContextDefaultsFromSchema(
         descriptor,
@@ -296,6 +296,16 @@ export class CommandDispatcher implements ICommandDispatcher {
           setPathValue(resolved, targetPath, value);
         }
       }
+      if (
+        binding.fromWorkflowData &&
+        ctx.workflowState !== undefined &&
+        getPathValue(resolved, targetPath) === undefined
+      ) {
+        const value = getPathValue(ctx.workflowState, binding.fromWorkflowData);
+        if (value !== undefined) {
+          setPathValue(resolved, targetPath, value);
+        }
+      }
     }
 
     return resolved;
@@ -321,7 +331,7 @@ export class CommandDispatcher implements ICommandDispatcher {
       const executionContext = ctx ?? createMinimalExecutionContext();
       const parsed =
         typeof params === 'string'
-          ? parseArgsIntelligently(params, descriptor.parameters)
+          ? parseArgsIntelligently(params, descriptor.parameters, descriptor.input)
           : params;
       const cmd = this.registry.resolve(key, this.resolver);
       if (!cmd) {

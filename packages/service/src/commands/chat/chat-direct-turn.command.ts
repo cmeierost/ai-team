@@ -15,6 +15,7 @@ import type { CommandResponse as ContractCommandResponse } from '@ai-team/api-co
 import type { ResolvedPlugins, TurnResult } from '../../workflow/runtime/pipeline.js';
 import { SendTurnResolvedSkillsAndTools } from '../../workflow/chat/send-turn-step-service.js';
 import { HANDOFF_AUTO_REACT_MESSAGE } from '../../workflow/chat/handoff-auto-react.js';
+import { parseSlashInvocation } from '../../command-dispatcher/slash-invocation.js';
 
 const chatDirectTurnParamsSchema = z.object({
   agentId: z.string().optional(),
@@ -246,7 +247,7 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     userMessage: string,
     ctx: ExecutionContext
   ): Promise<{ responseText: string } | null> {
-    const parsed = this.parseSlashInvocation(userMessage);
+    const parsed = parseSlashInvocation(userMessage);
     if (!parsed) {
       return null;
     }
@@ -324,27 +325,6 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     );
 
     return { responseText };
-  }
-
-  private parseSlashInvocation(
-    userMessage: string
-  ): { commandToken: string; rawArgs: string; rawInput: string } | null {
-    const rawInput = userMessage.trim();
-    if (!rawInput.startsWith('/')) {
-      return null;
-    }
-
-    const [rawCommandToken, ...rest] = rawInput.slice(1).split(/\s+/);
-    const commandToken = (rawCommandToken ?? '').trim().toLowerCase();
-    if (!commandToken) {
-      return null;
-    }
-
-    return {
-      commandToken,
-      rawArgs: rest.join(' '),
-      rawInput,
-    };
   }
 
   private resolveSlashCommand(

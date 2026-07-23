@@ -7,6 +7,7 @@ class FakeTerminal implements Terminal {
   columns = 40;
   rows = 10;
   writes: string[] = [];
+  showCursorCalls = 0;
   private onInput?: (data: string) => void;
   private onResize?: () => void;
 
@@ -15,7 +16,7 @@ class FakeTerminal implements Terminal {
   }
 
   hideCursor(): void {}
-  showCursor(): void {}
+  showCursor(): void { this.showCursorCalls++; }
 
   start(onInput: (data: string) => void, onResize: () => void): void {
     this.onInput = onInput;
@@ -213,6 +214,53 @@ describe('TUI rendering', () => {
     await flushRender();
 
     expect(component.renderedWidth).toBe(terminal.columns - 1);
+    tui.stop();
+  });
+
+  it('shows the hardware cursor when a focused component emits a cursor marker', async () => {
+    const terminal = new FakeTerminal();
+    const tui = new TUI(terminal);
+    const component = new MutableComponent();
+    component.lines = [`input${'\x1b_pi:c\x07'}`];
+    component.handleInput = () => {};
+    tui.addChild(component);
+    tui.setFocused(component);
+
+    tui.start();
+    await flushRender();
+
+    expect(terminal.showCursorCalls).toBeGreaterThan(0);
+    tui.stop();
+  });
+
+  it('commits overflowing inline rows to native terminal scrollback', async () => {
+    const terminal = new FakeTerminal();
+    terminal.rows = 4;
+    const tui = new TUI(terminal, { inline: true });
+    const component = new MutableComponent();
+    component.lines = ['one', 'two', 'three', 'four', 'five', 'six'];
+    tui.addChild(component);
+
+    tui.start();
+    await flushRender();
+    expect(terminal.writes.join('')).toContain('one');
+    expect(terminal.writes.join('')).toContain('six');
+
+    terminal.clearWrites();
+    component.lines.push('seven');
+    tui.invalidate();
+    await flushRender();
+
+    const output = terminal.writes.join('');
+    expect(output).toContain('\x1b[4;1H\r\n');
+    expect(output).toContain('seven');
+
+    terminal.clearWrites();
+    component.lines.push('eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen');
+    tui.invalidate();
+    await flushRender();
+    expect(terminal.writes.join('')).toContain('ten');
+    expect(terminal.writes.join('')).toContain('thirteen');
     tui.stop();
   });
 });

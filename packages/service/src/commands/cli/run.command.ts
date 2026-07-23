@@ -6,6 +6,7 @@ import type {
   CommandResponse,
   ICommandDescriptor,
   ChatCommandEmitter,
+  IConfigurationStorage,
 } from '@ai-team/core';
 import { withTimeout } from '../../utils/with-timeout.js';
 import { execFile } from 'node:child_process';
@@ -33,6 +34,27 @@ export interface RunCliResult {
   stdout: string;
   stderr?: string;
 }
+
+export const RunCliParamsSchema = z.object({
+  command: z.string().min(1).describe('Executable name, for example git'),
+  args: z
+    .array(z.string())
+    .default([])
+    .describe('Command arguments as an array, for example ["status", "--short"]'),
+  cwd: z
+    .string()
+    .optional()
+    .describe('Optional relative working directory (defaults to workspace root)'),
+});
+
+export const RunCliToolMetadata = {
+  key: 'run',
+  group: 'cli',
+  availableIn: { chat: false, tool: true },
+  description:
+    'Execute an allowed command-line executable with an arbitrary argument array. The executable must be allowed for the agent.',
+  parameters: RunCliParamsSchema,
+} satisfies ICommandDescriptor;
 
 async function runCommand(
   params: RunCliParams,
@@ -80,40 +102,70 @@ async function runCommand(
   };
 }
 
-/** Tool version: structured params, LLM-callable, requires allowlist via register_cli. */
-export class RunCliTool {
-  readonly name = 'run';
-  readonly key = 'run';
-  readonly group = 'tool';
-  readonly availableIn = { chat: false, tool: true };
-  readonly description =
-    'Execute an allowed command-line tool with args. Command must be registered first via register_cli.';
-  readonly parameters = z.object({
-    command: z.string().min(1).describe('Executable name, for example git'),
-    args: z
-      .array(z.string())
-      .optional()
-      .describe('Command arguments as array, for example ["status", "--short"]'),
-    cwd: z
-      .string()
-      .optional()
-      .describe('Optional relative working directory (defaults to workspace root)'),
-  });
+function getGlobalAllowedCommands(
+  configurationStorage: IConfigurationStorage
+): string[] | undefined {
+  const configured = configurationStorage.get('allowedCliTools');
+  return Array.isArray(configured)
+    ? configured.filter((value): value is string => typeof value === 'string')
+    : undefined;
+}
 
-  constructor(private readonly workspaceRoot: string) {}
+function getAgentAllowedCommands(
+  configurationStorage: IConfigurationStorage,
+  agentCommands: string[]
+): string[] {
+  const globalCommands = getGlobalAllowedCommands(configurationStorage);
+  if (!globalCommands) {
+    return agentCommands;
+  }
+  const globallyAllowed = new Set(
+    globalCommands.map(normalizeExecutableName).filter(Boolean) as string[]
+  );
+  return agentCommands.filter((command) => {
+    const normalized = normalizeExecutableName(command);
+    return normalized ? globallyAllowed.has(normalized) : false;
+  });
+}
+
+/** Structured, LLM-callable surface. Authorization is enforced by ToolManager and cliTools. */
+export class RunCliTool implements ICommand<RunCliParams, RunCliResult> {
+  readonly metadata = RunCliToolMetadata;
+
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly configurationStorage: IConfigurationStorage
+  ) {}
 
   formatForLlm(result: unknown): unknown {
-    const r = result as RunCliResult;
+    const response = result as CommandResponse<RunCliResult>;
+    const r = response.data ?? (result as RunCliResult);
     const cmd = `$ ${r.command}${r.args?.length ? ' ' + r.args.join(' ') : ''}`;
     const out = r.stdout?.trim() || '(no output)';
     const err = r.stderr?.trim();
     return err ? `${cmd}\n\n${out}\n\nstderr:\n${err}` : `${cmd}\n\n${out}`;
   }
 
-  async execute(params: RunCliParams, context: ExecutionContext): Promise<RunCliResult> {
-    return runCommand(params, this.workspaceRoot, context.agent!.cliTools ?? []);
+  async execute(
+    params: RunCliParams,
+    context: ExecutionContext
+  ): Promise<CommandResponse<RunCliResult>> {
+    if (!context.agent) {
+      throw new Error('run requires an agent context.');
+    }
+    const allowedCommands = getAgentAllowedCommands(
+      this.configurationStorage,
+      context.agent.cliTools ?? []
+    );
+    const result = await runCommand(params, this.workspaceRoot, allowedCommands);
+    return {
+      status: 'ok',
+      message: 'Command executed successfully.',
+      data: result,
+    };
   }
 }
+
 export const RunShellChatCommandMetadata = {
   key: 'run',
   usage: '/run <command> [args...]',
@@ -121,29 +173,30 @@ export const RunShellChatCommandMetadata = {
   description: 'Run a shell command → output shared with agent',
   availableIn: { chat: true, tool: false },
   group: 'chat',
+  parameters: RunCliParamsSchema,
+  input: {
+    mode: 'structured',
+    variadicParameter: 'args',
+    jsonSignature: true,
+  },
 } satisfies ICommandDescriptor;
 
-export class RunShellChatCommand implements ICommand<string, void> {
+export class RunShellChatCommand implements ICommand<RunCliParams, void> {
   readonly metadata = RunShellChatCommandMetadata;
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly emitter: ChatCommandEmitter
+    private readonly emitter: ChatCommandEmitter,
+    private readonly configurationStorage: IConfigurationStorage
   ) {}
 
-  async execute(args: string, ctx: ExecutionContext): Promise<CommandResponse<void>> {
-    const [command, ...rest] = args.trim().split(/\s+/);
-    if (!command) {
-      this.emitter.write('Usage: /run <command> [args...]');
-      return { status: 'error', message: 'Usage: /run <command> [args...]' };
-    }
-
-    this.emitter.write(`\n$ ${args.trim()}`);
+  async execute(params: RunCliParams, _ctx: ExecutionContext): Promise<CommandResponse<void>> {
+    this.emitter.write(`\n$ ${params.command}${params.args?.length ? ` ${params.args.join(' ')}` : ''}`);
     try {
       const result = await runCommand(
-        { command, args: rest },
+        params,
         this.workspaceRoot,
-        ctx.agent?.cliTools ?? []
+        getGlobalAllowedCommands(this.configurationStorage) ?? []
       );
       const out = [result.stdout, result.stderr].filter(Boolean).join('\n\n') || '(no output)';
       this.emitter.write(out);

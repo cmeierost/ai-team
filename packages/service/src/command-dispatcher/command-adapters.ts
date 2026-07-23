@@ -12,6 +12,7 @@ import type {
   ExecutionContext,
   CommandResponse,
   ILlmToolDefinition,
+  CommandInputMetadata,
 } from '@ai-team/core';
 
 import { ZodSchemaTools } from '../utils/zod-schema.js';
@@ -49,8 +50,13 @@ export class CommandAdapterService {
       : undefined;
 
     const defaultHidden = cmd.metadata.input?.contextParameters ?? [];
+    const workflowBound = Object.keys(cmd.metadata.workflowInputBindings ?? {});
     const explicitHidden = cmd.metadata.llm?.hiddenParameters ?? [];
-    const schema = this.stripHiddenParameters(rawSchema, [...defaultHidden, ...explicitHidden]);
+    const schema = this.stripHiddenParameters(rawSchema, [
+      ...defaultHidden,
+      ...workflowBound,
+      ...explicitHidden,
+    ]);
 
     return {
       name: cmd.metadata.key,
@@ -86,6 +92,14 @@ export class CommandAdapterService {
         const value = this.getPathValue(ctx.workflowLastResult, binding.fromLastResult);
         if (value !== undefined) this.setPathValue(resolved, targetPath, value);
       }
+      if (
+        binding.fromWorkflowData &&
+        ctx.workflowState !== undefined &&
+        this.getPathValue(resolved, targetPath) === undefined
+      ) {
+        const value = this.getPathValue(ctx.workflowState, binding.fromWorkflowData);
+        if (value !== undefined) this.setPathValue(resolved, targetPath, value);
+      }
     }
 
     const missingRequired = (cmd.metadata.input?.requiredAtRuntime ?? []).filter(
@@ -105,8 +119,21 @@ export class CommandAdapterService {
     return resolved;
   }
 
-  parseArgsIntelligently(rawArgs: unknown, schema?: unknown): unknown {
+  parseArgsIntelligently(
+    rawArgs: unknown,
+    schema?: unknown,
+    input?: CommandInputMetadata
+  ): unknown {
     if (typeof rawArgs !== 'string') {
+      return rawArgs;
+    }
+
+    if (input?.mode === 'raw-tail') {
+      return rawArgs;
+    }
+
+    // Schema-less commands define their own raw argument grammar.
+    if (!schema) {
       return rawArgs;
     }
 
@@ -118,16 +145,17 @@ export class CommandAdapterService {
     try {
       const parsed = JSON.parse(trimmed);
       if (typeof parsed === 'object' && parsed !== null) {
-        if (schema && typeof (schema as any).parse === 'function') {
-          return (schema as any).parse(parsed);
-        }
         return parsed;
       }
-    } catch {
+    } catch (error) {
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new Error(`Invalid JSON command arguments: ${reason}`);
+      }
       // Not JSON, fall through to key=value parsing.
     }
 
-    return this.parseRawArgs(trimmed, schema);
+    return this.parseRawArgs(trimmed, schema, input);
   }
 
   getPathValue(source: unknown, path: string): unknown {
@@ -222,19 +250,53 @@ export class CommandAdapterService {
     return result;
   }
 
-  private parseRawArgs(rawArgs: string, schema: unknown): unknown {
+  private parseRawArgs(
+    rawArgs: string,
+    schema: unknown,
+    input?: CommandInputMetadata
+  ): unknown {
     if (!rawArgs.trim()) {
       return {};
     }
 
     const tokens = this.tokenizeRawArgs(rawArgs);
+    if (input?.variadicParameter) {
+      return this.parseVariadicArgs(tokens, schema, input.variadicParameter);
+    }
     const flat = this.parseTokensToFlat(tokens);
     this.applyPositionalArgsFromSchema(flat, schema);
     const result = this.reconstructNestedObject(flat);
 
-    return schema && typeof (schema as any).parse === 'function'
-      ? (schema as any).parse(result)
-      : result;
+    return result;
+  }
+
+  private parseVariadicArgs(tokens: string[], schema: unknown, variadicParameter: string): unknown {
+    const jsonSchema = this.zodSchemaTools.toJsonSchema(schema);
+    if (!jsonSchema || typeof jsonSchema !== 'object') {
+      throw new Error('Variadic command input requires an object parameter schema.');
+    }
+
+    const properties = (jsonSchema as { properties?: unknown }).properties;
+    if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+      throw new Error('Variadic command input requires an object parameter schema.');
+    }
+
+    const propertyEntries = Object.entries(properties as Record<string, unknown>);
+    const variadicIndex = propertyEntries.findIndex(([key]) => key === variadicParameter);
+    if (variadicIndex < 0) {
+      throw new Error(
+        `Variadic parameter '${variadicParameter}' is not defined in the command schema.`
+      );
+    }
+
+    const result: Record<string, unknown> = {};
+    for (let index = 0; index < variadicIndex && index < tokens.length; index += 1) {
+      const [key] = propertyEntries[index];
+      result[key] = this.coerceArgValue(tokens[index]);
+    }
+    result[variadicParameter] = tokens.slice(variadicIndex);
+
+    return result;
   }
 
   private applyPositionalArgsFromSchema(flat: Record<string, unknown>, schema: unknown): void {
@@ -345,28 +407,55 @@ export class CommandAdapterService {
 
   private tokenizeRawArgs(rawArgs: string): string[] {
     const tokens: string[] = [];
-    const tokenRegex = /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\S+/g;
+    let current = '';
+    let quote: '"' | "'" | undefined;
+    let tokenStarted = false;
 
-    for (const match of rawArgs.matchAll(tokenRegex)) {
-      const token = match[0] ?? '';
-      tokens.push(this.unquoteToken(token));
+    for (let index = 0; index < rawArgs.length; index += 1) {
+      const char = rawArgs[index];
+
+      if (quote) {
+        if (char === quote) {
+          quote = undefined;
+          tokenStarted = true;
+          continue;
+        }
+        if (char === '\\' && (rawArgs[index + 1] === quote || rawArgs[index + 1] === '\\')) {
+          current += rawArgs[index + 1];
+          index += 1;
+          tokenStarted = true;
+          continue;
+        }
+        current += char;
+        tokenStarted = true;
+        continue;
+      }
+
+      if (char === '"' || char === "'") {
+        quote = char;
+        tokenStarted = true;
+        continue;
+      }
+      if (/\s/.test(char)) {
+        if (tokenStarted) {
+          tokens.push(current);
+          current = '';
+          tokenStarted = false;
+        }
+        continue;
+      }
+      current += char;
+      tokenStarted = true;
+    }
+
+    if (quote) {
+      throw new Error(`Unterminated ${quote === '"' ? 'double' : 'single'} quote.`);
+    }
+    if (tokenStarted) {
+      tokens.push(current);
     }
 
     return tokens;
-  }
-
-  private unquoteToken(token: string): string {
-    if (token.length < 2) {
-      return token;
-    }
-
-    const quote = token[0];
-    if ((quote !== '"' && quote !== "'") || token.at(-1) !== quote) {
-      return token;
-    }
-
-    const inner = token.slice(1, -1);
-    return inner.replaceAll(/\\(["'\\])/g, '$1');
   }
 
   private coerceArgValue(value: string): string | number | boolean {
@@ -404,8 +493,12 @@ export function resolveCommandArgs(
   return commandAdapterService.resolveCommandArgs(cmd, payload, ctx);
 }
 
-export function parseArgsIntelligently(rawArgs: unknown, schema?: unknown): unknown {
-  return commandAdapterService.parseArgsIntelligently(rawArgs, schema);
+export function parseArgsIntelligently(
+  rawArgs: unknown,
+  schema?: unknown,
+  input?: CommandInputMetadata
+): unknown {
+  return commandAdapterService.parseArgsIntelligently(rawArgs, schema, input);
 }
 
 export function getPathValue(source: unknown, path: string): unknown {

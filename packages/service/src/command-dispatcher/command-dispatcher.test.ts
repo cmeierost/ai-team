@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ICommand, IServiceContainer } from '@ai-team/core';
 import type { IQuestionService } from '../interaction/question-service.js';
 import { z } from 'zod';
@@ -45,6 +45,129 @@ function makeDispatcher(questionService?: IQuestionService): {
 }
 
 describe('CommandDispatcher typed dispatch', () => {
+  it('normalizes positional and JSON variadic input to the same parameter object', async () => {
+    const { dispatcher, registry } = makeDispatcher();
+    const parameters = z.object({
+      command: z.string().min(1),
+      args: z.array(z.string()).optional(),
+    });
+    const command: ICommand<
+      { command: string; args?: string[] },
+      { command: string; args?: string[] }
+    > = {
+      metadata: {
+        key: 'structured-variadic',
+        usage: '/structured-variadic <command> [args...]',
+        description: 'accepts an executable followed by any number of arguments',
+        availableIn: { chat: true },
+        parameters,
+        input: {
+          mode: 'structured',
+          variadicParameter: 'args',
+          jsonSignature: true,
+        },
+      },
+      execute: async (params) => ({
+        status: 'ok',
+        message: '',
+        data: params,
+      }),
+    };
+
+    registry.register(command.metadata, () => command as ICommand<unknown, unknown>);
+
+    const positional = await dispatcher.dispatch(
+      'structured-variadic',
+      'git status --short "folder with spaces" ""',
+      { invocationSurface: 'slash', history: [] }
+    );
+    const json = await dispatcher.dispatch(
+      'structured-variadic',
+      JSON.stringify({
+        command: 'git',
+        args: ['status', '--short', 'folder with spaces', ''],
+      }),
+      { invocationSurface: 'slash', history: [] }
+    );
+
+    const expected = {
+      command: 'git',
+      args: ['status', '--short', 'folder with spaces', ''],
+    };
+    expect(positional.status).toBe('ok');
+    expect(positional.data).toEqual(expected);
+    expect(json.status).toBe('ok');
+    expect(json.data).toEqual(expected);
+  });
+
+  it('rejects malformed positional quoting before command execution', async () => {
+    const { dispatcher, registry } = makeDispatcher();
+    const execute = vi.fn();
+    const command: ICommand<
+      { command: string; args?: string[] },
+      { command: string; args?: string[] }
+    > = {
+      metadata: {
+        key: 'quoted-variadic',
+        description: 'quoted variadic input',
+        availableIn: { chat: true },
+        parameters: z.object({
+          command: z.string().min(1),
+          args: z.array(z.string()).optional(),
+        }),
+        input: { mode: 'structured', variadicParameter: 'args' },
+      },
+      execute,
+    };
+    registry.register(command.metadata, () => command as ICommand<unknown, unknown>);
+
+    const result = await dispatcher.dispatch('quoted-variadic', 'git "unterminated', {
+      invocationSurface: 'slash',
+      history: [],
+    });
+
+    expect(result.status).toBe('error');
+    expect(result.message).toContain('Unterminated double quote');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('derives required context fields before final schema validation', async () => {
+    const { dispatcher, registry } = makeDispatcher();
+    const command: ICommand<
+      { sessionId: string; query: string },
+      { sessionId: string; query: string }
+    > = {
+      metadata: {
+        key: 'context-before-validation',
+        description: 'fills session from context',
+        availableIn: { chat: true },
+        parameters: z.object({
+          sessionId: z.string().min(1),
+          query: z.string().min(1),
+        }),
+        input: { contextParameters: ['sessionId'], jsonSignature: true },
+      },
+      execute: async (params) => ({
+        status: 'ok',
+        message: '',
+        data: params,
+      }),
+    };
+    registry.register(command.metadata, () => command as ICommand<unknown, unknown>);
+
+    const result = await dispatcher.dispatch(
+      'context-before-validation',
+      '{"query":"status"}',
+      { invocationSurface: 'slash', history: [], sessionId: 'session-1' }
+    );
+
+    expect(result.status).toBe('ok');
+    expect(result.data).toEqual({
+      sessionId: 'session-1',
+      query: 'status',
+    });
+  });
+
   it('supports registerCommand(ICommand) and typed dispatchCommand', async () => {
     const { dispatcher } = makeDispatcher();
 
@@ -192,6 +315,54 @@ describe('CommandDispatcher typed dispatch', () => {
     expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain('/can');
     expect(prompts[0]).toContain("'path'");
+  });
+
+  it('asks only for required fields still missing after partial JSON input and context derivation', async () => {
+    const prompts: string[] = [];
+    const questionService: IQuestionService = {
+      input: async (request) => {
+        prompts.push(request.message);
+        return 'derived-by-question';
+      },
+      confirm: async () => true,
+      select: async () => 'unused',
+      password: async () => 'unused',
+      checklist: async () => [],
+    };
+    const { dispatcher, registry } = makeDispatcher(questionService);
+    const command: ICommand<
+      { agentId: string; sessionId: string; query: string },
+      { agentId: string; sessionId: string; query: string }
+    > = {
+      metadata: {
+        key: 'complete-partial',
+        description: 'complete partial parameters',
+        availableIn: { chat: true },
+        parameters: z.object({
+          agentId: z.string().min(1),
+          sessionId: z.string().min(1),
+          query: z.string().min(1),
+        }),
+        input: { contextParameters: ['agentId', 'sessionId'], jsonSignature: true },
+      },
+      execute: async (params) => ({ status: 'ok', message: '', data: params }),
+    };
+    registry.register(command.metadata, () => command as ICommand<unknown, unknown>);
+
+    const result = await dispatcher.dispatch('complete-partial', '{"query":"status"}', {
+      invocationSurface: 'slash',
+      history: [],
+      sessionId: 'session-1',
+    });
+
+    expect(result.status).toBe('ok');
+    expect(result.data).toEqual({
+      agentId: 'derived-by-question',
+      sessionId: 'session-1',
+      query: 'status',
+    });
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("'agentId'");
   });
 
   it('does not prompt for tool surface when required params are missing', async () => {
@@ -454,6 +625,48 @@ describe('CommandDispatcher typed dispatch', () => {
 
     expect(result.status).toBe('ok');
     expect(result.data).toEqual({ path: '/from-workflow' });
+    expect(prompts).toHaveLength(0);
+  });
+
+  it('uses declared workflow data before prompting and final validation', async () => {
+    const prompts: string[] = [];
+    const questionService: IQuestionService = {
+      input: async (request) => {
+        prompts.push(request.message);
+        return 'unused';
+      },
+      confirm: async () => true,
+      select: async () => 'unused',
+      password: async () => 'unused',
+      checklist: async () => [],
+    };
+    const { dispatcher, registry } = makeDispatcher(questionService);
+    const command: ICommand<{ targetAgentId: string }, { targetAgentId: string }> = {
+      metadata: {
+        key: 'workflow-data-bound-param',
+        description: 'workflow-data-bound-param',
+        availableIn: { chat: true },
+        parameters: z.object({ targetAgentId: z.string().min(1) }),
+        workflowInputBindings: {
+          targetAgentId: { fromWorkflowData: 'handoff.targetAgentId' },
+        },
+      },
+      execute: async (params) => ({ status: 'ok', message: '', data: params }),
+    };
+    registry.register(command.metadata, () => command as ICommand<unknown, unknown>);
+
+    const result = await dispatcher.dispatch('workflow-data-bound-param', '{}', {
+      invocationSurface: 'slash',
+      history: [],
+      workflowState: {
+        handoff: {
+          targetAgentId: 'alex-morgan',
+        },
+      },
+    });
+
+    expect(result.status).toBe('ok');
+    expect(result.data).toEqual({ targetAgentId: 'alex-morgan' });
     expect(prompts).toHaveLength(0);
   });
 

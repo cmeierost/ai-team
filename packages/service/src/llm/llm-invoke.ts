@@ -196,7 +196,7 @@ export class LlmInvokeService implements ILlmInvokeService {
       role: 'system',
       content:
         `Tool-calling is available. Registered tools: ${tools.map((t) => (t as any).name).join(', ')}. ` +
-        'Do not invent tool names. ' +
+        'Do not invent tool names or slash commands (for example /agent). ' +
         (hasAskTool
           ? 'If you need clarification or missing input from the developer, call com_ask instead of guessing. '
           : '') +

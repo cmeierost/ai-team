@@ -106,6 +106,7 @@ import {
   UpdateEmployeeLlmToolMetadata,
 } from '../commands/agents/update-agent-llm.command.js';
 import { RegisterCliTool, RegisterCliToolMetadata } from '../commands/cli/register-cli.command.js';
+import { RunCliTool, RunCliToolMetadata } from '../commands/cli/run.command.js';
 import {
   SemanticSearchTool,
   SemanticSearchToolMetadata,
@@ -457,6 +458,14 @@ export function registerServiceLayerServices(
           r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
           r.resolve(CORE_SERVICE_TOKENS.AgentManager),
           r.resolve(CORE_SERVICE_TOKENS.AgentDocumentStorage)
+        )
+    );
+    registry.register(
+      RunCliToolMetadata,
+      (r) =>
+        new RunCliTool(
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage)
         )
     );
     registry.register(

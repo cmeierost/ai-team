@@ -5,7 +5,10 @@ import { toCommandRegistration, toLlmToolDefinition } from './command-adapters.j
 
 describe('command-adapters runtime resolution', () => {
   it('resolves context parameters and workflow bindings before execution', async () => {
-    const cmd: ICommand<{ sessionId?: string; target?: { id?: string } }, unknown> = {
+    const cmd: ICommand<
+      { sessionId?: string; target?: { id?: string }; workflowLabel?: string },
+      unknown
+    > = {
       metadata: {
         key: 'resolve_test',
         description: 'resolve test',
@@ -13,13 +16,15 @@ describe('command-adapters runtime resolution', () => {
         parameters: z.object({
           sessionId: z.string().optional(),
           target: z.object({ id: z.string().optional() }).optional(),
+          workflowLabel: z.string().optional(),
         }),
         input: {
           contextParameters: ['sessionId'],
-          requiredAtRuntime: ['sessionId', 'target.id'],
+          requiredAtRuntime: ['sessionId', 'target.id', 'workflowLabel'],
         },
         workflowInputBindings: {
           'target.id': { fromLastResult: 'actor.id' },
+          workflowLabel: { fromWorkflowData: 'data.label' },
         },
       },
       execute: async (args) => args,
@@ -33,6 +38,9 @@ describe('command-adapters runtime resolution', () => {
       workflowLastResult: {
         actor: { id: 'agent-1' },
       },
+      workflowState: {
+        data: { label: 'implementation' },
+      },
     } as any);
 
     expect(result).toEqual(
@@ -41,6 +49,7 @@ describe('command-adapters runtime resolution', () => {
         data: {
           sessionId: 'sess-1',
           target: { id: 'agent-1' },
+          workflowLabel: 'implementation',
         },
       })
     );

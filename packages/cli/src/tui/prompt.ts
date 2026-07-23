@@ -143,7 +143,10 @@ export class Prompt implements Component {
   handleInput(data: string): void {
     const pasteResult = this.bracketedPaste.process(data);
     if (pasteResult.pasted !== undefined) {
-      this.editor.insertText(pasteResult.pasted.replace(/\r\n/g, '\n'));
+      // ConPTY/PowerShell may deliver pasted line breaks as CR, CRLF, or LF.
+      // Normalize them before inserting so the first line is not interpreted
+      // as a terminal return and every pasted line remains visible/editable.
+      this.editor.insertText(pasteResult.pasted.replace(/\r\n?/g, '\n'));
     }
     if (pasteResult.remaining === undefined) {
       return;
@@ -232,7 +235,10 @@ export class Prompt implements Component {
       data === '\n'
       || data === '\x1b\r'
       || data === '\x1b\n'
+      // Kitty keyboard protocol and terminals that encode modified Enter as
+      // a CSI key code (both `u` and legacy `~` forms).
       || /^\x1b\[13;(?:2|3|5)u$/.test(data)
+      || /^\x1b\[13;(?:2|3|5)~$/.test(data)
     );
   }
 

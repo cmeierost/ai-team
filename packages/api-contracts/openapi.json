@@ -7168,6 +7168,10 @@
               }
             ]
           },
+          "variadicParameter": {
+            "type": "string",
+            "nullable": true
+          },
           "jsonSignature": {
             "oneOf": [
               {

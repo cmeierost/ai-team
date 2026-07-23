@@ -61,7 +61,7 @@ describe('ChatLayout', () => {
     spinner.setVisible(false);
     const prompt = new Prompt('> ', () => {});
     const footer = new StatusLine();
-    footer.setRight('Michael Brown (gpt-5.2) - session id: session-1');
+    footer.setRight('Michael Brown (gpt-5.2) - session-1');
     const layout = new ChatLayout(
       terminal,
       chat,
@@ -74,7 +74,7 @@ describe('ChatLayout', () => {
     expect(lines).toHaveLength(terminal.rows);
     expect(lines.every((line) => !line.includes('\n') && !line.includes('\r'))).toBe(true);
     expect(lines.at(-3)).toContain('> ');
-    expect(lines.at(-1)).toContain('session id: session-1');
+    expect(lines.at(-1)).toContain('session-1');
   });
 
   it('routes transcript navigation through the focused layout', () => {
@@ -168,5 +168,28 @@ describe('ChatLayout', () => {
 
     layout.handleInput('x');
     expect(prompt.value).toBe('x');
+  });
+
+  it('retains every transcript row in inline scrollback mode', () => {
+    const chat = new ChatView();
+    for (let index = 1; index <= 120; index += 1) {
+      chat.getContent().addChild(new Text(`message ${index}`));
+    }
+    const spinner = new Loader();
+    spinner.setVisible(false);
+    const layout = new ChatLayout(
+      terminal,
+      chat,
+      spinner,
+      new Prompt('> ', () => {}),
+      new StatusLine(),
+      true
+    );
+
+    const lines = layout.render(80);
+    expect(lines.length).toBeGreaterThan(terminal.rows);
+    expect(lines).toContain('message 1');
+    expect(lines).toContain('message 120');
+    expect(lines.at(-3)).toContain('> ');
   });
 });

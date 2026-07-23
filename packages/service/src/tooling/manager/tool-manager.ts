@@ -25,6 +25,7 @@ import {
 } from '@ai-team/core';
 import { withTimeout } from '../../utils/with-timeout.js';
 import { ZodSchemaTools } from '../../utils/zod-schema.js';
+import { CommandAdapterService } from '../../command-dispatcher/command-adapters.js';
 
 export type { PermissionResult, ToolCatalogEntry } from '@ai-team/core';
 
@@ -109,6 +110,7 @@ const DEFAULT_TIMEOUT_MS = 60_000;
  */
 export class ToolManager implements IToolManager {
   private static readonly schemaTools = new ZodSchemaTools();
+  private readonly commandAdapters = new CommandAdapterService();
   private static readonly ALWAYS_ALLOWED_TOOLS: ReadonlySet<string> = new Set(['com_handoff']);
 
   /**
@@ -310,45 +312,46 @@ export class ToolManager implements IToolManager {
       };
     }
 
-    // Authorization
-    const permission = await this.canExecute(agent, canonicalToolName, args);
-    if (!permission.allowed) {
-      return { ok: false, toolName, error: permission.reason ?? 'Permission denied' };
-    }
-
-    // Optional pre-execution hook
-    if (options?.onBeforeExecute) {
-      const approved = await options.onBeforeExecute(toolName, args);
-      if (!approved) {
-        return { ok: false, toolName, error: `Tool call cancelled: ${toolName}` };
-      }
-    }
-
-    // Zod validation
-    const parsed =
-      tool.metadata.parameters && typeof tool.metadata.parameters.safeParse === 'function'
-        ? tool.metadata.parameters.safeParse(args)
-        : { success: true as const, data: args };
-    if (!parsed.success) {
-      return {
-        ok: false,
-        toolName,
-        error: `Invalid parameters for ${toolName}: ${parsed.error.message}`,
-      };
-    }
-
-    // Execution with timeout
     const toolContext = {
       ...context,
       agent,
       agentId: agent.id,
       resolve: this.container.resolve.bind(this.container),
     } as ExecutionContext;
+
+    let resolvedArgs: unknown;
+    try {
+      resolvedArgs = this.commandAdapters.resolveCommandArgs(tool, args, toolContext);
+    } catch (error) {
+      return {
+        ok: false,
+        toolName,
+        error: `Invalid parameters for ${toolName}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+
+    // Authorization
+    const permission = await this.canExecute(agent, canonicalToolName, resolvedArgs);
+    if (!permission.allowed) {
+      return { ok: false, toolName, error: permission.reason ?? 'Permission denied' };
+    }
+
+    // Optional pre-execution hook
+    if (options?.onBeforeExecute) {
+      const approved = await options.onBeforeExecute(toolName, resolvedArgs);
+      if (!approved) {
+        return { ok: false, toolName, error: `Tool call cancelled: ${toolName}` };
+      }
+    }
+
+    // Execution with timeout
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
     try {
       const result = await withTimeout(
-        tool.execute(parsed.data, toolContext),
+        tool.execute(resolvedArgs, toolContext),
         timeoutMs,
         `Tool ${toolName} timed out after ${timeoutMs}ms`
       );
@@ -657,9 +660,7 @@ export class ToolManager implements IToolManager {
         ? meta.summary.trim()
         : meta.description;
 
-    const schema = ToolManager.schemaTools.toJsonSchema(meta.parameters, {
-      additionalProperties: true,
-    });
+    const schema = this.commandAdapters.toLlmToolDefinition(tool).parameters;
 
     return {
       name: ToolIdentity.key(meta),

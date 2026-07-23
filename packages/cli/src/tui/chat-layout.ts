@@ -11,13 +11,15 @@ export class ChatLayout implements Component {
   _parent: import('@ai-team/tui').Container | null = null;
   private isFocused = false;
   private readonly composer: ComponentSlot;
+  private inlineCommitCount = 0;
 
   constructor(
     private readonly terminal: ITerminal,
     private readonly chat: ChatView,
     private readonly spinner: Loader,
     composer: Component,
-    private readonly footer: StatusLine
+    private readonly footer: StatusLine,
+    private readonly inlineScrollback = false
   ) {
     this.composer = new ComponentSlot(composer);
   }
@@ -28,6 +30,11 @@ export class ChatLayout implements Component {
 
   pushComposer(component: Component): () => void {
     return this.composer.push(component);
+  }
+
+  /** Number of leading rendered rows safe to commit to terminal scrollback. */
+  getInlineCommitCount(): number {
+    return this.inlineCommitCount;
   }
 
   get focused(): boolean {
@@ -82,6 +89,23 @@ export class ChatLayout implements Component {
       spinnerLines.length + promptLines.length + footerLines.length;
     const transcriptRows = Math.max(0, this.terminal.rows - fixedRows);
 
+    if (this.inlineScrollback) {
+      const transcript = this.chat.renderAll(width);
+      this.inlineCommitCount = Math.max(0, transcript.length - transcriptRows);
+      const padding = Array.from(
+        { length: Math.max(0, transcriptRows - transcript.length) },
+        () => ''
+      );
+      return [
+        ...padding,
+        ...transcript,
+        ...spinnerLines,
+        ...promptLines,
+        ...footerLines,
+      ];
+    }
+
+    this.inlineCommitCount = 0;
     this.chat.setVisibleLines(transcriptRows);
     const transcript = transcriptRows > 0 ? this.chat.render(width) : [];
     const padding = Array.from(

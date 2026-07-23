@@ -56,6 +56,12 @@ export interface CommandLlmMetadata {
 export interface CommandInputMetadata {
   /** Parsing mode for user-provided arguments. */
   mode?: CommandInputMode;
+  /**
+   * Structured parameter that receives every remaining positional token.
+   * Tokens that look like options (for example `--short`) remain values in
+   * this array instead of being interpreted as command-level named options.
+   */
+  variadicParameter?: string;
   /** Whether this command supports JSON-signature invocation. */
   jsonSignature?: boolean;
   /** Parameters that should be resolved from runtime context when available. */

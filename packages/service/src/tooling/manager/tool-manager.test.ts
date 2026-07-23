@@ -144,6 +144,72 @@ describe('ToolManager wildcard selectors and default-deny policy', () => {
   });
 });
 
+describe('ToolManager parameter normalization', () => {
+  it('derives hidden context and workflow-bound parameters before validation and execution', async () => {
+    const tool: ICommand<
+      { sessionId: string; targetAgentId: string; query: string },
+      { sessionId: string; targetAgentId: string; query: string }
+    > = {
+      metadata: {
+        key: 'contextual',
+        group: 'ops',
+        availableIn: { tool: true },
+        description: 'contextual tool',
+        parameters: z.object({
+          sessionId: z.string().min(1),
+          targetAgentId: z.string().min(1),
+          query: z.string().min(1),
+        }),
+        input: {
+          contextParameters: ['sessionId'],
+        },
+        workflowInputBindings: {
+          targetAgentId: { fromWorkflowData: 'handoff.targetAgentId' },
+        },
+      },
+      execute: async (params) => ({
+        status: 'ok',
+        message: '',
+        data: params,
+      }),
+    };
+    const manager = makeManager(tool as ICommand);
+    const agent = makeAgent({ tools: ['ops_contextual'] });
+
+    const schema = manager.toSchema(agent);
+    const properties = schema[0]?.parameters?.properties as Record<string, unknown>;
+    expect(properties).toHaveProperty('query');
+    expect(properties).not.toHaveProperty('sessionId');
+    expect(properties).not.toHaveProperty('targetAgentId');
+
+    const result = await manager.execute(
+      agent,
+      'ops_contextual',
+      { query: 'status' },
+      {
+        history: [],
+        sessionId: 'session-1',
+        workflowState: {
+          handoff: {
+            targetAgentId: 'alex-morgan',
+          },
+        },
+      }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toEqual({
+      status: 'ok',
+      message: '',
+      data: {
+        sessionId: 'session-1',
+        targetAgentId: 'alex-morgan',
+        query: 'status',
+      },
+    });
+  });
+});
+
 describe('ToolManager permission descriptors', () => {
   it('allows agent-delegation by default when delegatesTo is not configured', async () => {
     const manager = makeManager({

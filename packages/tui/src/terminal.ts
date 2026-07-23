@@ -60,9 +60,6 @@ export class ProcessTerminal implements ITerminal {
 
     // Enable bracketed paste mode
     output.write('\x1b[?2004h');
-    // Enable SGR mouse reporting so Windows Terminal/PowerShell forwards
-    // wheel events to the focused TUI instead of scrolling the host buffer.
-    output.write('\x1b[?1003h\x1b[?1006h');
 
     // Query terminal size
     this.updateSize();
@@ -86,7 +83,7 @@ export class ProcessTerminal implements ITerminal {
     // Disable bracketed paste
     output.write('\x1b[?2004l');
 
-    // Disable mouse tracking
+    // Ensure any mouse modes are restored if a caller enabled them.
     output.write('\x1b[?1006l\x1b[?1003l');
 
     if (this.handlersInstalled) {

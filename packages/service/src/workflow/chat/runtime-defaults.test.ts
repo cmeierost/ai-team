@@ -209,6 +209,7 @@ describe('DefaultToolResolver', () => {
 
     const toolManager = {
       getForAgent: vi.fn(() => [comHandoffTool]),
+      get: vi.fn(() => comHandoffTool),
     } as any;
 
     const resolver = new DefaultToolResolver(toolManager);
@@ -220,6 +221,18 @@ describe('DefaultToolResolver', () => {
 
     const tools = await resolver.resolve(ctx);
     expect(tools).toEqual([comHandoffTool]);
+  });
+
+  it('restores the core handoff tool when an agent catalog omits it', async () => {
+    const comHandoffTool = {
+      metadata: { key: 'handoff', group: 'com', availableIn: { tool: true }, description: 'handoff' },
+    } as any;
+    const resolver = new DefaultToolResolver({
+      getForAgent: vi.fn(() => []),
+      get: vi.fn(() => comHandoffTool),
+    } as any);
+
+    await expect(resolver.resolve(makeCtx())).resolves.toEqual([comHandoffTool]);
   });
 
   it('hides com_handoff when workflow policy deny explicitly blocks it', async () => {

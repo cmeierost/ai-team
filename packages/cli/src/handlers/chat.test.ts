@@ -82,7 +82,7 @@ describe('new chat TUI projection', () => {
     expect(output).toContain('Hello from Michael.');
     expect(output).toContain('\x1b[38;2;82;165;224m');
     expect(output).toContain('Michael Brown');
-    expect(output).toContain('(gpt-5.2) - session id: session-1234567890');
+    expect(output).toContain('(gpt-5.2) - session-1234567890');
   });
 
   it('uses the selected agent id until agent_info supplies richer display data', async () => {
@@ -333,7 +333,7 @@ describe('new chat TUI projection', () => {
 
     expect(commands).toEqual(['chat-chat-startup', 'chat-chat']);
     expect(terminal.writes.join('')).toContain(
-      '(gpt-5.2) - session id: session-1'
+      '(gpt-5.2) - session-1'
     );
   });
 
@@ -460,7 +460,7 @@ describe('new chat TUI projection', () => {
     const output = terminal.writes.join('');
     expect(output).toContain('C:\\Projects\\ai-team - feature/tui -');
     expect(output).toContain('Sarah Lee');
-    expect(output).toContain('(best-chat) - session id: session-new-sarah');
+    expect(output).toContain('(best-chat) - session-new-sarah');
   });
 
   it('keeps both sides of a handoff in one transcript', async () => {
@@ -690,7 +690,7 @@ describe('new chat TUI projection', () => {
       sessionId: 'session-emily',
       message: 'who am I talking to?',
     });
-    expect(terminal.writes.join('')).toContain('(best-chat) - session id: session-emily');
+    expect(terminal.writes.join('')).toContain('(best-chat) - session-emily');
   });
 
   it('prints commands for resuming the current or latest session when exiting', async () => {

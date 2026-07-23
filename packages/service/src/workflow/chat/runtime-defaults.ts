@@ -143,8 +143,7 @@ export class DefaultToolResolver implements IToolResolver {
 
   async resolve(ctx: ExecutionContext): Promise<ICommand[]> {
     const workflowPolicy = this.resolveWorkflowToolPolicy(ctx.workflowState);
-
-    return this.toolManager.getForAgent(ctx.agent!).filter((tool) => {
+    const resolved = this.toolManager.getForAgent(ctx.agent!).filter((tool) => {
       const key = ToolIdentity.key(tool.metadata);
       if (key === 'hr_hire') return false;
       if (workflowPolicy && this.isToolDeniedByWorkflowPolicy(workflowPolicy, tool.metadata)) {
@@ -152,6 +151,20 @@ export class DefaultToolResolver implements IToolResolver {
       }
       return true;
     });
+
+    // Handoff is a core chat capability, not an agent opt-in. Keep it
+    // available even if an adapter's agent-specific catalog omitted the
+    // default, while still honoring an explicit workflow deny/remove policy.
+    const handoff = this.toolManager.get?.('com_handoff');
+    if (
+      handoff
+      && !resolved.some((tool) => ToolIdentity.key(tool.metadata) === 'com_handoff')
+      && (!workflowPolicy || !this.isToolDeniedByWorkflowPolicy(workflowPolicy, handoff.metadata))
+    ) {
+      resolved.push(handoff);
+    }
+
+    return resolved;
   }
 
   private resolveWorkflowToolPolicy(workflowState: unknown):

@@ -41,6 +41,11 @@ export class ChatViewport implements Component {
     return allLines.length;
   }
 
+  /** Render the complete transcript for terminal-native inline scrollback. */
+  renderAll(width: number): string[] {
+    return this.content.render(width);
+  }
+
   /**
    * Scroll to the bottom.
    */

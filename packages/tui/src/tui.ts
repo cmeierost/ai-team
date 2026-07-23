@@ -20,8 +20,12 @@ export class TUI extends Container {
   private renderRequested = false;
   private renderTimer: NodeJS.Timeout | undefined;
   private stopped = false;
+  private inlineCommittedLines = 0;
 
-  constructor(terminal: Terminal) {
+  constructor(
+    terminal: Terminal,
+    private readonly options: { inline?: boolean } = {}
+  ) {
     super();
     this.terminal = terminal;
   }
@@ -59,7 +63,9 @@ export class TUI extends Container {
       clearTimeout(this.renderTimer);
       this.renderTimer = undefined;
     }
-    if (this.previousLines.length > 0) {
+    if (this.options.inline && this.previousLines.length > 0) {
+      this.terminal.write(`\x1b[${this.terminal.rows};1H\r\n`);
+    } else if (this.previousLines.length > 0) {
       this.terminal.write('\x1b[' + this.previousLines.length + 'B\r\n');
     }
     this.terminal.showCursor();
@@ -141,6 +147,11 @@ export class TUI extends Container {
       }
     }
 
+    if (this.options.inline) {
+      this.renderInline(newLines, cursorPos, width, height, widthChanged || heightChanged);
+      return;
+    }
+
     if (this.previousLines.length === 0 && !widthChanged && !heightChanged) {
       this.writeLines(newLines, width, height);
       this.positionHardwareCursor(cursorPos);
@@ -193,6 +204,72 @@ export class TUI extends Container {
     this.writeDiff(newLines, firstChanged, lastChanged, width, height);
     this.positionHardwareCursor(cursorPos);
     this.previousLines = newLines;
+    this.previousWidth = width;
+    this.previousHeight = height;
+  }
+
+  /**
+   * Inline mode keeps completed overflow rows in the terminal's native
+   * scrollback and repaints only the current terminal-height tail.
+   */
+  private renderInline(
+    allLines: string[],
+    cursorPos: { row: number; col: number } | null,
+    width: number,
+    height: number,
+    dimensionsChanged: boolean
+  ): void {
+    const commitProvider = this.children.find(
+      (child) => typeof (child as { getInlineCommitCount?: unknown }).getInlineCommitCount === 'function'
+    ) as { getInlineCommitCount: () => number } | undefined;
+    const desiredCommitted = Math.max(
+      0,
+      commitProvider?.getInlineCommitCount() ?? (allLines.length - height)
+    );
+
+    if (this.previousLines.length === 0) {
+      this.writeLines(allLines, width, height, dimensionsChanged);
+      this.inlineCommittedLines = desiredCommitted;
+    } else {
+      if (dimensionsChanged) {
+        // Already committed rows cannot be reflowed in terminal history.
+        // Preserve them and repaint only the live tail at the new dimensions.
+        this.inlineCommittedLines = Math.min(
+          this.inlineCommittedLines,
+          Math.max(0, allLines.length)
+        );
+      }
+      const newlyCommitted = Math.max(0, desiredCommitted - this.inlineCommittedLines);
+      if (newlyCommitted > 0) {
+        // Scroll the current top row into native history, then populate the
+        // newly opened bottom row. Repeating this also handles a single update
+        // that adds more than one terminal-height of tool output.
+        let buffer = `\x1b[${height};1H`;
+        for (let index = 0; index < newlyCommitted; index++) {
+          buffer += '\r\n';
+          const incoming = allLines[this.inlineCommittedLines + height + index];
+          if (incoming !== undefined) buffer += `${incoming}\x1b[K`;
+        }
+        this.terminal.write(buffer);
+        this.inlineCommittedLines += newlyCommitted;
+      }
+
+      const frameStart = Math.min(this.inlineCommittedLines, allLines.length);
+      const frame = allLines.slice(frameStart, frameStart + height);
+      this.writeLines(frame, width, height);
+    }
+
+    const adjustedCursor = cursorPos
+      ? {
+          row: Math.min(
+            Math.max(0, height - 1),
+            Math.max(0, cursorPos.row - this.inlineCommittedLines)
+          ),
+          col: cursorPos.col,
+        }
+      : null;
+    this.positionHardwareCursor(adjustedCursor);
+    this.previousLines = allLines.slice(this.inlineCommittedLines, this.inlineCommittedLines + height);
     this.previousWidth = width;
     this.previousHeight = height;
   }
@@ -270,6 +347,10 @@ export class TUI extends Container {
       this.terminal.hideCursor();
       return;
     }
+    // TUI starts with the cursor hidden while rendering. Prompt components
+    // expose a cursor marker, so make the hardware cursor visible whenever a
+    // focused input position is present.
+    this.terminal.showCursor();
     this.terminal.write('\x1b[' + (cursorPos.row + 1) + ';' + (cursorPos.col + 1) + 'H');
   }
 

@@ -355,6 +355,7 @@ export interface CommandDescriptor {
   intentExamples?: string[];
   input?: {
     mode?: 'structured' | 'raw-tail' | 'hybrid';
+    variadicParameter?: string;
     jsonSignature?: boolean;
     contextParameters?: string[];
     contextOverrideAllowlist?: string[];

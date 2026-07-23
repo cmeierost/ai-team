@@ -1,6 +1,7 @@
 import type { ICommandDispatcher } from '@ai-team/api-contracts';
 import type { ExecutionContext } from '@ai-team/core';
 import { deriveRegistryKey } from '../../command-dispatcher/command-registry.js';
+import { parseSlashInvocation } from '../../command-dispatcher/slash-invocation.js';
 import type { PreLlmIntentProvider, ScoredPreLlmIntentCandidate } from './pre-llm-intents.js';
 
 export class SlashIntentProvider implements PreLlmIntentProvider {
@@ -10,18 +11,11 @@ export class SlashIntentProvider implements PreLlmIntentProvider {
     message: string,
     _ctx: ExecutionContext
   ): Promise<ScoredPreLlmIntentCandidate[]> {
-    const trimmed = message.trim();
-    if (!trimmed.startsWith('/')) {
+    const invocation = parseSlashInvocation(message);
+    if (!invocation) {
       return [];
     }
-
-    const [rawKey, ...rest] = trimmed.slice(1).split(/\s+/);
-    const key = (rawKey ?? '').toLowerCase();
-    if (!key) {
-      return [];
-    }
-
-    const rawArgs = rest.join(' ');
+    const key = invocation.commandToken;
 
     const direct = this.commandDispatcher.getCommand(key);
     const matched = this.commandDispatcher
@@ -42,7 +36,7 @@ export class SlashIntentProvider implements PreLlmIntentProvider {
       {
         kind: 'command',
         commandKey: resolvedKey,
-        rawArgs,
+        rawArgs: invocation.rawArgs,
         score: 100,
         reason: 'Slash command detected in chat input.',
         source: 'slash-intent-provider',
