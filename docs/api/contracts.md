@@ -106,6 +106,10 @@ Swagger UI provides:
 - **Runtime detail**:
   - `data.kind` mirrors service runtime events (for example: `status`, `token`, `tool`, `question`, `handoff`, `log`, `code_edit_proposal`)
   - runtime events are correlated per request by `InteractionStream` using request-scoped queueing over a connection-scoped `EmitService` sink
+  - command responses have status `ok`, `error`, or `cancelled`; handoff approval
+    refusal/timeouts use `cancelled` and preserve their typed reason payload
+  - `session_switched` may include the authoritative `agentId` and transition
+    source; handoff events carry source/target identity and resolved model data
 
 ```mermaid
 sequenceDiagram

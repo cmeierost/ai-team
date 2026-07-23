@@ -46,10 +46,7 @@ describe('CommandChatRuntime', () => {
           sessionId: 'session-emily',
         },
       });
-    const runtime = new CommandChatRuntime(
-      { dispatch } as any,
-      { create: workflowRunner } as any
-    );
+    const runtime = new CommandChatRuntime({ dispatch } as any, { create: workflowRunner } as any);
 
     const result = await runtime.runAsync({
       message: 'Let me talk to Emily.',
@@ -111,10 +108,7 @@ describe('CommandChatRuntime', () => {
         },
       };
     });
-    const runtime = new CommandChatRuntime(
-      { dispatch } as any,
-      { create: workflowRunner } as any
-    );
+    const runtime = new CommandChatRuntime({ dispatch } as any, { create: workflowRunner } as any);
 
     const result = await runtime.runAsync({
       message: 'workflow handoff',
@@ -173,10 +167,7 @@ describe('CommandChatRuntime', () => {
         },
       };
     });
-    const runtime = new CommandChatRuntime(
-      { dispatch } as any,
-      { create: workflowRunner } as any
-    );
+    const runtime = new CommandChatRuntime({ dispatch } as any, { create: workflowRunner } as any);
 
     const result = await runtime.runAsync({
       message: 'handoff',

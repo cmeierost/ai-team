@@ -34,9 +34,7 @@ function createCommand(askAnswer = false, source = SOURCE) {
     resolveAgentForOperationAsync: vi.fn(async (query: string) =>
       query === source.id ? source : TARGET
     ),
-    getAgentAsync: vi.fn(async (id: string) =>
-      id === source.id ? source : TARGET
-    ),
+    getAgentAsync: vi.fn(async (id: string) => (id === source.id ? source : TARGET)),
   } as any;
   const commandDispatcher = {
     dispatch: vi.fn(async () => ({
@@ -46,12 +44,7 @@ function createCommand(askAnswer = false, source = SOURCE) {
     })),
   } as any;
   return {
-    command: new HandoffCommand(
-      handoffSubWorkflow,
-      emitService,
-      agentManager,
-      commandDispatcher
-    ),
+    command: new HandoffCommand(handoffSubWorkflow, emitService, agentManager, commandDispatcher),
     handoffSubWorkflow,
     commandDispatcher,
   };
@@ -167,11 +160,7 @@ describe('HandoffCommand delegation approval', () => {
   );
 
   it.each([
-    [
-      'timeout',
-      { status: 'error', message: 'Question timed out.' },
-      'approval-timeout',
-    ],
+    ['timeout', { status: 'error', message: 'Question timed out.' }, 'approval-timeout'],
     [
       'missing question capability',
       { status: 'error', message: 'Question service unavailable.' },

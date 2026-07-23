@@ -550,10 +550,14 @@ describe('CommandDispatcher typed dispatch', () => {
 
     registry.register(command.metadata, () => command as ICommand<unknown, unknown>);
 
-    const result = await dispatcher.dispatch('handoff-like', 'michael-brown please review auth flow', {
-      invocationSurface: 'chat',
-      history: [],
-    });
+    const result = await dispatcher.dispatch(
+      'handoff-like',
+      'michael-brown please review auth flow',
+      {
+        invocationSurface: 'chat',
+        history: [],
+      }
+    );
 
     expect(result.status).toBe('ok');
     expect(result.data).toEqual({ value: 'michael-brown|please review auth flow' });

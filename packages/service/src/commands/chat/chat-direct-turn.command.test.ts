@@ -477,10 +477,7 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     );
     const outerContext = { history: [], workflowState: {} } as any;
 
-    await command.execute(
-      { options: { message: 'Let me talk to Emily.' } } as any,
-      outerContext
-    );
+    await command.execute({ options: { message: 'Let me talk to Emily.' } } as any, outerContext);
     const second = await command.execute(
       { options: { message: 'Here is the next request.' } } as any,
       outerContext

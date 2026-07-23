@@ -82,10 +82,8 @@ export class HandoffCommand implements ICommand<Params, HandoffCommandResult> {
       return { status: 'error', message: `No agent found matching: "${targetAgentId}"` };
     }
     const sourceAgent =
-      context.agent
-      ?? (context.agentId
-        ? await this.agentManager.getAgentAsync(context.agentId)
-        : undefined);
+      context.agent ??
+      (context.agentId ? await this.agentManager.getAgentAsync(context.agentId) : undefined);
     const isSlashInvocation = context.invocationSurface === 'slash';
     if (targetAgent.id === sourceAgent?.id) {
       return {
@@ -96,16 +94,14 @@ export class HandoffCommand implements ICommand<Params, HandoffCommandResult> {
       };
     }
 
-    const isTrustedHumanSlash =
-      isSlashInvocation && context.calledByHuman === true;
+    const isTrustedHumanSlash = isSlashInvocation && context.calledByHuman === true;
     const isConfiguredTarget = (sourceAgent?.handoffs ?? []).some(
       (handoff) => handoff.agent === targetAgent.id
     );
 
     if (!isTrustedHumanSlash && !isConfiguredTarget) {
-      const approvalContext = sourceAgent && !context.agent
-        ? { ...context, agent: sourceAgent }
-        : context;
+      const approvalContext =
+        sourceAgent && !context.agent ? { ...context, agent: sourceAgent } : context;
       const approval = await this.commandDispatcher.dispatch(
         'com-ask',
         {
@@ -149,9 +145,8 @@ export class HandoffCommand implements ICommand<Params, HandoffCommandResult> {
       }
     }
 
-    const transitionContext = sourceAgent && !context.agent
-      ? { ...context, agent: sourceAgent }
-      : context;
+    const transitionContext =
+      sourceAgent && !context.agent ? { ...context, agent: sourceAgent } : context;
     const transition = await this.handoffSubWorkflow.executeAsync({
       ctx: transitionContext,
       targetAgentQuery: targetAgent.id,

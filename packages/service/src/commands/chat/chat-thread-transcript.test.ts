@@ -73,8 +73,24 @@ describe('ChatThreadTranscriptService', () => {
       ],
     ]);
     const agents = new Map([
-      ['michael-brown', { id: 'michael-brown', name: 'Michael Brown', role: 'CEO' }],
-      ['emily-davis', { id: 'emily-davis', name: 'Emily Davis', role: 'Engineer' }],
+      [
+        'michael-brown',
+        {
+          id: 'michael-brown',
+          name: 'Michael Brown',
+          role: 'CEO',
+          avatar: { color: 'hsl(205, 70%, 60%)' },
+        },
+      ],
+      [
+        'emily-davis',
+        {
+          id: 'emily-davis',
+          name: 'Emily Davis',
+          role: 'Engineer',
+          avatar: { color: 'hsl(330, 70%, 60%)' },
+        },
+      ],
     ]);
     const service = new ChatThreadTranscriptService(
       { getSessionChain: vi.fn(async () => [root, child]) } as any,
@@ -101,11 +117,19 @@ describe('ChatThreadTranscriptService', () => {
     expect(transcript.filter((entry) => entry.kind === 'handoff')).toHaveLength(1);
     expect(transcript[1]).toMatchObject({
       kind: 'message',
-      agent: { name: 'Michael Brown', resolvedLlm: { model: 'gpt-5.2' } },
+      agent: {
+        name: 'Michael Brown',
+        avatar: { color: 'hsl(205, 70%, 60%)' },
+        resolvedLlm: { model: 'gpt-5.2' },
+      },
     });
     expect(transcript[3]).toMatchObject({
       kind: 'message',
-      agent: { name: 'Emily Davis', resolvedLlm: { model: 'claude-sonnet' } },
+      agent: {
+        name: 'Emily Davis',
+        avatar: { color: 'hsl(330, 70%, 60%)' },
+        resolvedLlm: { model: 'claude-sonnet' },
+      },
     });
   });
 

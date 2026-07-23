@@ -363,6 +363,47 @@ describe('WorkflowEventRegistry', () => {
     expect(start?.render(100).join('\n')).toContain(
       'Clemens wants to continue with Michael.'
     );
+
+    harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'handoff',
+        timestamp,
+        handoffId: 'handoff-back-1',
+        handoffPhase: 'start',
+        fromAgentId: 'michael-brown',
+        fromAgentName: 'Michael Brown',
+        fromLlmModel: 'gpt-5.2',
+        toAgentId: 'emily-davis',
+        toAgentName: 'Emily Davis',
+        toLlmModel: 'best-chat',
+      },
+      harness.state,
+      harness.extensions
+    );
+    harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'handoff',
+        timestamp,
+        handoffId: 'handoff-back-1',
+        handoffPhase: 'complete',
+        fromAgentId: 'michael-brown',
+        fromAgentName: 'Michael Brown',
+        fromLlmModel: 'gpt-5.2',
+        toAgentId: 'emily-davis',
+        toAgentName: 'Emily Davis',
+        toLlmModel: 'best-chat',
+        briefingContent: 'Returning to Emily.',
+      },
+      harness.state,
+      harness.extensions
+    );
+
+    expect(harness.state.currentAgent).toMatchObject({
+      name: 'Emily Davis',
+      model: 'best-chat',
+    });
   });
 
   it('renders a resumed handoff without changing the active agent', () => {

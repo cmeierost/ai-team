@@ -358,7 +358,9 @@ describe('HandoffSubWorkflow', () => {
 
   it('cancels before persistence when target context loading fails', async () => {
     const { agentManager, sessionManager, threadManager, llmService, emitService } = makeDeps();
-    sessionManager.getSessionMessages.mockRejectedValueOnce(new Error('target history unavailable'));
+    sessionManager.getSessionMessages.mockRejectedValueOnce(
+      new Error('target history unavailable')
+    );
     const workflow = new HandoffSubWorkflow(
       agentManager,
       sessionManager,

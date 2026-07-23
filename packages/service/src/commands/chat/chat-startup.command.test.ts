@@ -7,9 +7,9 @@ describe('ChatStartupCommand', () => {
       resolve: vi.fn(async () => ({
         sessionId: 'session-1',
         agent: {
-        id: 'sarah-lee',
-        name: 'Sarah Lee',
-        role: 'chief-architect',
+          id: 'sarah-lee',
+          name: 'Sarah Lee',
+          role: 'chief-architect',
         },
       })),
     };

@@ -18,6 +18,50 @@ describe('runtimeEventToStreamEvent', () => {
     expect(mapped).toBeNull();
   });
 
+  it('preserves authoritative handoff and session-switch identity fields', () => {
+    expect(
+      runtimeEventToStreamEvent(
+        {
+          kind: 'handoff',
+          handoffId: 'handoff-1',
+          handoffPhase: 'complete',
+          fromAgentId: 'michael',
+          fromLlmModel: 'gpt-5.2',
+          fromSessionId: 'session-michael',
+          toAgentId: 'emily',
+          toLlmModel: 'best-chat',
+          toSessionId: 'session-emily',
+          briefingContent: 'Continue from here.',
+        },
+        { command: 'chat', timestamp: 't1' }
+      )
+    ).toMatchObject({
+      kind: 'handoff',
+      handoffPhase: 'complete',
+      fromAgentId: 'michael',
+      fromLlmModel: 'gpt-5.2',
+      toAgentId: 'emily',
+      toLlmModel: 'best-chat',
+      toSessionId: 'session-emily',
+    });
+    expect(
+      runtimeEventToStreamEvent(
+        {
+          kind: 'session_switched',
+          agentId: 'emily',
+          sessionId: 'session-emily',
+          source: 'handoff',
+        },
+        { command: 'chat', timestamp: 't2' }
+      )
+    ).toMatchObject({
+      kind: 'session_switched',
+      agentId: 'emily',
+      sessionId: 'session-emily',
+      source: 'handoff',
+    });
+  });
+
   it('passes through unknown event kinds', () => {
     const mapped = runtimeEventToStreamEvent({ kind: 'custom', payload: 1 } as unknown as any, {
       command: 'chat',

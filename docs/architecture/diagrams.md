@@ -172,6 +172,8 @@ sequenceDiagram
   participant Orch as ChatOrchestrator
   participant Turn as sendTurn()
 
+  Surface->>Service: resolve startup intent (agent/session/new)
+  Service-->>Surface: active agent/model/session events
   Surface->>Service: stream(MediatorRequest)
   Service-->>Surface: started
   Service->>Invoke: invoke(request, emitRuntimeEvent)

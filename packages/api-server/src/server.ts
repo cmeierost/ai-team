@@ -72,6 +72,10 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
     (c) => {
       // Provide the actual API base URL for SystemService.
       c.registerInstance(TOKENS.ApiBaseUrl, apiBaseUrl);
+      // REST services share the same service graph as WebSocket chat and need
+      // interaction services even when no live connection is available.
+      c.registerInstance(TOKENS.EmitService, new EmitService(() => {}));
+      c.registerInstance(TOKENS.QuestionService, new WsQuestionService());
     }
   );
 

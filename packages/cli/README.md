@@ -59,6 +59,8 @@ The full-screen chat is a projection of shared runtime events:
   `com_ask` calls are standalone non-speech transcript components.
 - The CLI question service attaches a native presenter while chat is active and
   falls back to Inquirer elsewhere.
+- Chat startup sends agent/session/new intent to the service. The CLI must not
+  traverse thread state or select the active session itself.
 
 Do not move these UI concepts into `@ai-team/core` or add a separate command,
 tool, or workflow execution path for the TUI.

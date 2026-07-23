@@ -241,11 +241,18 @@ navigation timestamp. `ThreadManager` owns resolution and legacy seeding, so
 CLI and API consumers do not infer the active personality from message
 activity.
 
+Chat startup selection follows the same boundary. Adapters pass an optional
+agent/session plus the explicit-new flag; `ChatStartupTargetResolver` resolves
+bare resume and member-session resume through the persisted thread cursor.
+
 Handoff summaries are written to both source and target sessions with one
 `handoffId`. The service's presentation transcript traverses the complete
 thread, orders entries by timestamp and persisted message ID, and deduplicates
 the mirrored summary. That transcript is for UI rendering only; normal LLM
 turns load only the active agent session.
+
+Command responses use `ok`, `error`, or `cancelled`. A denied or unavailable
+handoff approval is a typed cancellation and does not enter the transition.
 
 This is the practical end-to-end flow for the **remote browser path** (`web -> api-server -> service`).
 

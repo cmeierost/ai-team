@@ -395,11 +395,7 @@ describe('ThreadManager active thread navigation', () => {
     const michael = await sessionManager.createSession('michael-brown', 'dev-1');
     const emily = await sessionManager.createHandoffSession('emily-davis', 'dev-1', michael.id);
 
-    const resolved = await threadManager.resolveHandoffSession(
-      'michael-brown',
-      emily.id,
-      'dev-1'
-    );
+    const resolved = await threadManager.resolveHandoffSession('michael-brown', emily.id, 'dev-1');
 
     expect(resolved).toMatchObject({ isNew: false, session: { id: michael.id } });
     expect(await threadManager.getSessionChain(emily.id)).toHaveLength(2);

@@ -67,10 +67,7 @@ export class ChatThreadTranscriptService {
       Array.from(agentIds).map(async (agentId) => {
         const agent = await this.agentManager.getAgentAsync(agentId);
         if (agent) {
-          agents.set(
-            agentId,
-            this.identityResolver?.resolve(agent) ?? agent
-          );
+          agents.set(agentId, this.identityResolver?.resolve(agent) ?? agent);
         }
       })
     );
@@ -125,7 +122,7 @@ export class ChatThreadTranscriptService {
             message,
             agent: message.isHuman
               ? undefined
-              : agents.get(message.from) ?? agents.get(fallbackAgentId ?? ''),
+              : (agents.get(message.from) ?? agents.get(fallbackAgentId ?? '')),
           },
         });
       }

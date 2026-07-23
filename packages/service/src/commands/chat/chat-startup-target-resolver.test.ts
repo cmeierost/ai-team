@@ -27,11 +27,7 @@ function createResolver() {
   } as any;
 
   return {
-    resolver: new ChatStartupTargetResolver(
-      agentManager,
-      threadManager,
-      developerIdentity
-    ),
+    resolver: new ChatStartupTargetResolver(agentManager, threadManager, developerIdentity),
     agentManager,
     threadManager,
   };

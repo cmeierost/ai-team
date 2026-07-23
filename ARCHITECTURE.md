@@ -306,12 +306,17 @@ The thread root persists `activeSessionId`, `threadNavigationStack`, and
 member session to that cursor, seed legacy threads deterministically, and own
 handoff push/return-pop behavior. Bare resume selects the most recently
 navigated thread rather than treating `lastActivityAt` as the active cursor.
+`ChatStartupTargetResolver` also owns bare, member-session, and agent-only
+startup selection; CLI and API adapters pass intent and do not traverse thread
+state themselves.
 
 `com_handoff` owns delegation approval and transition semantics. A trusted
 human slash invocation is pre-approved; an agent tool call to a target absent
 from its configured `handoffs` invokes `com_ask` before any transition side
 effect. A handoff to the current return-stack top is a summarized return, which
 is also the implementation used by `/back`.
+Denied, timed-out, or unavailable approval returns a typed `cancelled` command
+response without changing messages, cursor, stack, or runtime identity.
 
 One logical handoff summary is persisted in both participating sessions with a
 shared `handoffId`. The service builds a separate presentation transcript from

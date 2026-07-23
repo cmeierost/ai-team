@@ -229,7 +229,7 @@ export function extractSessionActivatedTools(notes?: string): SessionActivatedTo
  */
 export function backfillActivatedToolRequests(
   tools: SessionActivatedTool[],
-   
+
   messages: any[]
 ): SessionActivatedTool[] {
   if (tools.length === 0) return tools;
@@ -271,10 +271,7 @@ export function backfillActivatedToolRequests(
  * is available (e.g. sessions created before activatedTools persistence was added).
  * Each message whose content starts with `[tool:name]` is treated as a completed call.
  */
-export function reconstructActivatedToolsFromMessages(
-   
-  messages: any[]
-): SessionActivatedTool[] {
+export function reconstructActivatedToolsFromMessages(messages: any[]): SessionActivatedTool[] {
   const results: SessionActivatedTool[] = [];
   for (const msg of messages) {
     if (msg?.isHuman || msg?.from === 'human') continue;

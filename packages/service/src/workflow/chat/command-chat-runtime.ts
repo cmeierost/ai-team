@@ -1,8 +1,4 @@
-import type {
-  ExecutionContext,
-  ICommandDispatcher,
-  IWorkflowRunnerFactory,
-} from '@ai-team/core';
+import type { ExecutionContext, ICommandDispatcher, IWorkflowRunnerFactory } from '@ai-team/core';
 import {
   ChatRuntime,
   createChatRuntimeStepCommand,
@@ -145,8 +141,7 @@ export class CommandChatRuntime {
                 'com-handoff',
                 {
                   targetAgentId,
-                  targetWorkflowId:
-                    handoffInput.handoff.handoffTargetWorkflowId ?? 'chat',
+                  targetWorkflowId: handoffInput.handoff.handoffTargetWorkflowId ?? 'chat',
                   briefingNote: handoffInput.handoff.handoffNote,
                   workflowToolPolicy: handoffInput.handoff.handoffWorkflowToolPolicy,
                 },
@@ -159,8 +154,7 @@ export class CommandChatRuntime {
               return {
                 agentId: transition.targetAgentId ?? targetAgentId,
                 sessionId:
-                  transition.targetSessionId ??
-                  handoffInput.handoff.handoffTargetSessionId,
+                  transition.targetSessionId ?? handoffInput.handoff.handoffTargetSessionId,
               };
             }
           );
@@ -170,10 +164,7 @@ export class CommandChatRuntime {
       }
     }) as ChatRuntimeStepResolver;
 
-    return new ChatRuntime(
-      resolveStep,
-      this.workflowRunnerFactory.create()
-    ).runAsync(input);
+    return new ChatRuntime(resolveStep, this.workflowRunnerFactory.create()).runAsync(input);
   }
 
   private createExecutionContext(
@@ -190,12 +181,9 @@ export class CommandChatRuntime {
       sessionId: values.sessionId,
       invocationSurface: input.invocationSurface,
       calledByHuman: values.calledByHuman ?? input.calledByHuman,
-      callerType:
-        values.calledByHuman ?? input.calledByHuman ? 'human' : input.callerType,
+      callerType: (values.calledByHuman ?? input.calledByHuman) ? 'human' : input.callerType,
       ...(input.signal ? { signal: input.signal } : {}),
-      ...(input.subworkflowDepth !== undefined
-        ? { subworkflowDepth: input.subworkflowDepth }
-        : {}),
+      ...(input.subworkflowDepth !== undefined ? { subworkflowDepth: input.subworkflowDepth } : {}),
     };
   }
 
