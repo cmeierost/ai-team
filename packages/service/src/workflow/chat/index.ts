@@ -65,6 +65,7 @@ export {
 } from './chat-skill-service.js';
 
 export { HANDOFF_AUTO_REACT_MESSAGE } from './handoff-auto-react.js';
+export { CommandChatRuntime } from './command-chat-runtime.js';
 export {
   HandoffSubWorkflow,
   type HandoffSubWorkflowInput,

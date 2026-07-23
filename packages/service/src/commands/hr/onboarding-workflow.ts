@@ -68,17 +68,17 @@ interface CommandDispatcherLike {
     params: unknown,
     ctx: ExecutionContext
   ): Promise<{
-    status: 'ok' | 'error';
+    status: 'ok' | 'error' | 'cancelled';
     message?: string;
     data?: unknown;
   }>;
 }
 
 function assertOk<T>(
-  response: { status: 'ok' | 'error'; message?: string; data?: unknown },
+  response: { status: 'ok' | 'error' | 'cancelled'; message?: string; data?: unknown },
   key: string
 ): T {
-  if (response.status === 'error') {
+  if (response.status !== 'ok') {
     throw new Error(response.message || `Command '${key}' failed`);
   }
 

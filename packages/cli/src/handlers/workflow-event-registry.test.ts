@@ -3,6 +3,7 @@ import type { StreamEvent } from '@ai-team/api-contracts';
 import { ExtensionRegistry } from '../extensions/index.js';
 import {
   WorkflowEventRegistry,
+  type EventProjection,
   type WorkflowEventState,
 } from './workflow-event-registry.js';
 import { UserMessage } from '../tui/user-message.js';
@@ -19,6 +20,21 @@ function createHarness() {
       currentResponse: null,
     } satisfies WorkflowEventState,
   };
+}
+
+function renderedProjection(projection: EventProjection | null, width = 80): string {
+  if (!projection) return '';
+  if ('placements' in projection) {
+    return projection.placements
+      .map((placement) => placement.component.render(width).join('\n'))
+      .join('\n');
+  }
+  return projection.render(width).join('\n');
+}
+
+function transcriptComponent(projection: EventProjection | null) {
+  if (!projection || !('placements' in projection)) return projection;
+  return projection.placements.find((placement) => placement.target === 'transcript')?.component;
 }
 
 describe('WorkflowEventRegistry', () => {
@@ -79,7 +95,7 @@ describe('WorkflowEventRegistry', () => {
       harness.extensions
     );
 
-    const rendered = component?.render(80).join('\n') ?? '';
+    const rendered = renderedProjection(component);
     expect(rendered).toContain('Michael Brown');
     expect(rendered).toContain('→ Clemens Meier');
     expect(rendered).toContain('Previously discussed');
@@ -108,7 +124,7 @@ describe('WorkflowEventRegistry', () => {
     };
 
     const component = harness.registry.handle(event, harness.state, harness.extensions);
-    const rendered = component?.render(80).join('\n') ?? '';
+    const rendered = renderedProjection(component);
 
     expect(rendered).toContain('README.md');
     expect(rendered).toContain('file contents');
@@ -153,9 +169,9 @@ describe('WorkflowEventRegistry', () => {
     );
 
     expect(started).not.toBeNull();
-    expect(completed).toBeNull();
-    expect(started?.render(80).join('\n')).toContain('[result]');
-    expect(started?.render(80).join('\n')).toContain('done');
+    expect(completed).toMatchObject({ handled: true, placements: [] });
+    expect(transcriptComponent(started)?.render(80).join('\n')).toContain('[result]');
+    expect(transcriptComponent(started)?.render(80).join('\n')).toContain('done');
   });
 
   it('renders each historical tool result without merging replayed calls', () => {
@@ -189,8 +205,8 @@ describe('WorkflowEventRegistry', () => {
       harness.extensions
     );
 
-    expect(first?.render(80).join('\n')).toContain('first result');
-    expect(second?.render(80).join('\n')).toContain('second result');
+    expect(renderedProjection(first)).toContain('first result');
+    expect(renderedProjection(second)).toContain('second result');
   });
 
   it('uses a bounded preview for a large historical tool result', () => {
@@ -213,7 +229,7 @@ describe('WorkflowEventRegistry', () => {
       harness.extensions
     );
 
-    const rendered = component?.render(80).join('\n') ?? '';
+    const rendered = renderedProjection(component);
     expect(rendered).toContain('result 1');
     expect(rendered).not.toContain('result 30');
     expect(rendered).toContain('more lines');
@@ -334,6 +350,7 @@ describe('WorkflowEventRegistry', () => {
         fromAgentName: 'Emily Davis',
         toAgentId: 'michael-brown',
         toAgentName: 'Michael Brown',
+        toLlmModel: 'gpt-5.2',
         briefingContent: 'Clemens wants to continue with Michael.',
       },
       harness.state,
@@ -342,6 +359,7 @@ describe('WorkflowEventRegistry', () => {
 
     expect(complete).toBeNull();
     expect(harness.state.currentAgent?.name).toBe('Michael Brown');
+    expect(harness.state.currentAgent?.model).toBe('gpt-5.2');
     expect(start?.render(100).join('\n')).toContain(
       'Clemens wants to continue with Michael.'
     );
@@ -385,7 +403,7 @@ describe('WorkflowEventRegistry', () => {
     expect(harness.state.currentAgent?.name).toBe('Sarah Lee');
   });
 
-  it('attaches slash-command results to the current user message', () => {
+  it('renders slash-command results separately after the developer invocation', () => {
     const harness = createHarness();
     const userMessage = new UserMessage('/help', 'Clemens');
     harness.state.currentUserMessage = userMessage;
@@ -410,8 +428,64 @@ describe('WorkflowEventRegistry', () => {
       harness.extensions
     );
 
-    expect(component).toBeNull();
-    expect(userMessage.render(80).join('\n')).toContain('Available in-chat commands.');
+    expect(renderedProjection(component)).toContain('Available in-chat commands.');
+    expect(userMessage.render(80).join('\n')).not.toContain('Available in-chat commands.');
+  });
+
+  it('keeps repeated slash results distinct and renders live output like history', () => {
+    const harness = createHarness();
+    const live = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'tool',
+        timestamp,
+        toolName: 'slash:help',
+        toolPhase: 'result',
+        toolResult: {
+          toolName: 'slash:help',
+          outcome: 'result',
+          request: { rawInput: '/help' },
+          resultLlm: 'Help result',
+        },
+      },
+      harness.state,
+      harness.extensions
+    );
+    const repeated = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'tool',
+        timestamp,
+        toolName: 'slash:help',
+        toolPhase: 'result',
+        toolResult: {
+          toolName: 'slash:help',
+          outcome: 'result',
+          request: { rawInput: '/help' },
+          resultLlm: 'Help result',
+        },
+      },
+      harness.state,
+      harness.extensions
+    );
+    const historical = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'tool',
+        timestamp,
+        historical: true,
+        toolName: 'slash:help',
+        toolPhase: 'result',
+        input: { rawInput: '/help' },
+        output: 'Help result',
+      } as any,
+      harness.state,
+      harness.extensions
+    );
+
+    expect(renderedProjection(live)).toContain('Help result');
+    expect(renderedProjection(repeated)).toContain('Help result');
+    expect(renderedProjection(historical)).toBe(renderedProjection(live));
   });
 
   it('updates the current user entry with the authoritative developer name', () => {

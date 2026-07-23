@@ -140,7 +140,7 @@ import {
   InteractionService,
 } from '../interaction/interaction-service.js';
 import type { ChatOptions, IInteractionService, WorkflowCallbacks } from '@ai-team/api-contracts';
-import { WorkflowRunnerFactory } from '../workflow/index.js';
+import { CommandChatRuntime, WorkflowRunnerFactory } from '../workflow/index.js';
 import { GovernanceService } from '../governance/governance-service.js';
 import { AgentToolsService } from '../commands/tools/tools-service.js';
 import {
@@ -275,17 +275,11 @@ export function registerServiceLayerServices(
 
   container.registerScoped(
     CORE_SERVICE_TOKENS.ChatRuntime,
-    (): IChatRuntime => ({
-      async runAsync() {
-        return {
-          status: 'failed',
-          text: '',
-          hopCount: 0,
-          error:
-            'ChatRuntime is transport-scoped and must be registered by the CLI adapter container.',
-        };
-      },
-    })
+    (c): IChatRuntime =>
+      new CommandChatRuntime(
+        c.resolve(CORE_SERVICE_TOKENS.CommandDispatcher),
+        c.resolve(CORE_SERVICE_TOKENS.WorkflowRunnerFactory)
+      )
   );
 
   // Register CommandRegistry with all built-in tools

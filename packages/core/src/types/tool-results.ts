@@ -49,6 +49,21 @@ export interface HandoffRequest {
   timestamp: string;
 }
 
+export interface HandoffCancelledResult {
+  type: 'handoff_cancelled';
+  outcome: 'cancelled';
+  targetAgentId: string;
+  reasonCode:
+    | 'approval-denied'
+    | 'approval-cancelled'
+    | 'approval-timeout'
+    | 'approval-unavailable';
+  message: string;
+  timestamp: string;
+}
+
+export type HandoffCommandResult = HandoffRequest | HandoffCancelledResult;
+
 // ── Hire ──────────────────────────────────────────────────────────────────────
 
 export interface HireResult {

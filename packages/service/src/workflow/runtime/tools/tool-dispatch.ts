@@ -104,8 +104,6 @@ export class ToolDispatcher implements IToolDispatchService {
       }
     );
 
-    this.applyHandoffContextMutation(ctx, toolName, execResult.ok, executionContext);
-
     const processed = this.prepareExecutionOutput(execResult, toolName);
     await this._appendToolHistory(
       ctx,
@@ -115,6 +113,9 @@ export class ToolDispatcher implements IToolDispatchService {
       processed.persistedLlmResult,
       args
     );
+    // Persist the source agent's tool call before adopting a handoff target.
+    // Otherwise the handoff result is incorrectly attributed to the target session.
+    this.applyHandoffContextMutation(ctx, toolName, execResult.ok, executionContext);
 
     const toolEvent = this.buildToolEvent(toolName, args, processed);
     this.emitService.toolEvent(

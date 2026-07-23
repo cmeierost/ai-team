@@ -12,7 +12,13 @@ import { CodeEditProposal } from '../tui/code-edit-proposal.js';
 import { PreviousLog } from '../tui/previous-log.js';
 import { UserMessage } from '../tui/user-message.js';
 import { ThinkingBlock } from '../tui/thinking-block.js';
-import { ExtensionRegistry } from '../extensions/index.js';
+import {
+  ExtensionRegistry,
+  type NormalizedToolEvent,
+  type ToolRenderDecision,
+} from '../extensions/index.js';
+
+export type EventProjection = Component | ToolRenderDecision;
 
 /**
  * Event handler function type.
@@ -21,7 +27,7 @@ export type EventHandler = (
   event: StreamEvent<'chat'>,
   state: WorkflowEventState,
   registry: ExtensionRegistry
-) => Component | null;
+) => EventProjection | null;
 
 /**
  * Shared state for event handlers.
@@ -80,7 +86,7 @@ export class WorkflowEventRegistry {
     event: StreamEvent<'chat'>,
     state: WorkflowEventState,
     registry: ExtensionRegistry
-  ): Component | null {
+  ): EventProjection | null {
     // Check extension handlers first
     const extensionHandlers = registry.getHandlers(event.kind);
     for (const handler of extensionHandlers) {
@@ -158,46 +164,55 @@ function handleTool(
   event: StreamEvent<'chat'>,
   state: WorkflowEventState,
   registry: ExtensionRegistry
-): Component | null {
+): ToolRenderDecision {
   const payload = event as any;
   const toolName = payload.toolName ?? payload.name ?? 'unknown';
   const toolResult = payload.toolResult;
   const input = toolResult?.request ?? payload.input;
   const commandResponse = toolResult?.commandResponse;
-  const output =
-    commandResponse?.data
-    ?? commandResponse?.message
-    ?? toolResult?.resultLlm
-    ?? payload.output;
+  const output = toolName.startsWith('slash:')
+    ? (
+        toolResult?.resultLlm
+        ?? commandResponse?.message
+        ?? commandResponse?.data
+        ?? payload.output
+      )
+    : (
+        commandResponse?.data
+        ?? commandResponse?.message
+        ?? toolResult?.resultLlm
+        ?? payload.output
+      );
   const historical = payload.historical === true;
   if (!historical) {
     state.currentResponse = null;
     collapseThinking(state);
   }
 
-  if (
-    toolName.startsWith('slash:')
-    && (payload.toolPhase === 'result' || payload.toolPhase === 'error')
-  ) {
-    const resultText = formatTranscriptValue(output);
-    if (state.currentUserMessage) {
-      state.currentUserMessage.setResult(resultText);
-      return null;
-    }
-    const message = new UserMessage('', state.developerName);
-    message.setResult(resultText);
-    state.currentUserMessage = message;
-    return message;
-  }
-
-  const custom = registry.renderTool(toolName, input, output);
-  if (custom) return custom;
+  const phase = normalizeToolPhase(payload.toolPhase, toolResult?.outcome);
+  const normalized: NormalizedToolEvent = {
+    toolName,
+    phase,
+    callId: typeof payload.toolCallId === 'string' ? payload.toolCallId : undefined,
+    request: input,
+    output,
+    error:
+      phase === 'error'
+        ? (commandResponse?.message ?? payload.message ?? output)
+        : undefined,
+    denial: toolResult?.denial ?? payload.toolDenial,
+    historical,
+  };
+  const custom = registry.renderTool(normalized);
+  if (custom.handled) return custom;
 
   if (historical) {
-    return new ToolEvent(toolName, input, output, payload.toolPhase, {
-      maxInputLines: 4,
-      maxOutputLines: 8,
-    });
+    return transcriptPlacement(
+      new ToolEvent(toolName, input, output, phase, {
+        maxInputLines: 4,
+        maxOutputLines: 8,
+      })
+    );
   }
 
   const toolKey = payload.toolCallId ?? toolName;
@@ -205,23 +220,35 @@ function handleTool(
   state.toolComponents = toolComponents;
   const existing = toolComponents.get(toolKey);
   if (existing) {
-    existing.update(input, output, payload.toolPhase);
-    return null;
+    existing.update(input, output, phase);
+    return { handled: true, placements: [] };
   }
 
-  const component = new ToolEvent(toolName, input, output, payload.toolPhase);
+  const component = new ToolEvent(toolName, input, output, phase);
   toolComponents.set(toolKey, component);
-  return component;
+  return transcriptPlacement(component);
 }
 
-function formatTranscriptValue(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (value === undefined || value === null) return '';
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
+function normalizeToolPhase(
+  phase: unknown,
+  outcome: unknown
+): NormalizedToolEvent['phase'] {
+  const value = typeof phase === 'string' ? phase : outcome;
+  if (
+    value === 'request'
+    || value === 'start'
+    || value === 'result'
+    || value === 'error'
+    || value === 'denied'
+  ) return value;
+  return 'start';
+}
+
+function transcriptPlacement(component: Component): ToolRenderDecision {
+  return {
+    handled: true,
+    placements: [{ target: 'transcript', component }],
+  };
 }
 
 function handleTurnFinished(

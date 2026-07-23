@@ -45,6 +45,9 @@ export class ChatTurnCommand implements ICommand<ChatTurnParams, string> {
       contextFiles: payload.options.contextFiles,
       message: payload.options.message,
       maxHops: 0,
+      invocationSurface: ctx.invocationSurface,
+      calledByHuman: ctx.calledByHuman,
+      callerType: ctx.callerType,
       ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 

@@ -134,6 +134,7 @@ import { AgentToolsService } from '../commands/tools/tools-service.js';
 import { GovernanceService } from '../governance/governance-service.js';
 import { ChatCommand } from '../commands/chat/chat.command.js';
 import { ChatStartupCommand } from '../commands/chat/chat-startup.command.js';
+import { ChatStartupTargetResolver } from '../commands/chat/chat-startup-target-resolver.js';
 import { ChatThreadTranscriptService } from '../commands/chat/chat-thread-transcript.js';
 import { ChatTurnCommand } from '../commands/chat/chat-turn.command.js';
 import { ChatDirectTurnCommand } from '../commands/chat/chat-direct-turn.command.js';
@@ -673,7 +674,6 @@ export function registerBuiltInCommands(
     );
 
     return new ChatStartupCommand(
-      r.resolve(CORE_SERVICE_TOKENS.AgentManager),
       resolveChatSessionCommand,
       loadSessionMessagesCommand,
       introductionCommand,
@@ -686,6 +686,11 @@ export function registerBuiltInCommands(
       new ChatInfoService(r.resolve(CORE_SERVICE_TOKENS.EmitService)),
       r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService),
       identityResolver,
+      new ChatStartupTargetResolver(
+        r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+        r.resolve(CORE_SERVICE_TOKENS.ThreadManager),
+        r.resolve(CORE_SERVICE_TOKENS.DeveloperIdentityService)
+      ),
       r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
       r.resolve(CORE_SERVICE_TOKENS.SystemInfoService)
     );

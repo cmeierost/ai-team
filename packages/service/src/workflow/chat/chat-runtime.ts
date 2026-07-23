@@ -127,6 +127,9 @@ export interface ChatRuntimeRunInput extends ChatLoopInput {
   signal?: AbortSignal;
   /** Depth counter for handoff subworkflows. Passed through to ExecutionContext to prevent nested handoffs. */
   subworkflowDepth?: number;
+  invocationSurface?: ExecutionContext['invocationSurface'];
+  calledByHuman?: boolean;
+  callerType?: ExecutionContext['callerType'];
 }
 
 export interface IChatRuntime {
@@ -215,7 +218,7 @@ export class ChatRuntime implements IChatRuntime {
           status: 'failed',
           text: runResult.state.lastText,
           hopCount: runResult.state.hop,
-          error: 'Workflow aborted',
+          error: runResult.abortedError ?? 'Workflow aborted',
         };
       }
 

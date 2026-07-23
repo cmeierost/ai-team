@@ -6,6 +6,8 @@ import type {
   ICommandDescriptor,
   IEmitService,
   HandoffRequest,
+  HandoffCommandResult,
+  HandoffCancelledResult,
   IAgentManager,
   ICommandDispatcher,
 } from '@ai-team/core';
@@ -51,7 +53,7 @@ export const HandoffCommandMetadata = {
   tags: ['orchestration'],
 } satisfies ICommandDescriptor;
 
-export class HandoffCommand implements ICommand<Params, HandoffRequest> {
+export class HandoffCommand implements ICommand<Params, HandoffCommandResult> {
   static readonly schema = _handoffCommandSchema;
   readonly metadata = HandoffCommandMetadata;
 
@@ -68,7 +70,7 @@ export class HandoffCommand implements ICommand<Params, HandoffRequest> {
   async execute(
     params: Params,
     context: ExecutionContext
-  ): Promise<CommandResponse<HandoffRequest>> {
+  ): Promise<CommandResponse<HandoffCommandResult>> {
     const { targetAgentId, targetWorkflowId, briefingNote, workflowToolPolicy } = params;
     const composedBriefing = briefingNote?.trim();
     const resolvedTarget = await this.agentManager.resolveAgentForOperationAsync(
@@ -119,7 +121,31 @@ export class HandoffCommand implements ICommand<Params, HandoffRequest> {
         approval.data !== null &&
         (approval.data as { answer?: unknown }).answer === true;
       if (!answer) {
-        return { status: 'cancelled', message: 'Handoff was not approved.' };
+        const approvalMessage =
+          approval.status === 'ok'
+            ? 'Handoff was not approved.'
+            : approval.message || 'Handoff approval was unavailable.';
+        const reasonCode: HandoffCancelledResult['reasonCode'] =
+          approval.status === 'cancelled'
+            ? 'approval-cancelled'
+            : approval.status === 'error'
+              ? /timed?\s*out|timeout/i.test(approvalMessage)
+                ? 'approval-timeout'
+                : 'approval-unavailable'
+              : 'approval-denied';
+        const cancelled = {
+          type: 'handoff_cancelled' as const,
+          outcome: 'cancelled' as const,
+          targetAgentId: targetAgent.id,
+          reasonCode,
+          message: approvalMessage,
+          timestamp: new Date().toISOString(),
+        };
+        return {
+          status: 'cancelled',
+          message: approvalMessage,
+          data: cancelled,
+        };
       }
     }
 

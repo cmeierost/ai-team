@@ -57,6 +57,9 @@ export class ChatCommand implements ICommand<ChatParams, string> {
       message,
       maxHops: params.maxHops,
       autoReactMessage: params.autoReactMessage,
+      invocationSurface: ctx.invocationSurface,
+      calledByHuman: ctx.calledByHuman,
+      callerType: ctx.callerType,
       ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 

@@ -266,6 +266,7 @@ async function createTempWorkspace(): Promise<string> {
 async function createManagersForTest(): Promise<{
   sessionManager: SessionManager;
   threadManager: ThreadManager;
+  repos: ReturnType<typeof createInMemoryRepos>;
 }> {
   const workspaceRoot = await createTempWorkspace();
   const repos = createInMemoryRepos();
@@ -287,7 +288,7 @@ async function createManagersForTest(): Promise<{
     titleGenerator
   );
   const threadManager = new ThreadManager(sessionManager, repos.sessions, repos.notes);
-  return { sessionManager, threadManager };
+  return { sessionManager, threadManager, repos };
 }
 
 afterEach(async () => {
@@ -388,6 +389,77 @@ describe('ThreadManager active thread navigation', () => {
     const latest = await threadManager.resolveLatestActiveSession('dev-1');
 
     expect(latest?.id).toBe(firstTarget.id);
+  });
+
+  it('reuses an existing agent session instead of creating a duplicate thread member', async () => {
+    const michael = await sessionManager.createSession('michael-brown', 'dev-1');
+    const emily = await sessionManager.createHandoffSession('emily-davis', 'dev-1', michael.id);
+
+    const resolved = await threadManager.resolveHandoffSession(
+      'michael-brown',
+      emily.id,
+      'dev-1'
+    );
+
+    expect(resolved).toMatchObject({ isNew: false, session: { id: michael.id } });
+    expect(await threadManager.getSessionChain(emily.id)).toHaveLength(2);
+  });
+
+  it('supports multi-hop navigation and pops one frame per repeated /back', async () => {
+    const michael = await sessionManager.createSession('michael-brown', 'dev-1');
+    const emily = await sessionManager.createHandoffSession('emily-davis', 'dev-1', michael.id);
+    const sarah = await sessionManager.createHandoffSession('sarah-lee', 'dev-1', emily.id);
+
+    await threadManager.recordHandoff(michael.id, emily.id, {
+      agentId: 'michael-brown',
+      agentName: 'Michael Brown',
+      sessionId: michael.id,
+    });
+    await threadManager.recordHandoff(emily.id, sarah.id, {
+      agentId: 'emily-davis',
+      agentName: 'Emily Davis',
+      sessionId: emily.id,
+    });
+
+    const firstBack = await threadManager.recordBack(sarah.id);
+    expect(firstBack.activeSessionId).toBe(emily.id);
+    expect(firstBack.navigationStack.map((entry) => entry.sessionId)).toEqual([michael.id]);
+
+    const secondBack = await threadManager.recordBack(emily.id);
+    expect(secondBack.activeSessionId).toBe(michael.id);
+    expect(secondBack.navigationStack).toEqual([]);
+
+    await expect(threadManager.recordBack(michael.id)).rejects.toThrow(
+      'No previous agent to return to.'
+    );
+    expect((await threadManager.resolveActiveSession(sarah.id)).session?.id).toBe(michael.id);
+  });
+
+  it('restores the persisted active cursor and stack through a new service instance', async () => {
+    const managers = await createManagersForTest();
+    const michael = await managers.sessionManager.createSession('michael-brown', 'dev-2');
+    const emily = await managers.sessionManager.createHandoffSession(
+      'emily-davis',
+      'dev-2',
+      michael.id
+    );
+    await managers.threadManager.recordHandoff(michael.id, emily.id, {
+      agentId: 'michael-brown',
+      agentName: 'Michael Brown',
+      sessionId: michael.id,
+    });
+
+    const restarted = new ThreadManager(
+      managers.sessionManager,
+      managers.repos.sessions,
+      managers.repos.notes
+    );
+    const resumed = await restarted.resolveActiveSession(michael.id);
+
+    expect(resumed.session?.id).toBe(emily.id);
+    expect(resumed.state.navigationStack).toEqual([
+      { agentId: 'michael-brown', agentName: 'Michael Brown', sessionId: michael.id },
+    ]);
   });
 });
 

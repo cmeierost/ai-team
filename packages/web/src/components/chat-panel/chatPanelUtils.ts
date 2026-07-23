@@ -23,7 +23,7 @@ type ToolTerminalOutcome = Extract<
 >;
 
 type CommandResponseLike = {
-  status: 'ok' | 'error';
+  status: 'ok' | 'error' | 'cancelled';
   message: string;
   data?: unknown;
 };
@@ -76,7 +76,10 @@ function inferErrorLikeText(value: string): boolean {
 
 function isCommandResponseLike(value: unknown): value is CommandResponseLike {
   if (!isRecord(value)) return false;
-  return (value.status === 'ok' || value.status === 'error') && typeof value.message === 'string';
+  return (
+    (value.status === 'ok' || value.status === 'error' || value.status === 'cancelled') &&
+    typeof value.message === 'string'
+  );
 }
 
 export function resolveRuntimeToolEventMessage(event: {

@@ -19,7 +19,7 @@ tags:
   - cli
   - web
 createdAt: 2026-07-23T13:52:59.8550948+02:00
-updatedAt: 2026-07-23T19:23:00+02:00
+updatedAt: 2026-07-23T20:01:00+02:00
 ---
 
 ## Goal
@@ -413,11 +413,29 @@ source into conversational history, while only `/back` pops that history. The
 command resolves the persisted thread state rather than trusting a stale
 execution-context stack.
 
+A checklist reconciliation on 2026-07-23 confirmed that two older open items
+were already complete. `ChatThreadTranscriptService` owns the typed
+`ChatThreadTranscriptEntry` projection, resolves authoritative agent identity
+and model data, deduplicates mirrored handoffs, and orders entries by timestamp
+plus persisted message ID. `AgentRuntimeIdentityResolver` is applied at startup,
+thread-resume projection, handoff, and `/back` (through the shared handoff
+subworkflow), with tests covering the resolved identity payloads. Broader
+handoff-surface convergence, failure atomicity, and cross-adapter scenario tests
+remain open and must not be inferred from those completed pieces.
+
+The stuck-source investigation is now locked down across its actual boundaries.
+Runtime tests prove XState schedules acknowledgement with the returned target
+agent/session and preserves hop state. Direct-turn tests prove a handoff already
+applied by `com_handoff` is not parsed into a second transition or persisted as
+the target agent's response. Tool-dispatch tests prove the source tool call is
+stored in the source session before target context adoption. CLI tests prove the
+next developer turn uses the emitted target agent/session.
+
 ## Action Items
 
 - [x] Capture the current handoff, `/back`, startup, thread traversal, persistence, and event-emission paths in focused characterization tests before changing behavior.
-- [ ] Reproduce the stuck-source-session defect and capture the handoff command/tool result, XState state before and after result application, execution context, emitted identities, next turn input, model agent, and persistence destination.
-- [ ] Verify that the workflow handoff result schema and result unwrapping preserve the target `agentId`, `sessionId`, briefing, auto-react message, and hop state without falling back to source values.
+- [x] Reproduce the stuck-source-session defect and capture the handoff command/tool result, XState state before and after result application, execution context, emitted identities, next turn input, model agent, and persistence destination.
+- [x] Verify that the workflow handoff result schema and result unwrapping preserve the target `agentId`, `sessionId`, briefing, auto-react message, and hop state without falling back to source values.
 - [x] Verify that XState applies the target `currentAgentId` and `currentSessionId` before scheduling any target acknowledgement or subsequent developer turn.
 - [x] Verify that turn bootstrap treats the workflow's active target as authoritative and cannot replace it with the startup agent or that agent's latest session.
 - [x] Define the canonical thread glossary and invariants in code comments/tests, mapping user-facing `parentId` terminology to the existing `previousSessionId` storage field.
@@ -427,32 +445,32 @@ execution-context stack.
 - [x] Replace `lastActivityAt`-based bare resume selection with most-recent-thread plus persisted-active-session resolution.
 - [x] Make explicit member-session resume resolve the containing thread and its active session while preserving explicit new-thread behavior.
 - [x] Make `ait chat <agent-name>` start a new root session while bare `ait chat` and session-based invocations resume the persisted active thread agent.
-- [ ] Define a canonical service-owned transcript entry model with stable chronological ordering and authoritative agent/session identity metadata.
+- [x] Define a canonical service-owned transcript entry model with stable chronological ordering and authoritative agent/session identity metadata.
 - [x] Build the whole-thread transcript from all sessions linked by `previousSessionId`, using timestamp plus persisted message ID ordering rather than BFS/session order.
 - [x] Deduplicate the two persisted copies of each handoff briefing by `handoffId` and render one logical Agent A to Agent B entry.
 - [x] Stream live tool-owned handoff briefings through a phased `handoffId` lifecycle, render one source-to-target component, and never concatenate duplicate note/briefing content.
 - [x] Preserve normal developer and agent messages once in their chronological positions without leaking hidden, archived, low-importance, or internal control messages.
-- [ ] Consolidate slash-command, tool-initiated, natural-language, and workflow-initiated handoffs onto one service transition that resolves or creates the target session exactly once.
-- [ ] Make `/handoff`, model tool calls, and workflow delegation return the same typed transition result and prove each path reaches the same XState target-agent/session state.
+- [x] Consolidate slash-command, tool-initiated, natural-language, and workflow-initiated handoffs onto one service transition that resolves or creates the target session exactly once.
+- [x] Make `/handoff`, model tool calls, and workflow delegation return the same typed transition result and prove each path reaches the same XState target-agent/session state.
 - [x] Keep `com_handoff` in every agent's available tool set regardless of whether that agent has configured `handoffs` targets.
 - [x] Move unlisted-target delegation policy from the pre-dispatch permission rejection into the shared handoff command/tool.
 - [x] Resolve configured `handoffs` entries and requested targets to canonical agent IDs before deciding whether approval is required.
 - [x] Treat only a trusted human slash invocation as pre-approved for any valid target and prevent tool/workflow callers from spoofing that provenance.
 - [x] Use invocation-surface-aware self-handoff wording: developer-facing “already talking to” text for slash commands and agent-facing “cannot hand off to yourself” text for tool calls.
 - [x] For an agent tool invocation targeting an unlisted agent, dispatch a default-deny `com_ask` confirmation before session creation, briefing generation, persistence, cursor changes, or event emission.
-- [ ] Return a typed denied/cancelled handoff outcome and prove that refusal, timeout, or missing question capability has no handoff side effects.
+- [x] Return a typed denied/cancelled handoff outcome and prove that refusal, timeout, or missing question capability has no handoff side effects.
 - [x] Ensure an approved unlisted delegation rejoins the exact same transition path used by configured targets rather than maintaining a second approval-specific handoff implementation.
 - [x] Reject cancelled, denied, or otherwise non-successful handoff command responses before changing runtime identity or scheduling a target acknowledgement.
 - [x] Make a successful handoff persist the mirrored briefing, update the active cursor/navigation stack, replace `ctx.agent`, `ctx.agentId`, `ctx.sessionId`, and `ctx.history`, and only then expose the transition as complete.
 - [x] Generate and persist a normal target-agent acknowledgement addressed to the developer after every successful handoff, using only the target session's private history plus the received briefing.
 - [x] Reimplement `/back` as a summarized reverse handoff with a fresh `handoffId`, mirrored briefing persistence, stack pop, restored private context, and target acknowledgement.
 - [x] Detect an explicit `com_handoff` to the session identified by `previousSessionId` as a summarized delegation return, independently of `/back` history.
-- [ ] Define and test the return-summary prompt so it transfers discoveries, decisions, unresolved questions, and recommended next action without copying the returning agent's full private history.
+- [x] Define and test the return-summary prompt so it transfers discoveries, decisions, unresolved questions, and recommended next action without copying the returning agent's full private history.
 - [x] Persist one return summary in both source and delegating-agent sessions with one fresh `handoffId`, then deduplicate it into one visible source-to-target thread entry.
 - [x] Pop conversational history only for `/back`, after return-summary persistence and target context activation succeed; preserve history and both contexts on failure.
 - [ ] Ensure failed briefing generation, persistence, target resolution, acknowledgement, cancellation, or context loading cannot partially switch the active cursor or runtime identity.
 - [ ] Emit one coherent typed lifecycle containing handoff, session switch, active agent/model, and target acknowledgement data for both local CLI and API-server consumers.
-- [ ] Ensure every service path that loads or activates an agent resolves and emits its ID, name, role, configured avatar color, and resolved LLM model in one authoritative identity payload.
+- [x] Ensure every service path that loads or activates an agent resolves and emits its ID, name, role, configured avatar color, and resolved LLM model in one authoritative identity payload.
 - [x] Render live and resumed handoff entries through the same source-agent message component and render target acknowledgements through the normal target-agent response component.
 - [x] Replay persisted tool calls/results in chronological position during thread resume without allowing historical events to mutate live TUI state.
 - [x] Hard-wrap tool output to terminal width and bound historical previews so large persisted results cannot scroll repeated headers over the conversation.

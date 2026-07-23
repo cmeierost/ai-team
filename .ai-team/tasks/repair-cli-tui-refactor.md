@@ -17,7 +17,7 @@ tags:
   - terminal
   - testing
 createdAt: 2026-07-23T11:46:32.6615697+02:00
-updatedAt: 2026-07-23T14:04:03.9368696+02:00
+updatedAt: 2026-07-23T19:47:56.5852981+02:00
 ---
 
 ## Goal
@@ -37,10 +37,12 @@ The TUI must remain a projection of emitted handoff/subworkflow events and must
 not implement its own context or orchestration state machine.
 
 Workflows, slash commands, and tools implement the same interface and share the
-XState-driven execution lifecycle. Their UI presentation differs:
-slash-command result content is rendered in the user-message side of the
-transcript. The CLI must consume the shared runtime events and must not add
-separate command, tool, or workflow execution APIs.
+XState-driven execution lifecycle. Their UI presentation differs. The
+`unified-tui-placement` follow-up supersedes the earlier rule that slash results
+are attached to `UserMessage`: invocations remain developer transcript lines,
+while results are standalone non-speech transcript components. The CLI must
+consume the shared runtime events and must not add separate command, tool, or
+workflow execution APIs.
 
 Non-negotiable package architecture: every interface or type crossing a package
 boundary is defined in `packages/core`; core contains no implementation. Runtime
@@ -66,7 +68,7 @@ information to the Web client; it must not diverge into a separate runtime.
 - [x] Restore command-stream and DI-owned question-service compatibility broken during the refactor.
 - [x] Integrate the new TUI through the CLI adapter without running the legacy and new renderers simultaneously.
 - [x] Render handoffs as transitions in one durable transcript while keeping per-agent runtime contexts entirely service-owned.
-- [x] Render slash-command results as user-message content while preserving the shared XState tool/workflow execution path.
+- [x] Preserve the shared XState tool/workflow execution path for slash commands; standalone result placement is owned by the `unified-tui-placement` follow-up.
 - [x] Restore legacy identity semantics in the modern transcript: use the selected agent ID as a temporary display fallback, label assistant responses with the active personality, and render only the service-provided `developerName` rather than inventing `You`.
 - [x] Restore colored `Agent Name → developerName:` response headers/body and the visible `💭 thinking…` status indicator.
 - [x] Label the animated status indicator as `<Agent Name> is thinking…` using the active personality's color.

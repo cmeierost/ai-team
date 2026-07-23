@@ -11,7 +11,10 @@ import type { ITerminal } from '@ai-team/core';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import { findWorkspaceRoot } from '@ai-team/infrastructure';
 import { TUI, ProcessTerminal, Loader } from '@ai-team/tui';
-import { ExtensionRegistry } from '../extensions/index.js';
+import {
+  ExtensionRegistry,
+  type ToolRenderDecision,
+} from '../extensions/index.js';
 import { HeaderBar } from '../tui/header-bar.js';
 import { ChatView } from '../tui/chat-view.js';
 import { WorkflowEventRegistry, type WorkflowEventState } from './workflow-event-registry.js';
@@ -21,6 +24,7 @@ import { UserMessage } from '../tui/user-message.js';
 import { ChatLayout } from '../tui/chat-layout.js';
 import { StatusLine } from '../tui/status-line.js';
 import type { InquirerQuestionService } from './question-responders.js';
+import { TuiQuestionPresenter } from '../tui/question-composer.js';
 
 interface ChatTuiDependencies {
   terminal?: ITerminal;
@@ -83,6 +87,7 @@ interface ChatCtx {
   sessionId?: string;
   sessionTitle?: string;
   slashCommands: CommandDescriptor[];
+  composerPlacements: Map<string, () => void>;
 }
 
 function setSpinner(ctx: ChatCtx, v: boolean): void {
@@ -173,6 +178,7 @@ function buildChatCtx(
     workspaceRoot,
     sessionId,
     slashCommands,
+    composerPlacements: new Map<string, () => void>(),
   };
   updateStatusLine(ctx);
   return ctx;
@@ -180,6 +186,43 @@ function buildChatCtx(
 
 function addToChatView(ctx: ChatCtx, component: unknown): void {
   ctx.chatView.getContent().addChild(component as any);
+}
+
+function isToolRenderDecision(value: unknown): value is ToolRenderDecision {
+  return Boolean(
+    value
+    && typeof value === 'object'
+    && 'handled' in value
+    && 'placements' in value
+  );
+}
+
+function applyProjection(ctx: ChatCtx, projection: unknown, event: unknown): boolean {
+  if (!projection) return false;
+  if (!isToolRenderDecision(projection)) {
+    addToChatView(ctx, projection);
+    return true;
+  }
+
+  const payload = event as any;
+  const key = payload.toolCallId ?? payload.toolName ?? payload.name ?? 'tool';
+  const phase = payload.toolPhase;
+  if (phase === 'result' || phase === 'error' || phase === 'denied') {
+    ctx.composerPlacements.get(key)?.();
+    ctx.composerPlacements.delete(key);
+  }
+
+  let addedTranscript = false;
+  for (const placement of projection.placements) {
+    if (placement.target === 'transcript') {
+      addToChatView(ctx, placement.component);
+      addedTranscript = true;
+    } else {
+      ctx.composerPlacements.get(key)?.();
+      ctx.composerPlacements.set(key, ctx.layout.pushComposer(placement.component));
+    }
+  }
+  return addedTranscript;
 }
 
 function handleStreamEvent(ctx: ChatCtx, event: unknown): boolean {
@@ -231,7 +274,11 @@ function handleStreamEvent(ctx: ChatCtx, event: unknown): boolean {
     case 'done':
     case 'turn_finished':
       stopSpinner(ctx);
-      ctx.eventRegistry.handle(event as any, ctx.eventState, ctx.extensionRegistry);
+      applyProjection(
+        ctx,
+        ctx.eventRegistry.handle(event as any, ctx.eventState, ctx.extensionRegistry),
+        event
+      );
       ctx.tui.invalidate();
       return true;
     case 'aborted':
@@ -242,9 +289,9 @@ function handleStreamEvent(ctx: ChatCtx, event: unknown): boolean {
 
   const comp = ctx.eventRegistry.handle(event as any, ctx.eventState, ctx.extensionRegistry);
   if (comp) {
-    addToChatView(ctx, comp);
+    const addedTranscript = applyProjection(ctx, comp, event);
     if (kind === 'handoff' || kind === 'tool' || kind === 'history_message') {
-      ctx.chatView.addSpacer();
+      if (addedTranscript) ctx.chatView.addSpacer();
     }
   }
   if (kind === 'handoff') updateStatusLine(ctx);
@@ -383,7 +430,7 @@ async function promptForMessage(ctx: ChatCtx, signal: AbortSignal): Promise<stri
       ctx.slashCommands
     );
     ctx.prompt = prompt;
-    ctx.layout.setPrompt(prompt);
+    ctx.layout.setComposer(prompt);
     ctx.tui.setFocused(ctx.layout);
     ctx.tui.invalidate();
   });
@@ -408,13 +455,13 @@ export async function renderChat(
     workspaceRoot
   );
 
-  dependencies.questionService?.setLifecycleHooks({
-    beforeQuestion: () => ctx.tui.stop(),
-    afterQuestion: () => {
-      ctx.tui.start();
-      ctx.tui.invalidate();
-    },
-  });
+  const questionPresenter = new TuiQuestionPresenter(ctx.layout, ctx.tui);
+  const detachQuestionPresenter =
+    dependencies.questionService?.attachPresenter(questionPresenter);
+  const abortQuestions = () => questionPresenter.abort(
+    abortControl.signal.reason ?? new Error('Chat aborted')
+  );
+  abortControl.signal.addEventListener('abort', abortQuestions, { once: true });
 
   ctx.tui.start();
   let exitRequested = false;
@@ -479,8 +526,13 @@ export async function renderChat(
     }
     throw error;
   } finally {
-    dependencies.questionService?.setLifecycleHooks();
+    abortControl.signal.removeEventListener('abort', abortQuestions);
+    questionPresenter.abort(new Error('Chat closed'));
+    detachQuestionPresenter?.();
+    for (const restore of ctx.composerPlacements.values()) restore();
+    ctx.composerPlacements.clear();
     stopSpinner(ctx);
+    ctx.tui.flush();
     ctx.tui.stop();
     abortControl.dispose();
   }

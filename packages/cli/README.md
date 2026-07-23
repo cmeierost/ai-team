@@ -45,6 +45,24 @@ pnpm --filter @ai-team/cli build
 pnpm --filter @ai-team/cli test
 ```
 
+## Chat TUI projection
+
+The full-screen chat is a projection of shared runtime events:
+
+- `ChatViewport` owns the chronological, scrollable transcript.
+- `ChatLayout` owns the fixed composer/footer and temporarily replaces the
+  composer through a focus-aware component slot.
+- Tool renderers receive normalized lifecycle events and return explicit
+  `transcript` or `composer` placements. Exact tool names take precedence over
+  wildcard renderers.
+- Slash invocations remain developer messages; `slash:*` results and completed
+  `com_ask` calls are standalone non-speech transcript components.
+- The CLI question service attaches a native presenter while chat is active and
+  falls back to Inquirer elsewhere.
+
+Do not move these UI concepts into `@ai-team/core` or add a separate command,
+tool, or workflow execution path for the TUI.
+
 ## Project structure
 
 ```

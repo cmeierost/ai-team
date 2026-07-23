@@ -143,28 +143,53 @@ function createDeps(overrides: {
           ok: true as const,
           agent,
           sessionId: cached.sessionId,
-          history: [...cached.history],
+          sessionHistory: [...cached.history],
+          developerId,
         };
       }
 
       if (input.createNewSession) {
         const created = await sessionManager.createSession(agent.id, developerId);
-        return { ok: true as const, agent, sessionId: created.id, history: [] };
+        return {
+          ok: true as const,
+          agent,
+          sessionId: created.id,
+          sessionHistory: [],
+          developerId,
+        };
       }
 
       if (requestedSessionId) {
         const history = await sessionManager.getSessionMessages(requestedSessionId);
-        return { ok: true as const, agent, sessionId: requestedSessionId, history };
+        return {
+          ok: true as const,
+          agent,
+          sessionId: requestedSessionId,
+          sessionHistory: history,
+          developerId,
+        };
       }
 
       const latest = await sessionManager.getLatestSession(agent.id);
       if (latest) {
         const history = await sessionManager.getSessionMessages(latest.id);
-        return { ok: true as const, agent, sessionId: latest.id, history };
+        return {
+          ok: true as const,
+          agent,
+          sessionId: latest.id,
+          sessionHistory: history,
+          developerId,
+        };
       }
 
       const created = await sessionManager.createSession(agent.id, developerId);
-      return { ok: true as const, agent, sessionId: created.id, history: [] };
+      return {
+        ok: true as const,
+        agent,
+        sessionId: created.id,
+        sessionHistory: [],
+        developerId,
+      };
     }),
     updateCachedRuntimeState: vi.fn((ctx: any, state: any) => {
       ctx.workflowState = ctx.workflowState ?? {};
@@ -363,6 +388,124 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     );
   });
 
+  it('continues in the tool-applied handoff session without scheduling a second transition', async () => {
+    const { command, stepService } = createDeps({
+      resolveLatestSessionForResume: async () => ({
+        id: 'session-michael',
+        agentId: 'michael-brown',
+      }),
+      getAgentAsync: async (id: string) => ({
+        id,
+        name: id === 'michael-brown' ? 'Michael Brown' : 'Emily Davis',
+        role: 'assistant',
+      }),
+      getLatestSession: async () => ({
+        id: 'session-michael',
+        agentId: 'michael-brown',
+      }),
+      getSessionMessages: async () => [],
+    });
+    stepService.invokeTurnLlmAsync.mockImplementation(
+      async (_messages: unknown, _resolved: unknown, ctx: any) => {
+        ctx.agent = { id: 'emily-davis', name: 'Emily Davis', role: 'HR Director' };
+        ctx.agentId = 'emily-davis';
+        ctx.sessionId = 'session-emily';
+        ctx.history = [];
+        return {
+          fullResponse: 'The handoff tool completed.',
+          structuredResults: [
+            {
+              type: 'handoff',
+              targetAgentId: 'emily-davis',
+              targetSessionId: 'session-emily',
+            },
+          ],
+        };
+      }
+    );
+
+    const response = await command.execute(
+      { options: { message: 'Let me talk to Emily.' } } as any,
+      { history: [] } as any
+    );
+
+    expect(response).toMatchObject({
+      status: 'ok',
+      data: {
+        agentId: 'emily-davis',
+        sessionId: 'session-emily',
+        followUpMessage: expect.any(String),
+      },
+    });
+    expect(stepService.persistUserMessageAsync).toHaveBeenCalledOnce();
+    expect(stepService.persistAssistantMessageAsync).not.toHaveBeenCalled();
+    expect(stepService.parseTurnResultAsync).not.toHaveBeenCalled();
+  });
+
+  it('routes and persists every later developer turn to the cached handoff target', async () => {
+    const { command, stepService } = createDeps({
+      resolveLatestSessionForResume: async () => ({
+        id: 'session-michael',
+        agentId: 'michael-brown',
+      }),
+      getAgentAsync: async (id: string) => ({
+        id,
+        name: id === 'michael-brown' ? 'Michael Brown' : 'Emily Davis',
+        role: 'assistant',
+      }),
+      getLatestSession: async () => ({
+        id: 'session-michael',
+        agentId: 'michael-brown',
+      }),
+      getSessionMessages: async () => [],
+    });
+    let invocation = 0;
+    stepService.invokeTurnLlmAsync.mockImplementation(
+      async (_messages: unknown, _resolved: unknown, turnCtx: any) => {
+        invocation += 1;
+        if (invocation === 1) {
+          turnCtx.agent = { id: 'emily-davis', name: 'Emily Davis', role: 'HR Director' };
+          turnCtx.agentId = 'emily-davis';
+          turnCtx.sessionId = 'session-emily';
+          turnCtx.history = [];
+          return { fullResponse: 'handoff completed', structuredResults: [] };
+        }
+        expect(turnCtx.agent.id).toBe('emily-davis');
+        expect(turnCtx.sessionId).toBe('session-emily');
+        return { fullResponse: 'Emily continues.', structuredResults: [] };
+      }
+    );
+    const outerContext = { history: [], workflowState: {} } as any;
+
+    await command.execute(
+      { options: { message: 'Let me talk to Emily.' } } as any,
+      outerContext
+    );
+    const second = await command.execute(
+      { options: { message: 'Here is the next request.' } } as any,
+      outerContext
+    );
+
+    expect(second).toMatchObject({
+      status: 'ok',
+      data: {
+        text: 'assistant output',
+        agentId: 'emily-davis',
+        sessionId: 'session-emily',
+      },
+    });
+    expect(stepService.persistUserMessageAsync).toHaveBeenCalledTimes(2);
+    expect(stepService.persistUserMessageAsync.mock.calls[1][1]).toMatchObject({
+      agent: { id: 'emily-davis' },
+      sessionId: 'session-emily',
+    });
+    expect(stepService.persistAssistantMessageAsync).toHaveBeenCalledOnce();
+    expect(stepService.persistAssistantMessageAsync.mock.calls[0][1]).toMatchObject({
+      agent: { id: 'emily-davis' },
+      sessionId: 'session-emily',
+    });
+  });
+
   it('executes slash command directly without invoking LLM send-turn pipeline', async () => {
     const { command, stepService, sessionManager, emitService, commandDispatcher } = createDeps({
       resolveLatestSessionForResume: async () => ({ id: 'sess-latest', agentId: 'michael-brown' }),
@@ -399,6 +542,9 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     expect(persisted.tool_calls?.[0]?.tool).toBe('slash:help');
     expect(persisted.tool_calls?.[0]?.params?.invokedBy).toBe('user');
     expect(emitService.toolEvent).toHaveBeenCalled();
+    expect(emitService.toolEvent.mock.calls[0]?.[5]).toMatchObject({
+      request: persisted.tool_calls[0].params,
+    });
     expect(commandDispatcher.dispatch).toHaveBeenCalledWith(
       'system-help',
       'chat',
@@ -410,6 +556,78 @@ describe('ChatDirectTurnCommand bootstrap', () => {
       sessionId: 'session-after-slash',
       followUpMessage: expect.any(String),
     });
+  });
+
+  it('projects a slash handoff through the same applied transition contract', async () => {
+    const { command, commandDispatcher, stepService } = createDeps({
+      resolveLatestSessionForResume: async () => ({
+        id: 'session-michael',
+        agentId: 'michael-brown',
+      }),
+      getAgentAsync: async (id: string) => ({
+        id,
+        name: id === 'michael-brown' ? 'Michael Brown' : 'Emily Davis',
+        role: 'assistant',
+      }),
+      getLatestSession: async () => ({
+        id: 'session-michael',
+        agentId: 'michael-brown',
+      }),
+      getSessionMessages: async () => [],
+    });
+    commandDispatcher.getCommands.mockReturnValue([
+      {
+        key: 'handoff',
+        group: 'com',
+        aliases: ['ho'],
+        availableIn: { chat: true },
+      },
+    ]);
+    let invocationAtDispatch: Record<string, unknown> | undefined;
+    commandDispatcher.dispatch.mockImplementation(
+      async (_key: string, _args: unknown, ctx: any) => {
+        invocationAtDispatch = {
+          invocationSurface: ctx.invocationSurface,
+          calledByHuman: ctx.calledByHuman,
+        };
+        ctx.agent = { id: 'emily-davis', name: 'Emily Davis', role: 'HR Director' };
+        ctx.agentId = 'emily-davis';
+        ctx.sessionId = 'session-emily';
+        ctx.history = [];
+        return {
+          status: 'ok',
+          data: {
+            type: 'handoff',
+            targetAgentId: 'emily-davis',
+            targetSessionId: 'session-emily',
+          },
+        };
+      }
+    );
+
+    const response = await command.execute(
+      { options: { message: '/handoff emily' } } as any,
+      { history: [] } as any
+    );
+
+    expect(response).toMatchObject({
+      status: 'ok',
+      data: {
+        agentId: 'emily-davis',
+        sessionId: 'session-emily',
+        followUpMessage: expect.any(String),
+      },
+    });
+    expect(commandDispatcher.dispatch).toHaveBeenCalledWith(
+      'com-handoff',
+      'emily',
+      expect.anything()
+    );
+    expect(invocationAtDispatch).toEqual({
+      invocationSurface: 'slash',
+      calledByHuman: true,
+    });
+    expect(stepService.invokeTurnLlmAsync).not.toHaveBeenCalled();
   });
 
   it('does not dispatch commands that are unavailable in chat', async () => {

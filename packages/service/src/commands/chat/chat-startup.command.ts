@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import type {
-  Agent,
   CommandResponse,
   ExecutionContext,
   ICommand,
@@ -15,6 +14,7 @@ import { LoadSessionMessagesCommand } from './load-session-messages.command.js';
 import { IntroductionCommand } from './introduction.command.js';
 import { ChatThreadTranscriptService } from './chat-thread-transcript.js';
 import type { AgentRuntimeIdentityResolver } from './agent-runtime-identity.js';
+import { ChatStartupTargetResolver } from './chat-startup-target-resolver.js';
 
 const chatStartupParamsSchema = z.object({
   employeeId: z.string().optional(),
@@ -39,9 +39,6 @@ export class ChatStartupCommand implements ICommand<ChatStartupParams, string> {
   readonly metadata = ChatStartupCommand.metadata;
 
   constructor(
-    private readonly agentManager: {
-      getAgentAsync: (agentId: string) => Promise<Agent | null | undefined>;
-    },
     private readonly resolveChatSessionCommand: ResolveChatSessionCommand,
     private readonly loadSessionMessagesCommand: LoadSessionMessagesCommand,
     private readonly introductionCommand: IntroductionCommand,
@@ -49,6 +46,7 @@ export class ChatStartupCommand implements ICommand<ChatStartupParams, string> {
     private readonly chatInfoService: IChatInfoService,
     private readonly developerIdentityService: Pick<IDeveloperIdentityService, 'getUserName'>,
     private readonly identityResolver: Pick<AgentRuntimeIdentityResolver, 'resolve'> | undefined,
+    private readonly startupTargetResolver: ChatStartupTargetResolver,
     private readonly workspaceRoot: string,
     private readonly systemInfoService: Pick<ISystemInfoService, 'getSystemInfo'>
   ) {}
@@ -57,17 +55,16 @@ export class ChatStartupCommand implements ICommand<ChatStartupParams, string> {
     payload: ChatStartupParams,
     ctx: ExecutionContext
   ): Promise<CommandResponse<string>> {
-    if (!payload.employeeId) {
+    const startupTarget = await this.startupTargetResolver.resolve({
+      agentQuery: payload.employeeId,
+      sessionId: payload.options.sessionId,
+      createNewSession: payload.options.createNewSession,
+    });
+    if (!startupTarget) {
       return { status: 'ok', data: '', message: 'completed' };
     }
 
-    const loadedAgent = await this.agentManager.getAgentAsync(payload.employeeId);
-    if (!loadedAgent) {
-      return {
-        status: 'error',
-        message: `Agent '${payload.employeeId}' not found`,
-      };
-    }
+    const loadedAgent = startupTarget.agent;
     const agent = this.identityResolver?.resolve(loadedAgent) ?? loadedAgent;
 
     const developerName = this.developerIdentityService.getUserName() ?? 'Developer';
@@ -87,7 +84,7 @@ export class ChatStartupCommand implements ICommand<ChatStartupParams, string> {
       {
         agent,
         options: {
-          sessionId: payload.options.sessionId,
+          sessionId: startupTarget.sessionId,
           createNewSession: payload.options.createNewSession,
           introduction: payload.options.introduction,
         },

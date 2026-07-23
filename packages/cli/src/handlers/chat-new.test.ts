@@ -3,6 +3,7 @@ import type { ITerminal } from '@ai-team/core';
 import type { StreamEvent } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import { renderChat } from './chat-new.js';
+import { InquirerQuestionService } from './question-responders.js';
 
 class FakeTerminal implements ITerminal {
   columns = 100;
@@ -165,6 +166,130 @@ describe('new chat TUI projection', () => {
       payload: { agentId: 'michael-brown', message: '/help' },
     });
     expect(requests[0]?.payload).not.toHaveProperty('__slashSuggestions');
+  });
+
+  it('keeps slash invocations as developer lines and renders results as standalone transcript entries', async () => {
+    const terminal = new FakeTerminal();
+    const client = clientWith([
+      {
+        command: 'chat',
+        kind: 'agent_info',
+        timestamp,
+        agentName: 'Michael Brown',
+        developerName: 'Clemens',
+      },
+      {
+        command: 'chat',
+        kind: 'tool',
+        timestamp,
+        toolName: 'slash:help',
+        toolPhase: 'result',
+        toolResult: {
+          toolName: 'slash:help',
+          outcome: 'result',
+          request: { rawInput: '/help' },
+          commandResponse: {
+            status: 'ok',
+            message: 'Available in-chat commands.',
+          },
+        },
+      },
+      { command: 'chat', kind: 'done', timestamp },
+    ]);
+
+    await renderChat(
+      client,
+      'michael-brown',
+      { oneShot: true, message: '/help' },
+      false,
+      undefined,
+      'chat',
+      undefined,
+      { terminal }
+    );
+
+    const output = terminal.writes.join('');
+    expect(output).toContain('Clemens');
+    expect(output).toContain('/help');
+    expect(output).toContain('Available in-chat commands.');
+    expect(output).not.toContain('slash:help [result]');
+  });
+
+  it('presents com_ask inside the composer and appends one compact completed card', async () => {
+    const terminal = new FakeTerminal();
+    const fallbackPrompt = vi.fn(async () => {
+      throw new Error('Inquirer should not run while the chat TUI is attached');
+    });
+    const questionService = new InquirerQuestionService(fallbackPrompt);
+    const client: ICliCommandClient = {
+      getCommands: () => [],
+      streamInteraction: async function* () {
+        const request = {
+          message: 'Choose an owner',
+          choices: [
+            { name: 'Michael Brown', value: 'michael-brown' },
+            { name: 'Sarah Lee', value: 'sarah-lee', recommended: true },
+          ],
+          default: 'sarah-lee',
+        };
+        yield {
+          command: 'chat',
+          kind: 'tool',
+          timestamp,
+          toolName: 'com_ask',
+          toolCallId: 'ask-1',
+          toolPhase: 'start',
+          toolResult: {
+            toolName: 'com_ask',
+            outcome: 'start',
+            request: { kind: 'select', ...request },
+          },
+        } as any;
+        const answer = await questionService.select(request);
+        yield {
+          command: 'chat',
+          kind: 'tool',
+          timestamp,
+          toolName: 'com_ask',
+          toolCallId: 'ask-1',
+          toolPhase: 'result',
+          toolResult: {
+            toolName: 'com_ask',
+            outcome: 'result',
+            request: { kind: 'select', ...request },
+            commandResponse: {
+              status: 'ok',
+              data: { type: 'com_ask_result', kind: 'select', answer },
+            },
+          },
+        } as any;
+        yield { command: 'chat', kind: 'done', timestamp };
+      },
+    };
+
+    const pending = renderChat(
+      client,
+      'michael-brown',
+      { oneShot: true, message: 'Who should own this?' },
+      false,
+      undefined,
+      'chat',
+      undefined,
+      { terminal, questionService }
+    );
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      if (terminal.writes.join('').includes('Choose an owner')) break;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    terminal.input('\r');
+    await pending;
+
+    const output = terminal.writes.join('');
+    expect(fallbackPrompt).not.toHaveBeenCalled();
+    expect(output).toContain('Choose an owner');
+    expect(output).toContain('Answer:');
+    expect(output).toContain('Sarah Lee');
+    expect(output).not.toContain('▼ com_ask');
   });
 
   it('projects startup agent and model events through the TUI before the turn', async () => {
@@ -429,6 +554,7 @@ describe('new chat TUI projection', () => {
             fromSessionId: 'session-michael',
             toAgentId: 'emily-davis',
             toAgentName: 'Emily Davis',
+            toLlmModel: 'best-chat',
             toSessionId: 'session-emily',
             briefingContent: 'Emily has the context.',
           };
@@ -445,6 +571,7 @@ describe('new chat TUI projection', () => {
             timestamp,
             agentId: 'emily-davis',
             agentName: 'Emily Davis',
+            llmModel: 'best-chat',
           };
         }
         yield { command: request.command, kind: 'done', timestamp };
@@ -501,6 +628,7 @@ describe('new chat TUI projection', () => {
       sessionId: 'session-emily',
       message: 'who am I talking to?',
     });
+    expect(terminal.writes.join('')).toContain('(best-chat) - session id: session-emily');
   });
 
   it('prints commands for resuming the current or latest session when exiting', async () => {

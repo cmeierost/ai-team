@@ -12,17 +12,12 @@ import {
   type IServiceContainer,
   type ExecutionContext,
   type CliCommandMetadata,
-  type ContainerTokenValue,
   CORE_SERVICE_TOKENS,
 } from '@ai-team/core';
 
 import { CliCommandClient } from './cli-command-client.js';
 import {
-  ChatRuntime,
-  createChatRuntimeStepCommand,
   ServiceDomainError,
-  type ChatRuntimeTurnInput,
-  type ChatRuntimeStepResolver,
   type ServiceErrorInputRequest,
 } from '@ai-team/service';
 import { createQuestionResponders } from './handlers/question-responders.js';
@@ -34,7 +29,6 @@ import { CONTRACT_SERVICE_TOKENS } from '@ai-team/api-contracts';
 import { renderChat } from './handlers/chat-new.js';
 import { launchServer, launchServerWithUi } from './handlers/serve.js';
 import { launchUi } from './handlers/ui.js';
-import { requireSuccessfulHandoffTransition } from './chat-runtime-handoff-result.js';
 import { resolveChatInvocationTarget } from './chat-invocation-target.js';
 import {
   CLI_COMMAND_REGISTRY,
@@ -46,289 +40,6 @@ const program = new Command();
 
 const workspaceRoot = findWorkspaceRoot();
 
-type CliCommandDispatcher = ContainerTokenValue<typeof CORE_SERVICE_TOKENS.CommandDispatcher>;
-type CliWorkflowRunnerFactory = ContainerTokenValue<
-  typeof CORE_SERVICE_TOKENS.WorkflowRunnerFactory
->;
-
-class CliChatRuntimeBridge {
-  constructor(
-    private readonly commandDispatcher: CliCommandDispatcher,
-    private readonly workflowRunnerFactory: CliWorkflowRunnerFactory
-  ) {}
-
-  async runAsync(input: Parameters<ChatRuntime['runAsync']>[0]) {
-    const resolveStep: ChatRuntimeStepResolver = (step) => {
-      switch (step) {
-        case 'preturn':
-          return createChatRuntimeStepCommand('preturn', async (_input: { message: string }) => ({
-            outcome: 'continue' as const,
-          }));
-        case 'sendTurn':
-          return createChatRuntimeStepCommand(
-            'sendTurn',
-            async (turnInput: ChatRuntimeTurnInput) => {
-              const directHandoffTarget = this.extractDirectHandoffTargetQuery(
-                turnInput.userMessage,
-                turnInput.agentId
-              );
-
-              if (directHandoffTarget) {
-                return {
-                  text: '',
-                  toolRoundNeeded: false,
-                  handoffTargetId: directHandoffTarget,
-                  handoffNote: `User explicitly requested to switch to ${directHandoffTarget}.`,
-                  agentId: turnInput.agentId,
-                  sessionId: turnInput.sessionId,
-                };
-              }
-
-              const response = await this.commandDispatcher.dispatch(
-                'chat-chat-direct-turn',
-                {
-                  agentId: turnInput.agentId,
-                  options: {
-                    message: turnInput.userMessage,
-                    disableProcessExit: true,
-                    messageOrigin: turnInput.options.messageOrigin,
-                    sessionId: turnInput.sessionId,
-                    createNewSession: turnInput.createNewSession,
-                  },
-                },
-                (() => {
-                  const signal = (input as { signal?: AbortSignal }).signal;
-                  const depth = (input as { subworkflowDepth?: number }).subworkflowDepth;
-                  return {
-                    history: [],
-                    agentId: turnInput.agentId,
-                    sessionId: turnInput.sessionId,
-                    invocationSurface: 'cli' as const,
-                    calledByHuman: true,
-                    callerType: 'human' as const,
-                    ...(signal ? { signal } : {}),
-                    ...(depth !== undefined ? { subworkflowDepth: depth } : {}),
-                  };
-                })()
-              );
-
-              if (response.status === 'error') {
-                throw new Error(response.message || 'chat turn dispatch failed');
-              }
-
-              const payload =
-                response.data && typeof response.data === 'object'
-                  ? (response.data as {
-                      text?: string;
-                      followUpMessage?: string;
-                      handoffTargetId?: string;
-                      handoffTargetSessionId?: string;
-                      handoffNote?: string;
-                      handoffTargetWorkflowId?: string;
-                      handoffWorkflowToolPolicy?: {
-                        allow?: string[];
-                        deny?: string[];
-                        add?: string[];
-                        remove?: string[];
-                      };
-                      agentId?: string;
-                      sessionId?: string;
-                    })
-                  : undefined;
-
-              return {
-                text: typeof response.data === 'string' ? response.data : (payload?.text ?? ''),
-                toolRoundNeeded: false,
-                followUpMessage: payload?.followUpMessage,
-                handoffTargetId: payload?.handoffTargetId,
-                handoffTargetSessionId: payload?.handoffTargetSessionId,
-                handoffNote: payload?.handoffNote,
-                handoffTargetWorkflowId: payload?.handoffTargetWorkflowId,
-                handoffWorkflowToolPolicy: payload?.handoffWorkflowToolPolicy,
-                agentId: payload?.agentId,
-                sessionId: payload?.sessionId,
-              };
-            }
-          );
-        case 'postTurnResolution':
-          return createChatRuntimeStepCommand(
-            'postTurnResolution',
-            async (resolutionInput: {
-              text: string;
-              hop: number;
-              handoffTargetId?: string;
-              handoffTargetSessionId?: string;
-              handoffNote?: string;
-              handoffTargetWorkflowId?: string;
-              handoffWorkflowToolPolicy?: {
-                allow?: string[];
-                deny?: string[];
-                add?: string[];
-                remove?: string[];
-              };
-            }) => {
-              if (resolutionInput.handoffTargetId) {
-                return {
-                  outcome: 'handoff_required' as const,
-                  handoffTargetId: resolutionInput.handoffTargetId,
-                  handoffTargetSessionId: resolutionInput.handoffTargetSessionId,
-                  handoffNote: resolutionInput.handoffNote,
-                  handoffTargetWorkflowId: resolutionInput.handoffTargetWorkflowId,
-                  handoffWorkflowToolPolicy: resolutionInput.handoffWorkflowToolPolicy,
-                };
-              }
-
-              return {
-                outcome: 'normal_complete' as const,
-              };
-            }
-          );
-        case 'handoffTransition':
-          return createChatRuntimeStepCommand(
-            'handoffTransition',
-            async (handoffInput: {
-              handoff: {
-                outcome: 'normal_complete' | 'handoff_required';
-                handoffTargetId?: string;
-                handoffTargetSessionId?: string;
-                handoffNote?: string;
-                handoffTargetWorkflowId?: string;
-                handoffWorkflowToolPolicy?: {
-                  allow?: string[];
-                  deny?: string[];
-                  add?: string[];
-                  remove?: string[];
-                };
-              };
-              hop: number;
-              fromAgentId?: string;
-              fromSessionId?: string;
-            }) => {
-              if (handoffInput.handoff.outcome !== 'handoff_required') {
-                return {};
-              }
-
-              const targetAgentId = handoffInput.handoff.handoffTargetId;
-              if (!targetAgentId) {
-                throw new Error('Handoff transition requested without handoffTargetId.');
-              }
-
-              const transition = await this.commandDispatcher.dispatch(
-                'com-handoff',
-                {
-                  targetAgentId,
-                  targetWorkflowId: handoffInput.handoff.handoffTargetWorkflowId ?? 'chat',
-                  briefingNote: handoffInput.handoff.handoffNote,
-                  workflowToolPolicy: handoffInput.handoff.handoffWorkflowToolPolicy,
-                },
-                (() => {
-                  const signal = (input as { signal?: AbortSignal }).signal;
-                  const depth = (input as { subworkflowDepth?: number }).subworkflowDepth;
-                  return {
-                    history: [],
-                    agentId: handoffInput.fromAgentId,
-                    sessionId: handoffInput.fromSessionId,
-                    ...(signal ? { signal } : {}),
-                    ...(depth !== undefined ? { subworkflowDepth: depth } : {}),
-                  };
-                })()
-              );
-
-              const data = requireSuccessfulHandoffTransition(transition);
-
-              return {
-                autoMessage: undefined,
-                agentId: data?.targetAgentId ?? targetAgentId,
-                sessionId: data?.targetSessionId ?? handoffInput.handoff.handoffTargetSessionId,
-              };
-            }
-          );
-        case 'toolRound':
-          return undefined;
-        case 'failure':
-          return undefined;
-        default:
-          throw new Error(`Unsupported chat runtime step: ${String(step)}`);
-      }
-    };
-
-    const runtime = new ChatRuntime(resolveStep, this.workflowRunnerFactory.create());
-
-    return runtime.runAsync(input);
-  }
-
-  private extractDirectHandoffTargetQuery(
-    userMessage: string,
-    currentAgentId?: string
-  ): string | undefined {
-    const message = userMessage.trim();
-    if (!message) {
-      return undefined;
-    }
-
-    const patterns: RegExp[] = [
-      /\b(?:let me talk to|talk to|switch to|hand\s*off to|handoff to|forward me to|route me to|transfer me to|connect me to)\s+([a-z0-9][a-z0-9\-_ ]*)$/i,
-      /\b(?:i want to talk to|i need to talk to|i need to speak to|please switch me to|please connect me to)\s+([a-z0-9][a-z0-9\-_ ]*)$/i,
-    ];
-
-    let rawTarget: string | undefined;
-    for (const pattern of patterns) {
-      const match = pattern.exec(message);
-      const candidate = match?.[1]?.trim();
-      if (candidate) {
-        rawTarget = candidate;
-        break;
-      }
-    }
-
-    if (!rawTarget) {
-      return undefined;
-    }
-
-    const punctuation = new Set(['.', '!', '?', ';', ',', ':']);
-    let normalizedSource = rawTarget.trim();
-
-    while (
-      normalizedSource.length > 0 &&
-      ['"', "'", '`'].includes(normalizedSource.charAt(0) ?? '')
-    ) {
-      normalizedSource = normalizedSource.slice(1).trimStart();
-    }
-
-    while (normalizedSource.length > 0 && ['"', "'", '`'].includes(normalizedSource.at(-1) ?? '')) {
-      normalizedSource = normalizedSource.slice(0, -1).trimEnd();
-    }
-
-    while (normalizedSource.length > 0 && punctuation.has(normalizedSource.at(-1) ?? '')) {
-      normalizedSource = normalizedSource.slice(0, -1).trimEnd();
-    }
-
-    const normalized = normalizedSource.split(/\s+/).filter(Boolean).join('-').toLowerCase();
-
-    if (!normalized || normalized === currentAgentId?.toLowerCase()) {
-      return undefined;
-    }
-
-    // Avoid false positives on generic pronouns.
-    if (['him', 'her', 'them', 'someone', 'anyone', 'another'].includes(normalized)) {
-      return undefined;
-    }
-
-    // If the user asks for "the HR director" style phrasing, keep it as query text;
-    // handoff command performs fuzzy resolution.
-    return normalized;
-  }
-}
-
-function registerCliChatRuntime(container: IServiceContainer): void {
-  container.registerScoped(CORE_SERVICE_TOKENS.ChatRuntime, (c) => {
-    const commandDispatcher = c.resolve(CORE_SERVICE_TOKENS.CommandDispatcher);
-    const workflowRunnerFactory = c.resolve(CORE_SERVICE_TOKENS.WorkflowRunnerFactory);
-
-    return new CliChatRuntimeBridge(commandDispatcher, workflowRunnerFactory);
-  });
-}
-
 const cliQuestionService = createQuestionResponders();
 const commandContainer = createContainerWithBootstrap({ workspaceRoot }, (c) => {
   c.registerInstance(TOKENS.QuestionService, cliQuestionService);
@@ -337,7 +48,6 @@ const commandContainer = createContainerWithBootstrap({ workspaceRoot }, (c) => 
   const emitService = createConsoleEmitService();
   c.registerInstance(TOKENS.EmitService, emitService);
   c.registerInstance(CORE_SERVICE_TOKENS.EmitService, emitService);
-  registerCliChatRuntime(c as unknown as IServiceContainer);
 });
 registerCliResultHandlers(commandContainer as unknown as IServiceContainer);
 const commandClient = new CliCommandClient(
@@ -367,73 +77,6 @@ interface CliApplicationDeps {
 
 class CliApplication {
   constructor(private readonly deps: CliApplicationDeps) {}
-
-  private async resolveChatStartupTarget(params: {
-    agentId?: string;
-    sessionId?: string;
-    createNewSession: boolean;
-  }): Promise<{ agentId?: string; agentName?: string; sessionId?: string }> {
-    let resolvedAgentId = params.agentId?.trim() || undefined;
-    let resolvedAgentName: string | undefined;
-    let resolvedSessionId = params.sessionId;
-
-    if (params.sessionId && !params.createNewSession) {
-      try {
-        const threadManager = this.deps.commandContainer.resolve(CORE_SERVICE_TOKENS.ThreadManager);
-        const active = await threadManager.resolveActiveSession(params.sessionId);
-        resolvedSessionId = active.session?.id ?? params.sessionId;
-        resolvedAgentId = active.session?.agentId ?? resolvedAgentId;
-      } catch {
-        // The normal startup path below will report an unknown session.
-      }
-    }
-
-    if (resolvedAgentId) {
-      const agentManager = this.deps.commandContainer.resolve(CORE_SERVICE_TOKENS.AgentManager);
-      const resolved = await agentManager.resolveAgentForOperationAsync(
-        resolvedAgentId,
-        'CLI chat startup'
-      );
-      resolvedAgentId = resolved.id;
-      resolvedAgentName = resolved.name;
-    }
-
-    if (params.createNewSession || resolvedAgentId || params.sessionId) {
-      return {
-        agentId: resolvedAgentId,
-        agentName: resolvedAgentName,
-        sessionId: resolvedSessionId,
-      };
-    }
-
-    try {
-      const threadManager = this.deps.commandContainer.resolve(CORE_SERVICE_TOKENS.ThreadManager);
-
-      const developerIdentityService = this.deps.commandContainer.resolve(
-        CORE_SERVICE_TOKENS.DeveloperIdentityService
-      );
-
-      const developerName = developerIdentityService.getUserName() || 'developer';
-      const developerId = developerIdentityService.toDeveloperId(developerName);
-      const latest = await threadManager.resolveLatestActiveSession(developerId);
-
-      if (!latest) {
-        return { agentId: undefined, sessionId: undefined };
-      }
-
-      return {
-        agentId: latest.agentId,
-        agentName: undefined,
-        sessionId: latest.id,
-      };
-    } catch {
-      return {
-        agentId: resolvedAgentId,
-        agentName: resolvedAgentName,
-        sessionId: resolvedSessionId,
-      };
-    }
-  }
 
   public initialize(): void {
     this.deps.program
@@ -754,14 +397,8 @@ class CliApplication {
           : typeof opts['auto-react-message'] === 'string'
             ? opts['auto-react-message']
             : undefined;
-      const startupTarget = await this.resolveChatStartupTarget({
-        agentId,
-        sessionId,
-        createNewSession,
-      });
-      const resolvedAgentId = startupTarget.agentId;
-      const resolvedAgentName = startupTarget.agentName;
-      const resolvedSessionId = startupTarget.sessionId;
+      const resolvedAgentId = agentId;
+      const resolvedSessionId = sessionId;
 
       const chatOptions: ChatOptions = {
         message,
@@ -790,7 +427,6 @@ class CliApplication {
         'chat-chat',
         {
           agentId: resolvedAgentId,
-          agentName: resolvedAgentName,
           sessionId: resolvedSessionId,
           createNewSession,
           message,

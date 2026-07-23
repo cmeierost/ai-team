@@ -7,6 +7,7 @@ import { HeaderBar } from './header-bar.js';
 import { Prompt } from './prompt.js';
 import { StatusLine } from './status-line.js';
 import { AgentResponse } from './agent-response.js';
+import { SlashCommandResult } from './tool-results.js';
 
 const terminal: ITerminal = {
   columns: 80,
@@ -103,6 +104,37 @@ describe('ChatLayout', () => {
     const older = layout.render(80).join('\n');
     expect(older).toContain('message 1');
     expect(older).not.toContain('message 12');
+
+    layout.handleInput('x');
+    expect(prompt.value).toBe('x');
+  });
+
+  it('scrolls a slash result taller than the viewport without moving the composer', () => {
+    const chat = new ChatView();
+    chat.getContent().addChild(new SlashCommandResult(
+      Array.from({ length: 30 }, (_, index) => `command ${index + 1}`).join('\n')
+    ));
+    const prompt = new Prompt('> ', () => {});
+    const spinner = new Loader();
+    spinner.setVisible(false);
+    const layout = new ChatLayout(
+      terminal,
+      new HeaderBar(),
+      chat,
+      spinner,
+      prompt,
+      new StatusLine()
+    );
+    layout.focused = true;
+
+    const bottom = layout.render(80);
+    expect(bottom.join('\n')).toContain('command 30');
+    expect(bottom.at(-3)).toContain('> ');
+
+    layout.handleInput('\x1b[5~');
+    const older = layout.render(80);
+    expect(older.join('\n')).not.toContain('command 30');
+    expect(older.at(-3)).toContain('> ');
 
     layout.handleInput('x');
     expect(prompt.value).toBe('x');

@@ -65,6 +65,41 @@ describe('CommandDispatcher typed dispatch', () => {
     expect(result.data).toEqual({ greeting: 'Hi Leah' });
   });
 
+  it('preserves a typed cancelled command response instead of wrapping it as ok', async () => {
+    const { dispatcher } = makeDispatcher();
+    const cancellation = {
+      type: 'handoff_cancelled' as const,
+      outcome: 'cancelled' as const,
+      targetAgentId: 'sarah-lee',
+      reasonCode: 'approval-denied' as const,
+      message: 'Handoff was not approved.',
+      timestamp: '2026-07-23T18:00:00.000Z',
+    };
+
+    const command: ICommand<Record<string, never>, typeof cancellation> = {
+      metadata: {
+        key: 'typed-cancelled',
+        description: 'typed cancelled response',
+        availableIn: { chat: true },
+      },
+      execute: async () => ({
+        status: 'cancelled',
+        message: cancellation.message,
+        data: cancellation,
+      }),
+    };
+
+    dispatcher.registerCommand(command);
+
+    const result = await dispatcher.dispatchCommand(command, {});
+
+    expect(result).toEqual({
+      status: 'cancelled',
+      message: cancellation.message,
+      data: cancellation,
+    });
+  });
+
   it('supports dispatchCommand(command, payload) with typed payload/result', async () => {
     const { dispatcher } = makeDispatcher();
 

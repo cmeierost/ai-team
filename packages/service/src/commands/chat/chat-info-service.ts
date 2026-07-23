@@ -75,6 +75,7 @@ export class ChatInfoService implements IChatInfoService {
       kind: 'session_switched',
       sessionId: args.sessionId,
       agentId: args.agentId,
+      source: 'startup',
     });
   }
 

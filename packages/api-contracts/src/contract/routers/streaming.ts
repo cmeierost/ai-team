@@ -128,6 +128,8 @@ export type RuntimeStreamEvent =
       /** Emitted when a slash command switches the active session (e.g. /new). */
       kind: 'session_switched';
       sessionId: string;
+      agentId?: string;
+      source?: 'startup' | 'handoff' | 'back' | 'new-session';
     }
   | {
       /** Emitted when the session title is automatically generated. */
@@ -552,6 +554,8 @@ export type StreamEvent<TCommand extends string = string> =
       kind: 'session_switched';
       timestamp: string;
       sessionId: string;
+      agentId?: string;
+      source?: 'startup' | 'handoff' | 'back' | 'new-session';
     }
   | {
       requestId?: string;

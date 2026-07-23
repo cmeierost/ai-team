@@ -3,11 +3,14 @@ import { ChatStartupCommand } from './chat-startup.command.js';
 
 describe('ChatStartupCommand', () => {
   it('runs startup workflow and emits resume context', async () => {
-    const agentManager = {
-      getAgentAsync: vi.fn(async () => ({
+    const startupTargetResolver = {
+      resolve: vi.fn(async () => ({
+        sessionId: 'session-1',
+        agent: {
         id: 'sarah-lee',
         name: 'Sarah Lee',
         role: 'chief-architect',
+        },
       })),
     };
     const resolveChatSessionCommand = {
@@ -45,7 +48,6 @@ describe('ChatStartupCommand', () => {
     };
 
     const command = new ChatStartupCommand(
-      agentManager as any,
       resolveChatSessionCommand as any,
       loadSessionMessagesCommand as any,
       introductionCommand as any,
@@ -53,6 +55,7 @@ describe('ChatStartupCommand', () => {
       chatInfoService as any,
       developerIdentityService as any,
       identityResolver as any,
+      startupTargetResolver as any,
       'C:\\Projects\\ai-team',
       {
         getSystemInfo: vi.fn(() => ({
@@ -77,7 +80,11 @@ describe('ChatStartupCommand', () => {
       } as any
     );
 
-    expect(agentManager.getAgentAsync).toHaveBeenCalledWith('sarah-lee');
+    expect(startupTargetResolver.resolve).toHaveBeenCalledWith({
+      agentQuery: 'sarah-lee',
+      sessionId: 'session-1',
+      createNewSession: false,
+    });
     expect(resolveChatSessionCommand.execute).toHaveBeenCalled();
     expect(loadSessionMessagesCommand.execute).toHaveBeenCalledWith({
       sessionId: 'session-1',
@@ -110,7 +117,6 @@ describe('ChatStartupCommand', () => {
 
   it('returns ok no-op when employeeId is omitted', async () => {
     const command = new ChatStartupCommand(
-      { getAgentAsync: vi.fn() } as any,
       { execute: vi.fn() } as any,
       { execute: vi.fn() } as any,
       { execute: vi.fn() } as any,
@@ -125,6 +131,7 @@ describe('ChatStartupCommand', () => {
       } as any,
       { getUserName: vi.fn(() => 'Clemens Meier') } as any,
       undefined,
+      { resolve: vi.fn(async () => null) } as any,
       'C:\\Projects\\ai-team',
       {
         getSystemInfo: vi.fn(() => ({

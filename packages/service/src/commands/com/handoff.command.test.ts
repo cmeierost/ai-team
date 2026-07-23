@@ -58,6 +58,44 @@ function createCommand(askAnswer = false, source = SOURCE) {
 }
 
 describe('HandoffCommand delegation approval', () => {
+  it.each([
+    ['slash', true],
+    ['tool', false],
+    ['workflow', false],
+  ] as const)(
+    'returns the same typed transition result for the %s invocation surface',
+    async (invocationSurface, calledByHuman) => {
+      const source = {
+        ...SOURCE,
+        handoffs: [{ label: 'HR', agent: 'emily' }],
+      };
+      const { command } = createCommand(false, source);
+
+      const result = await command.execute(
+        { targetAgentId: 'emily', targetWorkflowId: 'chat' },
+        {
+          history: [],
+          agent: source as any,
+          agentId: source.id,
+          sessionId: 'session-michael',
+          invocationSurface,
+          calledByHuman,
+        }
+      );
+
+      expect(result).toMatchObject({
+        status: 'ok',
+        data: {
+          type: 'handoff',
+          targetAgentId: 'emily',
+          targetSessionId: 'session-emily',
+          targetWorkflowId: 'chat',
+          briefingNote: 'A useful summary.',
+        },
+      });
+    }
+  );
+
   it('allows a trusted human slash handoff to any valid agent without asking', async () => {
     const { command, handoffSubWorkflow, commandDispatcher } = createCommand();
 
@@ -92,6 +130,12 @@ describe('HandoffCommand delegation approval', () => {
     );
 
     expect(result.status).toBe('cancelled');
+    expect(result.data).toMatchObject({
+      type: 'handoff_cancelled',
+      outcome: 'cancelled',
+      targetAgentId: 'emily',
+      reasonCode: 'approval-denied',
+    });
     expect(commandDispatcher.dispatch).toHaveBeenCalledWith(
       'com-ask',
       expect.objectContaining({ kind: 'confirm', defaultBoolean: false }),
@@ -99,6 +143,79 @@ describe('HandoffCommand delegation approval', () => {
     );
     expect(handoffSubWorkflow.executeAsync).not.toHaveBeenCalled();
   });
+
+  it.each(['tool', 'workflow'] as const)(
+    'does not trust calledByHuman on the %s invocation surface',
+    async (invocationSurface) => {
+      const { command, handoffSubWorkflow, commandDispatcher } = createCommand(false);
+
+      const result = await command.execute(
+        { targetAgentId: 'emily', targetWorkflowId: 'chat' },
+        {
+          history: [],
+          agent: SOURCE as any,
+          sessionId: 'session-michael',
+          invocationSurface,
+          calledByHuman: true,
+        }
+      );
+
+      expect(result.status).toBe('cancelled');
+      expect(commandDispatcher.dispatch).toHaveBeenCalledOnce();
+      expect(handoffSubWorkflow.executeAsync).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    [
+      'timeout',
+      { status: 'error', message: 'Question timed out.' },
+      'approval-timeout',
+    ],
+    [
+      'missing question capability',
+      { status: 'error', message: 'Question service unavailable.' },
+      'approval-unavailable',
+    ],
+    [
+      'cancelled question',
+      { status: 'cancelled', message: 'Question cancelled.' },
+      'approval-cancelled',
+    ],
+  ])(
+    'returns a typed cancellation with no transition side effects for %s',
+    async (_label, approvalResponse, expectedReason) => {
+      const { command, handoffSubWorkflow, commandDispatcher } = createCommand(false);
+      commandDispatcher.dispatch.mockResolvedValueOnce(approvalResponse);
+      const ctx = {
+        history: [],
+        agent: SOURCE as any,
+        agentId: SOURCE.id,
+        sessionId: 'session-michael',
+        invocationSurface: 'tool' as const,
+        calledByHuman: false,
+      };
+
+      const result = await command.execute(
+        { targetAgentId: 'emily', targetWorkflowId: 'chat' },
+        ctx
+      );
+
+      expect(result).toMatchObject({
+        status: 'cancelled',
+        data: {
+          type: 'handoff_cancelled',
+          reasonCode: expectedReason,
+          targetAgentId: 'emily',
+        },
+      });
+      expect(handoffSubWorkflow.executeAsync).not.toHaveBeenCalled();
+      expect(ctx).toMatchObject({
+        agentId: SOURCE.id,
+        sessionId: 'session-michael',
+      });
+    }
+  );
 
   it('allows a configured agent handoff target without asking', async () => {
     const { command, handoffSubWorkflow, commandDispatcher } = createCommand();
@@ -207,5 +324,34 @@ describe('HandoffCommand delegation approval', () => {
     });
     expect(commandDispatcher.dispatch).not.toHaveBeenCalled();
     expect(handoffSubWorkflow.executeAsync).not.toHaveBeenCalled();
+  });
+
+  it('keeps runtime identity unchanged when the shared transition fails', async () => {
+    const source = {
+      ...SOURCE,
+      handoffs: [{ label: 'HR', agent: 'emily' }],
+    };
+    const { command, handoffSubWorkflow } = createCommand(false, source);
+    handoffSubWorkflow.executeAsync.mockRejectedValueOnce(new Error('persistence failed'));
+    const ctx = {
+      history: [{ from: 'michael', content: 'private context' }],
+      agent: source as any,
+      agentId: source.id,
+      sessionId: 'session-michael',
+      navStack: [],
+      invocationSurface: 'tool' as const,
+    };
+
+    await expect(
+      command.execute({ targetAgentId: 'emily', targetWorkflowId: 'chat' }, ctx as any)
+    ).rejects.toThrow('persistence failed');
+
+    expect(ctx).toMatchObject({
+      agent: source,
+      agentId: source.id,
+      sessionId: 'session-michael',
+      navStack: [],
+      history: [{ from: 'michael', content: 'private context' }],
+    });
   });
 });

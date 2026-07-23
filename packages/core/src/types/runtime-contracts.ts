@@ -110,7 +110,8 @@ export type ChatTurnBootstrapResolution =
       ok: true;
       agent: Agent;
       sessionId: string;
-      history: ChatMessage[];
+      /** Private LLM context for this one agent session; never a thread transcript. */
+      sessionHistory: ChatMessage[];
       developerId: string;
     }
   | {
@@ -452,7 +453,7 @@ export interface ICommandDispatcher {
     params: unknown,
     ctx: ExecutionContext
   ): Promise<{
-    status: 'ok' | 'error';
+    status: 'ok' | 'error' | 'cancelled';
     message: string;
     data?: unknown;
     error?: { code?: string; details?: unknown };

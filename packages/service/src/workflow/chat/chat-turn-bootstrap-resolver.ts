@@ -97,7 +97,7 @@ export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
       ok: true,
       agent,
       sessionId: session.sessionId,
-      history: session.history,
+      sessionHistory: session.history,
       developerId,
     };
   }

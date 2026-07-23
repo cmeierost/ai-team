@@ -37,6 +37,7 @@ export { NotesManager } from './sessions/notes-manager.js';
 
 export {
   ChatRuntime,
+  CommandChatRuntime,
   HANDOFF_AUTO_REACT_MESSAGE,
   HandoffSubWorkflow,
   createChatRuntimeStepCommand,

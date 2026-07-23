@@ -6,6 +6,7 @@ import type {
   IThreadManager,
 } from '@ai-team/core';
 import type { AgentRuntimeIdentityResolver } from './agent-runtime-identity.js';
+import { isHandoffAutoReactMessage } from '../../workflow/chat/handoff-auto-react.js';
 
 export type ChatThreadTranscriptEntry =
   | {
@@ -81,6 +82,14 @@ export class ChatThreadTranscriptService {
     for (const { session, messages } of loaded) {
       const fallbackAgentId = session.agentIds?.[0] ?? session.agentId;
       for (const message of messages) {
+        if (
+          message.archived ||
+          message.hiddenFromLlm ||
+          message.importance === 'low' ||
+          (message.isHuman && isHandoffAutoReactMessage(message.content))
+        ) {
+          continue;
+        }
         const timestampMs = Number.isFinite(Date.parse(message.timestamp))
           ? Date.parse(message.timestamp)
           : 0;

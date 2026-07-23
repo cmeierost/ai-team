@@ -2,7 +2,6 @@
  * Extension registry — manages installed extensions and their providers.
  */
 
-import type { Component } from '@ai-team/tui';
 import {
   type CustomViewProvider,
   type StreamEventHandler,
@@ -13,6 +12,7 @@ import {
   type NormalizedToolEvent,
   type ToolRenderDecision,
 } from './types.js';
+import { createDefaultToolRendererManifest } from './default-tool-renderers.js';
 
 /**
  * Extension registry — discovers and manages extensions.
@@ -23,6 +23,10 @@ export class ExtensionRegistry {
   private readonly toolRenderers: ToolRenderer[] = [];
   private readonly questionResponders: Map<string, QuestionResponder[]> = new Map();
   private readonly slashCommands: Map<string, SlashCommandHandler> = new Map();
+
+  constructor() {
+    this.register(createDefaultToolRendererManifest());
+  }
 
   /**
    * Register an extension from its manifest.
@@ -78,10 +82,14 @@ export class ExtensionRegistry {
    * Try to render a tool event with a custom renderer.
    */
   renderTool(event: NormalizedToolEvent): ToolRenderDecision {
-    const exact = this.toolRenderers.find((renderer) => renderer.toolName === event.toolName);
-    if (exact) return exact.render(event);
+    for (let index = this.toolRenderers.length - 1; index >= 0; index -= 1) {
+      const renderer = this.toolRenderers[index];
+      if (renderer?.toolName === event.toolName) return renderer.render(event);
+    }
 
-    for (const renderer of this.toolRenderers) {
+    for (let index = this.toolRenderers.length - 1; index >= 0; index -= 1) {
+      const renderer = this.toolRenderers[index];
+      if (!renderer) continue;
       if (
         renderer.toolName !== event.toolName
         && this.matchesToolPattern(renderer.toolName, event.toolName)

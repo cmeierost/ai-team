@@ -17,12 +17,20 @@ type PromptRunner = <T extends Record<string, unknown>>(questions: unknown[]) =>
 export class InquirerQuestionService implements IQuestionService {
   private beforeQuestion?: () => void;
   private afterQuestion?: () => void;
+  private presenter?: IQuestionService;
 
   constructor(private readonly promptRunner: PromptRunner = prompt as PromptRunner) {}
 
   setLifecycleHooks(hooks?: { beforeQuestion(): void; afterQuestion(): void }): void {
     this.beforeQuestion = hooks?.beforeQuestion;
     this.afterQuestion = hooks?.afterQuestion;
+  }
+
+  attachPresenter(presenter: IQuestionService): () => void {
+    this.presenter = presenter;
+    return () => {
+      if (this.presenter === presenter) this.presenter = undefined;
+    };
   }
 
   private async runQuestion<T>(question: () => Promise<T>): Promise<T> {
@@ -93,6 +101,7 @@ export class InquirerQuestionService implements IQuestionService {
   }
 
   async input(request: QuestionInputRequest): Promise<string> {
+    if (this.presenter) return this.presenter.input(request);
     return this.runQuestion(async () => {
       const answer = await this.promptRunner<{ value: string }>([
         {
@@ -108,6 +117,7 @@ export class InquirerQuestionService implements IQuestionService {
   }
 
   async confirm(request: QuestionConfirmRequest): Promise<boolean> {
+    if (this.presenter) return this.presenter.confirm(request);
     return this.runQuestion(async () => {
       const answer = await this.promptRunner<{ value: boolean }>([
         {
@@ -122,6 +132,7 @@ export class InquirerQuestionService implements IQuestionService {
   }
 
   async select(request: QuestionSelectRequest): Promise<string> {
+    if (this.presenter) return this.presenter.select(request);
     const choices = this.normalizeSelectChoices(request.choices as unknown);
     if (choices.length === 0) {
       throw new Error('Select question has no valid choices.');
@@ -143,6 +154,7 @@ export class InquirerQuestionService implements IQuestionService {
   }
 
   async password(request: QuestionPasswordRequest): Promise<string> {
+    if (this.presenter) return this.presenter.password(request);
     return this.runQuestion(async () => {
       const answer = await this.promptRunner<{ value: string }>([
         {
@@ -157,6 +169,7 @@ export class InquirerQuestionService implements IQuestionService {
   }
 
   async checklist(request: QuestionChecklistRequest): Promise<string[]> {
+    if (this.presenter) return this.presenter.checklist(request);
     const defaultValues = Array.isArray(request.default)
       ? request.default.filter(
           (value): value is string => typeof value === 'string' && value.trim().length > 0

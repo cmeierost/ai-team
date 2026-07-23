@@ -231,6 +231,12 @@ describe('HandoffSubWorkflow', () => {
     const firstMessage = sessionManager.appendMessage.mock.calls[0][1];
     const secondMessage = sessionManager.appendMessage.mock.calls[1][1];
     expect(firstMessage.handoffId).toBe(secondMessage.handoffId);
+    const prompt = llmService.streamChat.mock.calls[0][1][0].content;
+    expect(prompt).toContain('important discoveries');
+    expect(prompt).toContain('decisions made');
+    expect(prompt).toContain('unresolved questions');
+    expect(prompt).toContain('recommended next action');
+    expect(prompt).toContain('do not copy the full private conversation');
   });
 
   it('uses conversational history for /back independently of delegation ancestry', async () => {
@@ -267,6 +273,50 @@ describe('HandoffSubWorkflow', () => {
     expect(threadManager.recordBack).toHaveBeenCalledWith('sess-emily');
     expect(threadManager.recordReturn).not.toHaveBeenCalled();
     expect(result.toSessionId).toBe('sess-michael');
+    expect(sessionManager.appendMessage).toHaveBeenCalledTimes(2);
+    expect(sessionManager.appendMessage.mock.calls[0][1].handoffId).toBe(result.handoffId);
+    expect(sessionManager.appendMessage.mock.calls[1][1].handoffId).toBe(result.handoffId);
+    const prompt = llmService.streamChat.mock.calls[0][1][0].content;
+    expect(prompt).toContain('important discoveries');
+    expect(prompt).toContain('recommended next action');
+  });
+
+  it('does not classify a handoff to a non-parent existing agent as a delegation return', async () => {
+    const { agentManager, sessionManager, threadManager, llmService, emitService } = makeDeps();
+    sessionManager.getSession.mockImplementation(async (sessionId: string) =>
+      sessionId === 'sess-emily'
+        ? {
+            id: 'sess-emily',
+            agentId: 'emily-davis',
+            developerId: 'dev-1',
+            previousSessionId: 'sess-sarah',
+          }
+        : {
+            id: sessionId,
+            agentId: 'sarah-lee',
+            developerId: 'dev-1',
+          }
+    );
+    const workflow = new HandoffSubWorkflow(
+      agentManager,
+      sessionManager,
+      threadManager,
+      llmService,
+      emitService
+    );
+
+    await workflow.executeAsync({
+      ctx: { agent: EMILY, sessionId: 'sess-emily', history: [] } as any,
+      targetAgentQuery: 'michael',
+    });
+
+    expect(threadManager.resolveHandoffSession).toHaveBeenCalledWith(
+      'michael-brown',
+      'sess-emily',
+      'dev-1'
+    );
+    expect(threadManager.recordHandoff).toHaveBeenCalledOnce();
+    expect(threadManager.recordReturn).not.toHaveBeenCalled();
   });
 
   it('compensates the first mirrored write when the second write fails', async () => {
@@ -284,7 +334,11 @@ describe('HandoffSubWorkflow', () => {
 
     await expect(
       workflow.executeAsync({
-        ctx: { agent: EMILY, sessionId: 'sess-emily', history: [] } as any,
+        ctx: {
+          agent: EMILY,
+          sessionId: 'sess-emily',
+          history: [{ from: 'emily-davis', content: 'source context' }],
+        } as any,
         targetAgentQuery: 'michael',
       })
     ).rejects.toThrow('source write failed');
@@ -300,5 +354,97 @@ describe('HandoffSubWorkflow', () => {
       .map((event: Record<string, unknown>) => event.handoffPhase);
     expect(phases).toEqual(['start', 'delta', 'delta', 'cancelled']);
     expect(phases).not.toContain('complete');
+  });
+
+  it('cancels before persistence when target context loading fails', async () => {
+    const { agentManager, sessionManager, threadManager, llmService, emitService } = makeDeps();
+    sessionManager.getSessionMessages.mockRejectedValueOnce(new Error('target history unavailable'));
+    const workflow = new HandoffSubWorkflow(
+      agentManager,
+      sessionManager,
+      threadManager,
+      llmService,
+      emitService
+    );
+
+    await expect(
+      workflow.executeAsync({
+        ctx: {
+          agent: EMILY,
+          sessionId: 'sess-emily',
+          history: [{ from: 'emily-davis', content: 'source context' }],
+        } as any,
+        targetAgentQuery: 'michael',
+      })
+    ).rejects.toThrow('target history unavailable');
+
+    expect(sessionManager.appendMessage).not.toHaveBeenCalled();
+    expect(threadManager.recordHandoff).not.toHaveBeenCalled();
+    expect(
+      emitService.emit.mock.calls
+        .map(([event]: [Record<string, unknown>]) => event)
+        .filter((event: Record<string, unknown>) => event.kind === 'handoff')
+        .map((event: Record<string, unknown>) => event.handoffPhase)
+    ).toEqual(['start', 'delta', 'delta', 'cancelled']);
+  });
+
+  it('compensates both mirrored messages when cursor persistence fails', async () => {
+    const { agentManager, sessionManager, threadManager, llmService, emitService } = makeDeps();
+    threadManager.recordHandoff.mockRejectedValueOnce(new Error('cursor write failed'));
+    const workflow = new HandoffSubWorkflow(
+      agentManager,
+      sessionManager,
+      threadManager,
+      llmService,
+      emitService
+    );
+
+    await expect(
+      workflow.executeAsync({
+        ctx: { agent: EMILY, sessionId: 'sess-emily', history: [] } as any,
+        targetAgentQuery: 'michael',
+      })
+    ).rejects.toThrow('cursor write failed');
+
+    expect(sessionManager.deleteSessionMessage).toHaveBeenCalledTimes(2);
+    expect(sessionManager.deleteSessionMessage).toHaveBeenCalledWith(
+      'sess-emily',
+      expect.any(String)
+    );
+    expect(sessionManager.deleteSessionMessage).toHaveBeenCalledWith(
+      'sess-michael',
+      expect.any(String)
+    );
+    expect(
+      emitService.emit.mock.calls
+        .map(([event]: [Record<string, unknown>]) => event)
+        .filter((event: Record<string, unknown>) => event.kind === 'handoff')
+        .map((event: Record<string, unknown>) => event.handoffPhase)
+    ).not.toContain('complete');
+  });
+
+  it('does not start a lifecycle or persist when target resolution fails', async () => {
+    const { agentManager, sessionManager, threadManager, llmService, emitService } = makeDeps();
+    agentManager.resolveAgentForOperationAsync.mockRejectedValueOnce(
+      new Error('target resolution failed')
+    );
+    const workflow = new HandoffSubWorkflow(
+      agentManager,
+      sessionManager,
+      threadManager,
+      llmService,
+      emitService
+    );
+
+    await expect(
+      workflow.executeAsync({
+        ctx: { agent: EMILY, sessionId: 'sess-emily', history: [] } as any,
+        targetAgentQuery: 'missing',
+      })
+    ).rejects.toThrow('target resolution failed');
+
+    expect(emitService.emit).not.toHaveBeenCalled();
+    expect(sessionManager.appendMessage).not.toHaveBeenCalled();
+    expect(threadManager.recordHandoff).not.toHaveBeenCalled();
   });
 });

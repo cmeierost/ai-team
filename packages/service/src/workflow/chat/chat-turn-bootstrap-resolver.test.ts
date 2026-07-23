@@ -69,7 +69,7 @@ describe('ChatTurnBootstrapResolver thread resume', () => {
       ok: true,
       agent: { id: 'emily' },
       sessionId: 'session-emily',
-      history: [{ content: 'history:session-emily' }],
+      sessionHistory: [{ content: 'history:session-emily' }],
     });
     expect(ctx.navStack).toEqual([
       expect.objectContaining({ sessionId: 'session-michael' }),

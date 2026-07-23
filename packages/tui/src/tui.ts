@@ -108,6 +108,13 @@ export class TUI extends Container {
     this.requestRender();
   }
 
+  /** Paint any pending state synchronously before a lifecycle boundary. */
+  flush(): void {
+    if (this.stopped) return;
+    this.renderRequested = false;
+    this.doRender();
+  }
+
   private doRender(): void {
     if (this.stopped) return;
     const width = this.terminal.columns;

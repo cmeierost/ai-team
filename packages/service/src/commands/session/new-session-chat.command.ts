@@ -28,7 +28,12 @@ export class NewSessionChatCommand implements ICommand<string, string> {
     const fresh = await this.sessionManager.createSession(ctx.agent!.id, developerId);
     ctx.sessionId = fresh.id;
     ctx.history = [];
-    this.emitService.emit({ kind: 'session_switched', sessionId: fresh.id });
+    this.emitService.emit({
+      kind: 'session_switched',
+      sessionId: fresh.id,
+      agentId: ctx.agent?.id ?? ctx.agentId,
+      source: 'new-session',
+    });
     const message = `New session started: ${fresh.id}`;
     return { status: 'ok', message, data: fresh.id };
   }

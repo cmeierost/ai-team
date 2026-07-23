@@ -33,8 +33,12 @@ describe('ChatTurnCommand', () => {
       sessionId: 'session-1',
       createNewSession: false,
       introduction: false,
+      contextFiles: undefined,
       message: 'hello',
       maxHops: 0,
+      invocationSurface: 'cli',
+      calledByHuman: undefined,
+      callerType: undefined,
     });
 
     expect(response).toEqual({ status: 'ok', data: 'ok', message: 'completed' });

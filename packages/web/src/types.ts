@@ -427,7 +427,7 @@ export interface SessionActivatedTool {
     outcome: 'request' | 'start' | 'result' | 'error' | 'denied';
     request?: unknown;
     commandResponse?: {
-      status: 'ok' | 'error';
+      status: 'ok' | 'error' | 'cancelled';
       message: string;
       data?: unknown;
       saveable?: unknown;

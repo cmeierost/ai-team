@@ -277,6 +277,22 @@ describe('chatPanelUtils', () => {
     expect(message).toBe('fallback');
   });
 
+  it('renders a cancelled slash-command response as its user-facing message', () => {
+    expect(
+      resolveRuntimeToolEventMessage({
+        toolName: 'slash:handoff',
+        toolResult: {
+          toolName: 'slash:handoff',
+          outcome: 'result',
+          commandResponse: {
+            status: 'cancelled',
+            message: 'Handoff was not approved.',
+          },
+        },
+      })
+    ).toBe('Handoff was not approved.');
+  });
+
   it('renders slash tool message only for terminal phases with text', () => {
     expect(
       shouldRenderSlashToolMessage({

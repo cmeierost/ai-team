@@ -210,6 +210,65 @@ describe('dispatchToolCall denial metadata', () => {
     expect(parentCtx.history).toEqual([]);
   });
 
+  it('persists a handoff tool result in the source session before adopting the target context', async () => {
+    const toolManager = {
+      get: vi.fn(() => undefined),
+      execute: vi.fn(async (_agent: unknown, _name: string, _args: unknown, toolCtx: any) => {
+        toolCtx.agent = {
+          id: 'agent-b',
+          name: 'Agent B',
+          role: 'dev',
+          systemPrompt: '',
+        };
+        toolCtx.agentId = 'agent-b';
+        toolCtx.sessionId = 'sess-2';
+        toolCtx.history = [];
+        return {
+          ok: true,
+          result: {
+            type: 'handoff',
+            targetAgentId: 'agent-b',
+            targetSessionId: 'sess-2',
+            timestamp: new Date().toISOString(),
+          },
+        };
+      }),
+    } as any;
+    const appendMessage = vi.fn(async () => undefined);
+    const ctx = makeContext();
+    createEmitService(vi.fn());
+    const dispatcher = createDispatcher(
+      toolManager,
+      { appendMessage } as any,
+      {} as any
+    );
+
+    await dispatcher.dispatch(
+      {
+        toolCallId: 'tc-handoff',
+        toolName: 'com_handoff',
+        args: { targetAgentId: 'agent-b' },
+      },
+      ctx
+    );
+
+    expect(appendMessage).toHaveBeenCalledWith(
+      'sess-1',
+      expect.objectContaining({
+        from: 'agent-a',
+        tool_calls: [
+          expect.objectContaining({
+            tool: 'com_handoff',
+          }),
+        ],
+      })
+    );
+    expect(ctx).toMatchObject({
+      agentId: 'agent-b',
+      sessionId: 'sess-2',
+    });
+  });
+
   it('emits tool result event with a preview of successful output', async () => {
     const toolManager = {
       get: vi.fn(() => undefined),

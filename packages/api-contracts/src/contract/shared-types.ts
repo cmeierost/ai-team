@@ -61,7 +61,7 @@ export interface CommandResponseError {
 }
 
 export interface CommandResponse<T = unknown> {
-  status: 'ok' | 'error';
+  status: 'ok' | 'error' | 'cancelled';
   message: string;
   data?: T;
   saveable?: unknown;
@@ -72,7 +72,9 @@ export function isCommandResponse(value: unknown): value is CommandResponse {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<CommandResponse>;
   return (
-    (candidate.status === 'ok' || candidate.status === 'error') &&
+    (candidate.status === 'ok' ||
+      candidate.status === 'error' ||
+      candidate.status === 'cancelled') &&
     typeof candidate.message === 'string'
   );
 }

@@ -94,11 +94,13 @@ export class HandoffSubWorkflow {
       fromAgentName: fromAgent.name,
       fromAgentRole: fromAgent.role,
       fromAvatarColor: fromAgent.avatar?.color,
+      fromLlmModel: fromAgent.resolvedLlm?.model,
       fromSessionId,
       toAgentId: target.id,
       toAgentName: target.name,
       toAgentRole: target.role,
       toAvatarColor: target.avatar?.color,
+      toLlmModel: target.resolvedLlm?.model,
       toSessionId,
       handoffNote,
     };
@@ -107,39 +109,43 @@ export class HandoffSubWorkflow {
       handoffPhase: 'start',
     });
 
-    const briefingContent = await this.generateHandoffBriefingAsync(
-      ctx,
-      fromAgent,
-      target,
-      developerId,
-      handoffNote ?? '',
-      (delta) => {
-        this.emitService.emit({
-          ...handoffEventBase,
-          handoffPhase: 'delta',
-          delta,
-        });
-      }
-    );
-
-    const briefingMsg: ChatMessage = {
-      from: fromAgent.id,
-      to: target.id,
-      content: briefingContent,
-      timestamp: new Date().toISOString(),
-      isHuman: false,
-      handoffType: 'agent-briefing',
-      handoffFromSessionId: fromSessionId,
-      handoffToSessionId: toSessionId,
-      handoffId,
-    };
-
-    const history = await this.sessionManager.getSessionMessages(toSessionId);
-    history.push(briefingMsg);
+    let briefingContent = '';
+    let history: ChatMessage[] = [];
+    let briefingMsg: ChatMessage | undefined;
     let targetBriefingPersisted = false;
     let sourceBriefingPersisted = false;
     let threadState;
     try {
+      briefingContent = await this.generateHandoffBriefingAsync(
+        ctx,
+        fromAgent,
+        target,
+        developerId,
+        handoffNote ?? '',
+        navigationIntent === 'back' || isReturnHandoff,
+        (delta) => {
+          this.emitService.emit({
+            ...handoffEventBase,
+            handoffPhase: 'delta',
+            delta,
+          });
+        }
+      );
+
+      briefingMsg = {
+        from: fromAgent.id,
+        to: target.id,
+        content: briefingContent,
+        timestamp: new Date().toISOString(),
+        isHuman: false,
+        handoffType: 'agent-briefing',
+        handoffFromSessionId: fromSessionId,
+        handoffToSessionId: toSessionId,
+        handoffId,
+      };
+
+      history = await this.sessionManager.getSessionMessages(toSessionId);
+      history.push(briefingMsg);
       await this.sessionManager.appendMessage(toSessionId, briefingMsg);
       targetBriefingPersisted = true;
       await this.sessionManager.appendMessage(fromSessionId, briefingMsg);
@@ -158,12 +164,18 @@ export class HandoffSubWorkflow {
                 ...sourceFrame,
               });
     } catch (error) {
-      if (sourceBriefingPersisted) {
-        await this.sessionManager.deleteSessionMessage(fromSessionId, briefingMsg.timestamp);
+      const compensations: Promise<unknown>[] = [];
+      if (sourceBriefingPersisted && briefingMsg) {
+        compensations.push(
+          this.sessionManager.deleteSessionMessage(fromSessionId, briefingMsg.timestamp)
+        );
       }
-      if (targetBriefingPersisted) {
-        await this.sessionManager.deleteSessionMessage(toSessionId, briefingMsg.timestamp);
+      if (targetBriefingPersisted && briefingMsg) {
+        compensations.push(
+          this.sessionManager.deleteSessionMessage(toSessionId, briefingMsg.timestamp)
+        );
       }
+      await Promise.allSettled(compensations);
       this.emitService.emit({
         ...handoffEventBase,
         handoffPhase: 'cancelled',
@@ -240,6 +252,7 @@ export class HandoffSubWorkflow {
     toAgent: Agent,
     developerName: string,
     triggerMessage: string,
+    isReturn: boolean,
     onDelta: (delta: string) => void
   ): Promise<string> {
     try {
@@ -254,6 +267,15 @@ export class HandoffSubWorkflow {
         .join('\n');
 
       const agentTitle = fromAgent.role ? `${fromAgent.name} (${fromAgent.role})` : fromAgent.name;
+      const briefingInstructions = isReturn
+        ? `Write 2-10 sentences in first person as ${fromAgent.name}. Summarise the work completed, ` +
+          `important discoveries, decisions made, unresolved questions, and the recommended next action ` +
+          `for ${toAgent.name}. Include only information needed to continue; do not copy the full private ` +
+          `conversation. Do not add a subject line or greeting.`
+        : `Write 2-10 sentences in first person as ${fromAgent.name}: summarise what you and ` +
+          `${developerName} discussed, what ${developerName}'s goal is, and why you are ` +
+          `forwarding them to ${toAgent.name}. ` +
+          `Do not repeat the request word-for-word. Do not add a subject line or greeting.`;
 
       const stream = await this.llmService.streamChat(
         fromAgent,
@@ -265,10 +287,7 @@ export class HandoffSubWorkflow {
               `Write a handoff briefing for ${toAgent.name}.\n` +
               (triggerMessage ? `${developerName} said: "${triggerMessage}"\n\n` : '') +
               (historyText ? `Recent conversation:\n${historyText}\n\n` : '') +
-              `Write 2-10 sentences in first person as ${fromAgent.name}: summarise what you and ` +
-              `${developerName} discussed, what ${developerName}'s goal is, and why you are ` +
-              `forwarding them to ${toAgent.name}. ` +
-              `Do not repeat the request word-for-word. Do not add a subject line or greeting.`,
+              briefingInstructions,
           },
         ],
         { maxTokens: 250 }

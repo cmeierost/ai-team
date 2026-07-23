@@ -86,7 +86,7 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     }
 
     const turnContext = this.toExecutionContext(ctx, bootstrap.sessionId, bootstrap.agent);
-    turnContext.history.push(...bootstrap.history);
+    turnContext.history.push(...bootstrap.sessionHistory);
     const sessionBeforeSlash = turnContext.sessionId;
 
     const isInternal = payload.options.messageOrigin === 'internal';
@@ -133,7 +133,26 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     );
 
     try {
+      const sessionBeforeLlm = turnContext.sessionId;
       const invocation = await this.stepService.invokeTurnLlmAsync(messages, resolved, turnContext);
+      if (turnContext.sessionId !== sessionBeforeLlm) {
+        this.bootstrapResolver.updateCachedRuntimeState(ctx, {
+          agentId: turnContext.agent?.id ?? bootstrap.agent.id,
+          sessionId: turnContext.sessionId ?? bootstrap.sessionId,
+          history: turnContext.history,
+          navStack: turnContext.navStack,
+        });
+        return {
+          status: 'ok',
+          data: {
+            text: '',
+            agentId: turnContext.agent?.id ?? bootstrap.agent.id,
+            sessionId: turnContext.sessionId ?? bootstrap.sessionId,
+            followUpMessage: HANDOFF_AUTO_REACT_MESSAGE,
+          },
+          message: 'completed',
+        };
+      }
       const persisted = await this.stepService.persistAssistantMessageAsync(
         invocation.fullResponse,
         turnContext
@@ -262,6 +281,13 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
 
     const responseText = this.toSlashResponseText(commandResponse);
 
+    const invocationRequest = {
+      commandKey,
+      commandToken: parsed.commandToken,
+      rawArgs: parsed.rawArgs,
+      rawInput: parsed.rawInput,
+      invokedBy: 'user',
+    };
     const slashMessage: ChatMessage = {
       timestamp: new Date().toISOString(),
       from: 'human',
@@ -272,13 +298,7 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
       tool_calls: [
         {
           tool: slashToolName,
-          params: {
-            commandKey,
-            commandToken: parsed.commandToken,
-            rawArgs: parsed.rawArgs,
-            rawInput: parsed.rawInput,
-            invokedBy: 'user',
-          },
+          params: invocationRequest,
           result: commandResponse,
           resultLlm: responseText,
         },
@@ -297,6 +317,7 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
       {
         toolName: slashToolName,
         outcome: commandResponse.status === 'ok' ? 'result' : 'error',
+        request: invocationRequest,
         commandResponse,
         resultLlm: responseText,
       }
