@@ -17,7 +17,7 @@ tags:
   - tools
   - questions
 createdAt: 2026-07-23T19:47:56.5852981+02:00
-updatedAt: 2026-07-23T19:52:57.0000000+02:00
+updatedAt: 2026-07-23T20:37:00.0000000+02:00
 ---
 
 ## Goal
@@ -44,6 +44,8 @@ unchanged.
 - [x] Support input, password, confirm, select, checklist, validation, defaults, recommendations, limits, descriptions, Unicode, and Other values.
 - [x] Suppress active `com_ask` tool blocks and append compact label-resolved, password-safe completed summaries.
 - [x] Cover slot behavior, renderer precedence and suppression, slash separation, and native question lifecycles with focused tests.
+- [x] Restore full-thread navigation for modified CSI Page Up/Page Down input and add explicit top/bottom jumps.
+- [x] Carry forward the old pretty `fs_tree` view as a standalone access-aware tool renderer.
 - [x] Run targeted TUI, CLI, service, and API builds; TUI/CLI/service tests; CLI/TUI/service lint; and whitespace checks.
 - [ ] Run an interactive ConPTY verification from a host that exposes a TTY to the verification process.
 
@@ -52,11 +54,8 @@ unchanged.
 - TUI tests pass: 17.
 - CLI tests pass: 118 total; the five directly affected suites pass 37 tests.
 - Focused service slash/history tests pass: 18.
-- TUI, CLI, service, and API server builds passed at the verification
-  checkpoint. A later concurrent handoff change expanded the core dispatcher
-  status to `cancelled` without updating the API-contract response union, so
-  the current whole-CLI build is blocked in `cli-command-client.ts` outside
-  this follow-up.
+- TUI, CLI, service, and API server builds pass at the final verification
+  checkpoint.
 - TUI, CLI, and service lint pass; `git diff --check` passes.
 - The API server suite retains its two previously documented failures: the
   WebSocket non-confirm question flow and integration startup without an

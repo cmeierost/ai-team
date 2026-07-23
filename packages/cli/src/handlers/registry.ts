@@ -132,7 +132,6 @@ function buildCliCommandRegistry(): CliCommandMetadata[] {
           flags: '--auto-react-message <text>',
           description: 'Override auto-react message used after handoff transitions',
         },
-        { flags: '--mediator-log', description: 'Print mediator log to stderr (debug)' },
       ],
       dispatchKey: 'chat-chat',
       jsonSignature: true,

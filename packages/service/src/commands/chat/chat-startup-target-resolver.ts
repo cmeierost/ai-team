@@ -38,9 +38,17 @@ export class ChatStartupTargetResolver {
       const developerName = this.developerIdentityService.getUserName() || 'developer';
       const developerId = this.developerIdentityService.toDeveloperId(developerName);
       const latest = await this.threadManager.resolveLatestActiveSession(developerId);
-      if (!latest) return null;
-      sessionId = latest.id;
-      agentQuery = latest.agentId;
+      if (latest) {
+        sessionId = latest.id;
+        agentQuery = latest.agentId;
+      } else {
+        // A first-time bare `ait chat` has no thread cursor yet. Start at the
+        // workspace's top-level CEO instead of returning an empty target.
+        const ceos = await this.agentManager.getAgentsByRoleAsync('ceo');
+        const ceo = ceos[0];
+        if (!ceo) return null;
+        agentQuery = ceo.id;
+      }
     }
 
     if (!agentQuery) return null;

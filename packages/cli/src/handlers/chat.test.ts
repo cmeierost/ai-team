@@ -1,809 +1,739 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { ITerminal } from '@ai-team/core';
+import type { StreamEvent } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
-
-const clientApi = vi.hoisted(() => ({
-  streamInteraction: vi.fn(),
-  getCommands: vi.fn(),
-}));
-
 import { renderChat } from './chat.js';
+import { InquirerQuestionService } from './question-responders.js';
 
-const client = {
-  streamInteraction: clientApi.streamInteraction,
-  getCommands: clientApi.getCommands,
-} as unknown as ICliCommandClient;
+class FakeTerminal implements ITerminal {
+  columns = 100;
+  rows = 30;
+  writes: string[] = [];
+  private onInput?: (data: string) => void;
+  private onResize?: () => void;
 
-describe('chat command', () => {
-  const originalMediatorLog = process.env.AI_TEAM_MEDIATOR_LOG;
-  const originalFrontendFileLog = process.env.AI_TEAM_FRONTEND_FILE_LOG;
-  const originalUserName = process.env.AI_TEAM_USER_NAME;
+  write(data: string): void {
+    this.writes.push(data);
+  }
+  hideCursor(): void {}
+  showCursor(): void {}
+  start(onInput: (data: string) => void, onResize: () => void): void {
+    this.onInput = onInput;
+    this.onResize = onResize;
+  }
+  stop(): void {}
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-    process.env.AI_TEAM_MEDIATOR_LOG = '0';
-    process.env.AI_TEAM_FRONTEND_FILE_LOG = '0';
-    clientApi.getCommands.mockReturnValue([]);
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'started',
-          command: 'chat-chat',
-          timestamp: new Date().toISOString(),
-        };
-        yield {
-          kind: 'done',
-          command: 'chat-chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
-    );
-  });
+  input(data: string): void {
+    this.onInput?.(data);
+  }
+}
 
-  afterEach(() => {
-    if (originalMediatorLog === undefined) {
-      delete process.env.AI_TEAM_MEDIATOR_LOG;
-    } else {
-      process.env.AI_TEAM_MEDIATOR_LOG = originalMediatorLog;
-    }
-    if (originalFrontendFileLog === undefined) {
-      delete process.env.AI_TEAM_FRONTEND_FILE_LOG;
-    } else {
-      process.env.AI_TEAM_FRONTEND_FILE_LOG = originalFrontendFileLog;
-    }
-    if (originalUserName === undefined) {
-      delete process.env.AI_TEAM_USER_NAME;
-    } else {
-      process.env.AI_TEAM_USER_NAME = originalUserName;
-    }
-    vi.restoreAllMocks();
-  });
+function clientWith(events: StreamEvent<'chat'>[]): ICliCommandClient {
+  return {
+    getCommands: () => [],
+    streamInteraction: async function* () {
+      for (const event of events) {
+        yield event;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    },
+  };
+}
 
-  it('forwards chat request to api client stream', async () => {
-    await renderChat(client, 'maya', { message: 'hello', oneShot: true });
+const timestamp = '2026-07-23T10:00:00.000Z';
 
-    expect(clientApi.streamInteraction).toHaveBeenCalledWith(
+describe('new chat TUI projection', () => {
+  it('renders user input and streamed agent tokens from service events', async () => {
+    const terminal = new FakeTerminal();
+    const client = clientWith([
       {
-        command: 'chat-chat',
-        payload: expect.objectContaining({
-          agentId: 'maya',
-          message: 'hello',
-          sessionId: undefined,
-          createNewSession: undefined,
-        }),
+        command: 'chat',
+        kind: 'agent_info',
+        timestamp,
+        agentId: 'michael-brown',
+        agentName: 'Michael Brown',
+        developerName: 'Clemens',
+        llmModel: 'gpt-5.2',
+        avatarColor: 'hsl(205, 70%, 60%)',
       },
-      expect.objectContaining({
-        logger: undefined,
-        invocationSurface: 'cli',
-        calledByHuman: true,
-        signal: expect.any(AbortSignal),
-      })
-    );
-  });
+      { command: 'chat', kind: 'token', timestamp, text: 'Hello from Michael.' },
+      { command: 'chat', kind: 'done', timestamp },
+    ]);
 
-  it('enables mediator logger when mediatorLog flag is passed', async () => {
-    await renderChat(client, 'maya', { message: 'hello', oneShot: true }, true);
-
-    expect(clientApi.streamInteraction).toHaveBeenCalledWith(
+    await renderChat(
+      client,
+      'michael-brown',
+      { oneShot: true, message: 'Hello' },
+      false,
+      undefined,
+      'chat',
       {
-        command: 'chat-chat',
-        payload: expect.objectContaining({
-          agentId: 'maya',
-          message: 'hello',
-          sessionId: undefined,
-          createNewSession: undefined,
-        }),
+        agentId: 'michael-brown',
+        agentName: 'Michael Brown',
+        sessionId: 'session-1234567890',
       },
-      expect.objectContaining({
-        logger: expect.any(Function),
-        invocationSurface: 'cli',
-        calledByHuman: true,
-        signal: expect.any(AbortSignal),
-      })
-    );
-  });
-
-  it('prints info log events in interactive mode', async () => {
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'log',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          level: 'info',
-          message: 'Available commands:',
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
+      { terminal }
     );
 
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
-    await renderChat(client, 'maya', { message: '/help', oneShot: false });
-
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('Available commands:'));
+    const output = terminal.writes.join('');
+    expect(output).toContain('Clemens');
+    expect(output).not.toContain('You:');
+    expect(output).toContain('Hello');
+    expect(output).toContain('Hello from Michael.');
+    expect(output).toContain('\x1b[38;2;82;165;224m');
+    expect(output).toContain('Michael Brown');
+    expect(output).toContain('(gpt-5.2) - session id: session-1234567890');
   });
 
-  it('renders fs_tree tool events as a concise summary in CLI output', async () => {
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
+  it('uses the selected agent id until agent_info supplies richer display data', async () => {
+    const terminal = new FakeTerminal();
+    const client = clientWith([
+      { command: 'chat', kind: 'token', timestamp, text: 'Early greeting.' },
+      { command: 'chat', kind: 'done', timestamp },
+    ]);
+
+    await renderChat(
+      client,
+      'michael-brown',
+      { oneShot: true, message: 'Hello' },
+      false,
+      undefined,
+      'chat',
+      { agentId: 'michael-brown' },
+      { terminal }
+    );
+
+    const output = terminal.writes.join('');
+    expect(output).toContain('Michael Brown');
+    expect(output).toContain('Early greeting.');
+  });
+
+  it('renders a visible thinking indicator from service status events', async () => {
+    const terminal = new FakeTerminal();
+    const client = clientWith([
+      { command: 'chat', kind: 'status', timestamp, phase: 'thinking' },
+      { command: 'chat', kind: 'done', timestamp },
+    ]);
+
+    await renderChat(
+      client,
+      'michael-brown',
+      { oneShot: true, message: 'Hello' },
+      false,
+      undefined,
+      'chat',
+      { agentId: 'michael-brown' },
+      { terminal }
+    );
+
+    expect(terminal.writes.join('')).toContain('Michael Brown is thinking…');
+  });
+
+  it('sends slash commands unchanged through the shared chat interaction', async () => {
+    const terminal = new FakeTerminal();
+    const requests: Array<{ command: string; payload?: unknown }> = [];
+    const client: ICliCommandClient = {
+      getCommands: () => [],
+      streamInteraction: async function* (request) {
+        requests.push(request);
+        yield { command: 'chat', kind: 'done', timestamp };
+      },
+    };
+
+    await renderChat(
+      client,
+      'michael-brown',
+      { oneShot: true, message: '/help' },
+      false,
+      undefined,
+      'chat-chat',
+      {
+        agentId: 'michael-brown',
+        __slashSuggestions: [
+          {
+            key: 'help',
+            description: 'Show help',
+            availableIn: { cliChat: true },
+          },
+        ],
+      },
+      { terminal }
+    );
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      command: 'chat-chat',
+      payload: { agentId: 'michael-brown', message: '/help' },
+    });
+    expect(requests[0]?.payload).not.toHaveProperty('__slashSuggestions');
+  });
+
+  it('keeps slash invocations as developer lines and renders results as standalone transcript entries', async () => {
+    const terminal = new FakeTerminal();
+    const client = clientWith([
+      {
+        command: 'chat',
+        kind: 'agent_info',
+        timestamp,
+        agentName: 'Michael Brown',
+        developerName: 'Clemens',
+      },
+      {
+        command: 'chat',
+        kind: 'tool',
+        timestamp,
+        toolName: 'slash:help',
+        toolPhase: 'result',
+        toolResult: {
+          toolName: 'slash:help',
+          outcome: 'result',
+          request: { rawInput: '/help' },
+          commandResponse: {
+            status: 'ok',
+            message: 'Available in-chat commands.',
+          },
+        },
+      },
+      { command: 'chat', kind: 'done', timestamp },
+    ]);
+
+    await renderChat(
+      client,
+      'michael-brown',
+      { oneShot: true, message: '/help' },
+      false,
+      undefined,
+      'chat',
+      undefined,
+      { terminal }
+    );
+
+    const output = terminal.writes.join('');
+    expect(output).toContain('Clemens');
+    expect(output).toContain('/help');
+    expect(output).toContain('Available in-chat commands.');
+    expect(output).not.toContain('slash:help [result]');
+  });
+
+  it('presents com_ask inside the composer and appends one compact completed card', async () => {
+    const terminal = new FakeTerminal();
+    const fallbackPrompt = vi.fn(async () => {
+      throw new Error('Inquirer should not run while the chat TUI is attached');
+    });
+    const questionService = new InquirerQuestionService(fallbackPrompt);
+    const client: ICliCommandClient = {
+      getCommands: () => [],
+      streamInteraction: async function* () {
+        const request = {
+          message: 'Choose an owner',
+          choices: [
+            { name: 'Michael Brown', value: 'michael-brown' },
+            { name: 'Sarah Lee', value: 'sarah-lee', recommended: true },
+          ],
+          default: 'sarah-lee',
+        };
         yield {
+          command: 'chat',
           kind: 'tool',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          toolName: 'fs_tree',
-          toolPhase: 'result',
-          message: JSON.stringify(
-            {
-              path: 'src',
-              tree: {
-                name: 'src',
-                isDirectory: true,
-                children: [
-                  { name: 'components', isDirectory: true, children: [] },
-                  { name: 'App.tsx', isDirectory: false },
-                ],
-              },
-            },
-            null,
-            2
-          ),
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
-    );
-
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
-    await renderChat(client, 'maya', { message: 'show tree', oneShot: true });
-
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('fs_tree'));
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('src · 2 dirs · 1 files'));
-  });
-
-  it('renders generic JSON tool messages as summarized keys instead of raw JSON', async () => {
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'tool',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          toolName: 'tool_list',
-          toolPhase: 'result',
-          message: JSON.stringify({
-            type: 'tool_list_result',
-            entries: [{ name: 'fs_read' }, { name: 'fs_tree' }],
-            count: 2,
-          }),
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
-    );
-
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
-    await renderChat(client, 'maya', { message: 'list tools', oneShot: true });
-
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('tool_list'));
-    expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('json object keys: type, entries, count · entries: 2')
-    );
-  });
-
-  it('renders com_ask structured payloads as concise answer summaries', async () => {
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'tool',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
+          timestamp,
           toolName: 'com_ask',
+          toolCallId: 'ask-1',
+          toolPhase: 'start',
+          toolResult: {
+            toolName: 'com_ask',
+            outcome: 'start',
+            request: { kind: 'select', ...request },
+          },
+        } as any;
+        const answer = await questionService.select(request);
+        yield {
+          command: 'chat',
+          kind: 'tool',
+          timestamp,
+          toolName: 'com_ask',
+          toolCallId: 'ask-1',
           toolPhase: 'result',
           toolResult: {
             toolName: 'com_ask',
             outcome: 'result',
+            request: { kind: 'select', ...request },
             commandResponse: {
               status: 'ok',
-              message: 'Question answered',
-              data: {
-                request: { questionType: 'select' },
-                response: { questionType: 'select', answer: 'alex-morgan' },
-              },
+              data: { type: 'com_ask_result', kind: 'select', answer },
             },
           },
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
+        } as any;
+        yield { command: 'chat', kind: 'done', timestamp };
+      },
+    };
+
+    const pending = renderChat(
+      client,
+      'michael-brown',
+      { oneShot: true, message: 'Who should own this?' },
+      false,
+      undefined,
+      'chat',
+      undefined,
+      { terminal, questionService }
+    );
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      if (terminal.writes.join('').includes('Choose an owner')) break;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    terminal.input('\r');
+    await pending;
+
+    const output = terminal.writes.join('');
+    expect(fallbackPrompt).not.toHaveBeenCalled();
+    expect(output).toContain('Choose an owner');
+    expect(output).toContain('Answer:');
+    expect(output).toContain('Sarah Lee');
+    expect(output).not.toContain('▼ com_ask');
+  });
+
+  it('projects startup agent and model events through the TUI before the turn', async () => {
+    const terminal = new FakeTerminal();
+    const commands: string[] = [];
+    const client: ICliCommandClient = {
+      getCommands: () => [],
+      streamInteraction: async function* (request) {
+        commands.push(request.command);
+        if (request.command === 'chat-chat-startup') {
+          yield {
+            command: request.command,
+            kind: 'agent_info',
+            timestamp,
+            agentId: 'michael-brown',
+            agentName: 'Michael Brown',
+            developerName: 'Clemens Meier',
+            llmModel: 'gpt-5.2',
+          };
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+        yield { command: request.command, kind: 'done', timestamp };
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      },
+    };
+
+    await renderChat(
+      client,
+      'michael-brown',
+      { oneShot: false, message: 'Hello', createNewSession: false },
+      false,
+      undefined,
+      'chat-chat',
+      {
+        agentId: 'michael-brown',
+        agentName: 'Michael Brown',
+        sessionId: 'session-1',
+      },
+      { terminal }
     );
 
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
-    await renderChat(client, 'maya', { message: 'ask user', oneShot: true });
-
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('com_ask'));
-    expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('json object keys: request, response')
+    expect(commands).toEqual(['chat-chat-startup', 'chat-chat']);
+    expect(terminal.writes.join('')).toContain(
+      '(gpt-5.2) - session id: session-1'
     );
   });
 
-  it('suppresses raw [tool:com_ask] token JSON when tool event renders successfully', async () => {
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
+  it('runs startup for bare chat so the service can choose the CEO and session', async () => {
+    const terminal = new FakeTerminal();
+    const requests: Array<{ command: string; payload?: Record<string, unknown> }> = [];
+    const client: ICliCommandClient = {
+      getCommands: () => [],
+      streamInteraction: async function* (request) {
+        requests.push(request as { command: string; payload?: Record<string, unknown> });
+        if (request.command === 'chat-chat-startup') {
+          yield {
+            command: request.command,
+            kind: 'agent_info',
+            timestamp,
+            agentId: 'michael-brown',
+            agentName: 'Michael Brown',
+            llmModel: 'best-chat',
+          };
+          yield {
+            command: request.command,
+            kind: 'workspace_info',
+            timestamp,
+            workspace: 'C:\\Projects\\ai-team',
+            gitBranch: 'main',
+          };
+          yield {
+            command: request.command,
+            kind: 'session_switched',
+            timestamp,
+            agentId: 'michael-brown',
+            sessionId: 'session-new-ceo',
+          };
+        }
+        yield { command: request.command, kind: 'done', timestamp };
+      },
+    };
+
+    await renderChat(
+      client,
+      undefined,
+      { oneShot: false, message: 'Hello', createNewSession: false },
+      false,
+      undefined,
+      'chat-chat',
+      { createNewSession: false },
+      { terminal }
+    );
+
+    expect(requests.map((request) => request.command)).toEqual([
+      'chat-chat-startup',
+      'chat-chat',
+    ]);
+    expect(requests[0]?.payload).toMatchObject({
+      employeeId: undefined,
+      options: { createNewSession: false, introduction: true },
+    });
+    expect(requests[1]?.payload).toMatchObject({
+      sessionId: 'session-new-ceo',
+      message: 'Hello',
+    });
+    expect(terminal.writes.join('')).toContain('main');
+    expect(terminal.writes.join('')).toContain('session-new-ceo');
+  });
+
+  it('adopts a newly persisted startup session before the first turn', async () => {
+    const terminal = new FakeTerminal();
+    const requests: Array<{ command: string; payload?: Record<string, unknown> }> = [];
+    const client: ICliCommandClient = {
+      getCommands: () => [],
+      streamInteraction: async function* (request) {
+        requests.push(request as { command: string; payload?: Record<string, unknown> });
+        if (request.command === 'chat-chat-startup') {
+          yield {
+            command: request.command,
+            kind: 'agent_info',
+            timestamp,
+            agentId: 'sarah-lee',
+            agentName: 'Sarah Lee',
+            llmModel: 'best-chat',
+          };
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          yield {
+            command: request.command,
+            kind: 'workspace_info',
+            timestamp,
+            workspace: 'C:\\Projects\\ai-team',
+            gitBranch: 'feature/tui',
+          };
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          yield {
+            command: request.command,
+            kind: 'session_switched',
+            timestamp,
+            agentId: 'sarah-lee',
+            sessionId: 'session-new-sarah',
+          };
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+        yield { command: request.command, kind: 'done', timestamp };
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      },
+    };
+
+    await renderChat(
+      client,
+      'sarah-lee',
+      { oneShot: false, message: 'Hello' },
+      false,
+      undefined,
+      'chat-chat',
+      {
+        agentId: 'sarah-lee',
+        agentName: 'Sarah Lee',
+      },
+      { terminal }
+    );
+
+    expect(requests[1]?.payload).toMatchObject({
+      agentId: 'sarah-lee',
+      sessionId: 'session-new-sarah',
+      message: 'Hello',
+    });
+    const output = terminal.writes.join('');
+    expect(output).toContain('C:\\Projects\\ai-team - feature/tui -');
+    expect(output).toContain('Sarah Lee');
+    expect(output).toContain('(best-chat) - session id: session-new-sarah');
+  });
+
+  it('keeps both sides of a handoff in one transcript', async () => {
+    const terminal = new FakeTerminal();
+    const client = clientWith([
+      {
+        command: 'chat',
+        kind: 'agent_info',
+        timestamp,
+        agentId: 'michael-brown',
+        agentName: 'Michael Brown',
+      },
+      { command: 'chat', kind: 'token', timestamp, text: 'I will hand this over.' },
+      {
+        command: 'chat',
+        kind: 'handoff',
+        timestamp,
+        fromAgentId: 'michael-brown',
+        fromAgentName: 'Michael Brown',
+        toAgentId: 'sarah-lee',
+        toAgentName: 'Sarah Lee',
+        briefingContent: 'Keep the service event-driven.',
+      },
+      {
+        command: 'chat',
+        kind: 'subworkflow_start',
+        timestamp,
+        agentId: 'sarah-lee',
+        agentName: 'Sarah Lee',
+      },
+      { command: 'chat', kind: 'token', timestamp, text: 'I have the briefing.' },
+      {
+        command: 'chat',
+        kind: 'subworkflow_end',
+        timestamp,
+        agentId: 'sarah-lee',
+      },
+      { command: 'chat', kind: 'done', timestamp },
+    ]);
+
+    await renderChat(
+      client,
+      'michael-brown',
+      { oneShot: true, message: 'Review this' },
+      false,
+      undefined,
+      'chat',
+      undefined,
+      { terminal }
+    );
+
+    const output = terminal.writes.join('');
+    expect(output).toContain('I will hand this over.');
+    expect(output).toContain('Keep the service event-driven.');
+    expect(output).toContain('I have the briefing.');
+  });
+
+  it('renders a streaming handoff briefing before the target agent starts thinking', async () => {
+    const terminal = new FakeTerminal();
+    const client = clientWith([
+      {
+        command: 'chat',
+        kind: 'agent_info',
+        timestamp,
+        agentId: 'emily-davis',
+        agentName: 'Emily Davis',
+      },
+      { command: 'chat', kind: 'status', timestamp, phase: 'thinking' },
+      {
+        command: 'chat',
+        kind: 'handoff',
+        timestamp,
+        handoffId: 'handoff-1',
+        handoffPhase: 'start',
+        fromAgentId: 'emily-davis',
+        fromAgentName: 'Emily Davis',
+        toAgentId: 'michael-brown',
+        toAgentName: 'Michael Brown',
+      },
+      {
+        command: 'chat',
+        kind: 'handoff',
+        timestamp,
+        handoffId: 'handoff-1',
+        handoffPhase: 'delta',
+        fromAgentId: 'emily-davis',
+        toAgentId: 'michael-brown',
+        delta: 'Clemens wants Michael to take over.',
+      },
+      {
+        command: 'chat',
+        kind: 'handoff',
+        timestamp,
+        handoffId: 'handoff-1',
+        handoffPhase: 'complete',
+        fromAgentId: 'emily-davis',
+        fromAgentName: 'Emily Davis',
+        toAgentId: 'michael-brown',
+        toAgentName: 'Michael Brown',
+        briefingContent: 'Clemens wants Michael to take over.',
+      },
+      {
+        command: 'chat',
+        kind: 'agent_info',
+        timestamp,
+        agentId: 'michael-brown',
+        agentName: 'Michael Brown',
+      },
+      { command: 'chat', kind: 'status', timestamp, phase: 'thinking' },
+      { command: 'chat', kind: 'done', timestamp },
+    ] as any);
+
+    await renderChat(
+      client,
+      'emily-davis',
+      { oneShot: true, message: 'Let me talk to Michael' },
+      false,
+      undefined,
+      'chat',
+      undefined,
+      { terminal }
+    );
+
+    const output = terminal.writes.join('');
+    const briefingPosition = output.indexOf('Clemens wants Michael to take over.');
+    const targetThinkingPosition = output.indexOf('Michael Brown is thinking…');
+    expect(briefingPosition).toBeGreaterThanOrEqual(0);
+    expect(targetThinkingPosition).toBeGreaterThan(briefingPosition);
+  });
+
+  it('sends the next turn to the service-emitted handoff agent and session', async () => {
+    const terminal = new FakeTerminal();
+    const requests: Array<{ command: string; payload?: Record<string, unknown> }> = [];
+    const client: ICliCommandClient = {
+      getCommands: () => [],
+      streamInteraction: async function* (request) {
+        requests.push(request as any);
+        if (request.command === 'chat-chat-startup') {
+          yield {
+            command: request.command,
+            kind: 'agent_info',
+            timestamp,
+            agentId: 'michael-brown',
+            agentName: 'Michael Brown',
+          };
+        } else if (requests.filter((entry) => entry.command === 'chat-chat').length === 1) {
+          yield {
+            command: request.command,
+            kind: 'handoff',
+            timestamp,
+            fromAgentId: 'michael-brown',
+            fromAgentName: 'Michael Brown',
+            fromSessionId: 'session-michael',
+            toAgentId: 'emily-davis',
+            toAgentName: 'Emily Davis',
+            toLlmModel: 'best-chat',
+            toSessionId: 'session-emily',
+            briefingContent: 'Emily has the context.',
+          };
+          yield {
+            command: request.command,
+            kind: 'session_switched',
+            timestamp,
+            agentId: 'emily-davis',
+            sessionId: 'session-emily',
+          } as any;
+          yield {
+            command: request.command,
+            kind: 'agent_info',
+            timestamp,
+            agentId: 'emily-davis',
+            agentName: 'Emily Davis',
+            llmModel: 'best-chat',
+          };
+        }
+        yield { command: request.command, kind: 'done', timestamp };
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      },
+    };
+
+    const pending = renderChat(
+      client,
+      'michael-brown',
+      { oneShot: false, sessionId: 'session-michael' },
+      false,
+      undefined,
+      'chat-chat',
+      {
+        agentId: 'michael-brown',
+        sessionId: 'session-michael',
+      },
+      { terminal }
+    );
+
+    const enter = async (text: string) => {
+      for (let attempt = 0; attempt < 30; attempt++) {
+        if (terminal.writes.join('').includes('>')) break;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      for (const char of text) terminal.input(char);
+      terminal.input('\r');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    };
+
+    await enter('/handoff emily');
+    for (let attempt = 0; attempt < 30; attempt++) {
+      if (requests.filter((entry) => entry.command === 'chat-chat').length >= 1) break;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    await enter('who am I talking to?');
+    for (let attempt = 0; attempt < 30; attempt++) {
+      if (requests.filter((entry) => entry.command === 'chat-chat').length >= 2) break;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    await enter('/exit');
+    await pending;
+
+    const turns = requests.filter((entry) => entry.command === 'chat-chat');
+    expect(turns[1]?.payload).toMatchObject({
+      agentId: 'emily-davis',
+      sessionId: 'session-emily',
+      message: 'who am I talking to?',
+    });
+    expect(terminal.writes.join('')).toContain('(best-chat) - session id: session-emily');
+  });
+
+  it('prints commands for resuming the current or latest session when exiting', async () => {
+    const terminal = new FakeTerminal();
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const pending = renderChat(
+      clientWith([
+        {
+          command: 'chat-chat-startup',
           kind: 'agent_info',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
+          timestamp,
           agentId: 'michael-brown',
           agentName: 'Michael Brown',
-          agentRole: 'ceo',
-        };
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: '[tool:com_ask]\n{ "kind": "select", "message": "Pick one" }',
-        };
-        yield {
-          kind: 'tool',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          toolName: 'com_ask',
-          toolPhase: 'result',
-          toolResult: {
-            toolName: 'com_ask',
-            outcome: 'result',
-            commandResponse: {
-              status: 'ok',
-              message: 'Question answered',
-              data: {
-                request: { questionType: 'select' },
-                response: { questionType: 'select', answer: 'emily-davis' },
-              },
-            },
-          },
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
+        },
+        { command: 'chat-chat-startup', kind: 'done', timestamp },
+      ]),
+      'michael-brown',
+      { oneShot: false, sessionId: 'session-2026-07-23-abc123' },
+      false,
+      async () => 'ai-team',
+      'chat-chat',
+      {
+        agentId: 'michael-brown',
+        sessionId: 'session-2026-07-23-abc123',
+      },
+      { terminal }
     );
 
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
-    await renderChat(client, 'michael-brown', { message: 'ask me', oneShot: true });
-
-    expect(stdoutSpy).not.toHaveBeenCalledWith(expect.stringContaining('[tool:com_ask]'));
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('com_ask'));
-  });
-
-  it('renders tool events on a new line after streamed assistant text', async () => {
-    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'agent_info',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          agentId: 'sarah-lee',
-          agentName: 'Sarah Lee',
-          agentRole: 'chief-architect',
-        };
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: 'I can hand this off now.',
-        };
-        yield {
-          kind: 'tool',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          toolName: 'com_handoff',
-          toolPhase: 'request',
-          message: 'com_handoff({"target":"michael-brown"})',
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
-    );
-
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
-    await renderChat(client, 'sarah-lee', { message: 'handoff please', oneShot: true });
-
-    const stdoutOutput = stdoutSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
-    expect(stdoutOutput).toContain('I can hand this off now.\n');
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('[backend:tool:request]'));
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('com_handoff'));
-  });
-
-  it('prints assistant reply header as Agent (role) → Developer before streamed tokens', async () => {
-    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'agent_info',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          agentId: 'michael-brown',
-          agentName: 'Michael Brown',
-          agentRole: 'ceo',
-        };
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: 'Hello.',
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
-    );
-
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-
-    await renderChat(client, 'michael-brown', { message: 'hello', oneShot: true });
-
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Michael Brown (ceo)'));
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('→ Clemens Meier: '));
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Hello.'));
-  });
-
-  it('writes thinking spinner to stderr and leaves streamed token text on stdout', async () => {
-    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
-    const originalStdoutIsTTY = process.stdout.isTTY;
-    const originalStderrIsTTY = process.stderr.isTTY;
-    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
-
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'agent_info',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          agentId: 'michael-brown',
-          agentName: 'Michael Brown',
-          agentRole: 'ceo',
-        };
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: 'How can I help?',
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
-    );
-
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
-    try {
-      await renderChat(client, 'michael-brown', { message: 'hello', oneShot: false });
-
-      const stderrOutput = stderrSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
-      expect(stderrOutput).toMatch(/is thinking/u);
-      expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('How can I help?'));
-    } finally {
-      Object.defineProperty(process.stdout, 'isTTY', {
-        value: originalStdoutIsTTY,
-        configurable: true,
-      });
-      Object.defineProperty(process.stderr, 'isTTY', {
-        value: originalStderrIsTTY,
-        configurable: true,
-      });
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if (terminal.writes.join('').includes('>')) break;
+      await new Promise<void>((resolve) => setImmediate(resolve));
     }
-  });
+    expect(terminal.writes.join('')).toContain('>');
+    for (const char of '/exit') terminal.input(char);
+    terminal.input('\r');
+    await pending;
 
-  it('renders thinking spinner from backend status phase event', async () => {
-    const originalStdoutIsTTY = process.stdout.isTTY;
-    const originalStderrIsTTY = process.stderr.isTTY;
-    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
-
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'agent_info',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          agentId: 'sarah-lee',
-          agentName: 'Sarah Lee',
-          agentRole: 'chief-architect',
-        };
-        yield {
-          kind: 'status',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          phase: 'thinking',
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
+    const output = stdout.mock.calls.map(([text]) => String(text)).join('');
+    expect(output).toContain(
+      'See you next time — the ai-team team will be here when you need us 👋'
     );
-
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
-    try {
-      await renderChat(client, 'sarah-lee', { message: 'hello', oneShot: false });
-
-      const stderrOutput = stderrSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
-      expect(stderrOutput).toContain('Sarah Lee is thinking…');
-    } finally {
-      Object.defineProperty(process.stdout, 'isTTY', {
-        value: originalStdoutIsTTY,
-        configurable: true,
-      });
-      Object.defineProperty(process.stderr, 'isTTY', {
-        value: originalStderrIsTTY,
-        configurable: true,
-      });
-    }
-  });
-
-  it('emits in-place spinner control sequences when thinking indicator is active', async () => {
-    const originalStdoutIsTTY = process.stdout.isTTY;
-    const originalStderrIsTTY = process.stderr.isTTY;
-    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
-
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'agent_info',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          agentId: 'clara-bishop',
-          agentName: 'Clara Bishop',
-          agentRole: 'frontend-quality-engineer',
-        };
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: 'Hello there',
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
-    );
-
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
-    try {
-      await renderChat(client, 'clara-bishop', { message: 'hello', oneShot: false });
-
-      const stderrOutput = stderrSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
-      expect(stderrOutput).toContain('\r');
-      expect(stderrOutput).toContain('\x1b[2K');
-    } finally {
-      Object.defineProperty(process.stdout, 'isTTY', {
-        value: originalStdoutIsTTY,
-        configurable: true,
-      });
-      Object.defineProperty(process.stderr, 'isTTY', {
-        value: originalStderrIsTTY,
-        configurable: true,
-      });
-    }
-  });
-
-  it('capitalizes fallback agent name from lowercase alias in thinking indicator', async () => {
-    const originalStdoutIsTTY = process.stdout.isTTY;
-    const originalStderrIsTTY = process.stderr.isTTY;
-    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
-
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: 'Hi',
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
-    );
-
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
-    try {
-      await renderChat(client, 'clara', { message: 'hello', oneShot: false });
-
-      const stderrOutput = stderrSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
-      expect(stderrOutput).toContain('Clara is thinking…');
-      expect(stderrOutput).not.toContain('clara is thinking…');
-    } finally {
-      Object.defineProperty(process.stdout, 'isTTY', {
-        value: originalStdoutIsTTY,
-        configurable: true,
-      });
-      Object.defineProperty(process.stderr, 'isTTY', {
-        value: originalStderrIsTTY,
-        configurable: true,
-      });
-    }
-  });
-
-  it('renders thinking indicator again after tool result in the same turn', async () => {
-    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
-    const originalStdoutIsTTY = process.stdout.isTTY;
-    const originalStderrIsTTY = process.stderr.isTTY;
-    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
-
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'agent_info',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          agentId: 'clara-bishop',
-          agentName: 'Clara Bishop',
-          agentRole: 'frontend-quality-engineer',
-        };
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: 'Sure — checking that now.',
-        };
-        yield {
-          kind: 'tool',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          toolName: 'skill_load',
-          toolPhase: 'result',
-          message: 'Loaded session skill.',
-        };
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: 'Done.',
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
-    );
-
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
-    try {
-      await renderChat(client, 'clara-bishop', { message: 'hello', oneShot: false });
-
-      const thinkingWrites = stderrSpy.mock.calls.filter((call) =>
-        String(call[0] ?? '').includes('Clara Bishop is thinking…')
-      );
-      expect(thinkingWrites.length).toBeGreaterThanOrEqual(1);
-    } finally {
-      Object.defineProperty(process.stdout, 'isTTY', {
-        value: originalStdoutIsTTY,
-        configurable: true,
-      });
-      Object.defineProperty(process.stderr, 'isTTY', {
-        value: originalStderrIsTTY,
-        configurable: true,
-      });
-    }
-  });
-
-  it('groups thought token chunks into a single distinct thinking line', async () => {
-    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'agent_info',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          agentId: 'clara-bishop',
-          agentName: 'Clara Bishop',
-          agentRole: 'frontend-quality-engineer',
-        };
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: '💭 The user ',
-        };
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: '💭 asked about rendering.',
-        };
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: "Let's fix it.",
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
-    );
-
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-
-    await renderChat(client, 'clara-bishop', { message: 'hello', oneShot: true });
-
-    const output = stdoutSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
-    expect(output).toContain('💭 thinking: ');
-    expect(output).toContain('The user asked about rendering.');
-    expect(output).toContain('Clara Bishop (frontend-quality-engineer)');
-    expect(output).toContain("Let's fix it.");
-
-    const thoughtLabelCount = (output.match(/💭 thinking:/g) ?? []).length;
-    expect(thoughtLabelCount).toBe(1);
-  });
-
-  it('normalizes repeated 💭 markers inside one thought token chunk', async () => {
-    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'agent_info',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          agentId: 'clara-bishop',
-          agentName: 'Clara Bishop',
-          agentRole: 'frontend-quality-engineer',
-        };
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: '💭 The user💭  wants me💭  to help.',
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
-    );
-
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-
-    await renderChat(client, 'clara-bishop', { message: 'hello', oneShot: true });
-
-    const output = stdoutSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
-    expect(output).toContain('💭 thinking: ');
-    expect(output).toContain('The user wants me to help.');
-    expect(output).not.toContain('The user💭');
-  });
-
-  it('preserves spacing between thinking chunks when subsequent chunk starts with a leading space', async () => {
-    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'agent_info',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          agentId: 'sarah-lee',
-          agentName: 'Sarah Lee',
-          agentRole: 'chief-architect',
-        };
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: '💭 The user',
-        };
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: '💭 has now said hello.',
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
-    );
-
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-
-    await renderChat(client, 'sarah-lee', { message: 'hello', oneShot: true });
-
-    const output = stdoutSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
-    expect(output).toContain('The user has now said hello.');
-    expect(output).not.toContain('The userhas');
-  });
-
-  it('keeps submitted interactive user message visible in chat transcript', async () => {
-    process.env.AI_TEAM_USER_NAME = 'Clemens Meier';
-    const originalStdoutIsTTY = process.stdout.isTTY;
-    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield {
-          kind: 'agent_info',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          agentId: 'michael-brown',
-          agentName: 'Michael Brown',
-          agentRole: 'ceo',
-        };
-        yield {
-          kind: 'token',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-          text: 'Got it.',
-        };
-        yield {
-          kind: 'done',
-          command: 'chat',
-          timestamp: new Date().toISOString(),
-        };
-      })()
-    );
-
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-
-    try {
-      await renderChat(client, 'michael-brown', { message: 'hello michael', oneShot: false });
-      const output = stdoutSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
-      expect(output).toContain('Clemens Meier -> ');
-      expect(output).toContain('hello michael');
-      expect(output).toContain('Got it.');
-    } finally {
-      Object.defineProperty(process.stdout, 'isTTY', {
-        value: originalStdoutIsTTY,
-        configurable: true,
-      });
-    }
+    expect(output).toContain('ait chat session-2026-07-23-abc123');
+    expect(output).toContain('Return to your last session: ait chat');
+    stdout.mockRestore();
   });
 });

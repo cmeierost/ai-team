@@ -1,7 +1,6 @@
 import type { ITerminal } from '@ai-team/core';
 import { ComponentSlot, type Component, type Loader } from '@ai-team/tui';
 import type { ChatView } from './chat-view.js';
-import type { HeaderBar } from './header-bar.js';
 import type { StatusLine } from './status-line.js';
 
 /**
@@ -15,7 +14,6 @@ export class ChatLayout implements Component {
 
   constructor(
     private readonly terminal: ITerminal,
-    private readonly header: HeaderBar,
     private readonly chat: ChatView,
     private readonly spinner: Loader,
     composer: Component,
@@ -42,11 +40,22 @@ export class ChatLayout implements Component {
   }
 
   handleInput(data: string): void {
+    const wheel = /^\x1b\[<(64|65);\d+;\d+[mM]$/.exec(data);
+    if (wheel) {
+      this.chat.handleInput(wheel[1] === '64' ? 'wheel-up' : 'wheel-down');
+      return;
+    }
     if (
-      data === '\x1b[5~'
-      || data === '\x1b[6~'
+      /^\x1b\[5(?:;\d+)*~$/.test(data)
+      || /^\x1b\[6(?:;\d+)*~$/.test(data)
       || data === '\x1b[1;5A'
       || data === '\x1b[1;5B'
+      || data === '\x1b[H'
+      || data === '\x1b[F'
+      || data === '\x1b[1~'
+      || data === '\x1b[4~'
+      || data === '\x1b[1;5H'
+      || data === '\x1b[4;5~'
     ) {
       this.chat.handleInput(data);
       return;
@@ -59,7 +68,6 @@ export class ChatLayout implements Component {
   }
 
   invalidate(): void {
-    this.header.invalidate();
     this.chat.invalidate();
     this.spinner.invalidate();
     this.composer.invalidate();
@@ -67,13 +75,11 @@ export class ChatLayout implements Component {
   }
 
   render(width: number): string[] {
-    const headerLines = this.header.render(width);
-    const topLines = headerLines.length > 0 ? [...headerLines, ''] : [];
     const spinnerLines = this.spinner.render(width);
     const promptLines = this.composer.render(width);
     const footerLines = this.footer.render(width);
     const fixedRows =
-      topLines.length + spinnerLines.length + promptLines.length + footerLines.length;
+      spinnerLines.length + promptLines.length + footerLines.length;
     const transcriptRows = Math.max(0, this.terminal.rows - fixedRows);
 
     this.chat.setVisibleLines(transcriptRows);
@@ -84,7 +90,6 @@ export class ChatLayout implements Component {
     );
 
     return [
-      ...topLines,
       ...transcript,
       ...padding,
       ...spinnerLines,

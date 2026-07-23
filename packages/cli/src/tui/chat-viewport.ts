@@ -49,6 +49,12 @@ export class ChatViewport implements Component {
     this.scrollOffset = 0;
   }
 
+  /** Jump to the beginning of the transcript. */
+  scrollToTop(): void {
+    this.autoScroll = false;
+    this.scrollOffset = 0;
+  }
+
   /**
    * Scroll up by N lines.
    */
@@ -74,13 +80,30 @@ export class ChatViewport implements Component {
    * Handle input for scrolling.
    */
   handleInput(data: string): void {
-    // Page up/down
-    if (data === '\x1b[5~') { // Page Up
+    if (data === 'wheel-up') {
+      this.scrollUp(3);
+      return;
+    }
+    if (data === 'wheel-down') {
+      this.scrollDown(3);
+      return;
+    }
+    // Page up/down. Terminals use CSI parameters for modified keys, so accept
+    // both the common ESC[5~ form and variants such as ESC[5;2~.
+    if (/^\x1b\[5(?:;\d+)*~$/.test(data)) {
       this.scrollUp(10);
       return;
     }
-    if (data === '\x1b[6~') { // Page Down
+    if (/^\x1b\[6(?:;\d+)*~$/.test(data)) {
       this.scrollDown(10);
+      return;
+    }
+    if (data === '\x1b[H' || data === '\x1b[1~' || data === '\x1b[1;5H') {
+      this.scrollToTop();
+      return;
+    }
+    if (data === '\x1b[F' || data === '\x1b[4~' || data === '\x1b[4;5~') {
+      this.scrollToBottom();
       return;
     }
     // Ctrl+U/D for half-page scroll

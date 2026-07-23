@@ -1,5 +1,5 @@
 import type { ExtensionManifest, NormalizedToolEvent, ToolRenderDecision } from './types.js';
-import { AskResult, SlashCommandResult } from '../tui/tool-results.js';
+import { AskResult, FileTreeResult, SlashCommandResult } from '../tui/tool-results.js';
 
 export function createDefaultToolRendererManifest(): ExtensionManifest {
   const completedAskCalls = new Set<string>();
@@ -9,6 +9,12 @@ export function createDefaultToolRendererManifest(): ExtensionManifest {
       {
         toolName: 'com_ask',
         render: (event) => renderAsk(event, completedAskCalls),
+      },
+      {
+        toolName: 'fs_tree',
+        render: (event) => terminalTranscriptResult(event, new FileTreeResult(
+          event.error ?? event.output
+        )),
       },
       {
         toolName: 'slash:*',
@@ -49,7 +55,7 @@ function renderAsk(
 
 function terminalTranscriptResult(
   event: NormalizedToolEvent,
-  component: AskResult | SlashCommandResult
+  component: import('@ai-team/tui').Component
 ): ToolRenderDecision {
   if (
     event.phase !== 'result'

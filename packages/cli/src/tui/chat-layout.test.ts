@@ -3,7 +3,6 @@ import type { ITerminal } from '@ai-team/core';
 import { Loader, Text } from '@ai-team/tui';
 import { ChatLayout } from './chat-layout.js';
 import { ChatView } from './chat-view.js';
-import { HeaderBar } from './header-bar.js';
 import { Prompt } from './prompt.js';
 import { StatusLine } from './status-line.js';
 import { AgentResponse } from './agent-response.js';
@@ -33,7 +32,6 @@ describe('ChatLayout', () => {
     footer.setRight('gpt-5.2');
     const layout = new ChatLayout(
       terminal,
-      new HeaderBar(),
       chat,
       spinner,
       prompt,
@@ -66,7 +64,6 @@ describe('ChatLayout', () => {
     footer.setRight('Michael Brown (gpt-5.2) - session id: session-1');
     const layout = new ChatLayout(
       terminal,
-      new HeaderBar(),
       chat,
       spinner,
       prompt,
@@ -90,7 +87,6 @@ describe('ChatLayout', () => {
     const prompt = new Prompt('> ', () => {});
     const layout = new ChatLayout(
       terminal,
-      new HeaderBar(),
       chat,
       spinner,
       prompt,
@@ -109,6 +105,41 @@ describe('ChatLayout', () => {
     expect(prompt.value).toBe('x');
   });
 
+  it('routes modified Page Up through the layout to the beginning of the transcript', () => {
+    const chat = new ChatView();
+    for (let index = 1; index <= 120; index += 1) {
+      chat.getContent().addChild(new Text(`message ${index}`));
+    }
+    const spinner = new Loader();
+    spinner.setVisible(false);
+    const prompt = new Prompt('> ', () => {});
+    const layout = new ChatLayout(terminal, chat, spinner, prompt, new StatusLine());
+    layout.focused = true;
+
+    layout.render(80);
+    for (let index = 0; index < 20; index += 1) {
+      layout.handleInput('\x1b[5;2~');
+    }
+
+    const older = layout.render(80).join('\n');
+    expect(older).toContain('message 1');
+    expect(older).not.toContain('message 120');
+  });
+
+  it('routes mouse-wheel scrolling through the layout', () => {
+    const chat = new ChatView();
+    for (let index = 1; index <= 80; index += 1) {
+      chat.getContent().addChild(new Text(`message ${index}`));
+    }
+    const spinner = new Loader();
+    spinner.setVisible(false);
+    const layout = new ChatLayout(terminal, chat, spinner, new Prompt('> ', () => {}), new StatusLine());
+    layout.focused = true;
+    layout.render(80);
+    for (let index = 0; index < 30; index += 1) layout.handleInput('\x1b[<64;10;10M');
+    expect(layout.render(80).join('\n')).toContain('message 1');
+  });
+
   it('scrolls a slash result taller than the viewport without moving the composer', () => {
     const chat = new ChatView();
     chat.getContent().addChild(new SlashCommandResult(
@@ -119,7 +150,6 @@ describe('ChatLayout', () => {
     spinner.setVisible(false);
     const layout = new ChatLayout(
       terminal,
-      new HeaderBar(),
       chat,
       spinner,
       prompt,

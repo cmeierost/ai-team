@@ -61,7 +61,12 @@ export class ChatStartupCommand implements ICommand<ChatStartupParams, string> {
       createNewSession: payload.options.createNewSession,
     });
     if (!startupTarget) {
-      return { status: 'ok', data: '', message: 'completed' };
+      return {
+        status: 'error',
+        message: payload.employeeId
+          ? `Unable to resolve chat agent '${payload.employeeId}' or session`
+          : 'Unable to resolve a chat agent or resumable session',
+      };
     }
 
     const loadedAgent = startupTarget.agent;

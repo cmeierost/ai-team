@@ -11,6 +11,7 @@ function createResolver() {
       id: query === 'Emily Davis' ? 'emily' : query,
     })),
     getAgentAsync: vi.fn(async (id: string) => agents.get(id) ?? null),
+    getAgentsByRoleAsync: vi.fn(async () => []),
   } as any;
   const threadManager = {
     resolveActiveSession: vi.fn(async () => ({
@@ -60,5 +61,18 @@ describe('ChatStartupTargetResolver', () => {
     expect(target).toMatchObject({ agent: { id: 'emily' }, sessionId: undefined });
     expect(threadManager.resolveActiveSession).not.toHaveBeenCalled();
     expect(threadManager.resolveLatestActiveSession).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the top-level CEO when no resumable session exists', async () => {
+    const { resolver, threadManager, agentManager } = createResolver();
+    threadManager.resolveLatestActiveSession.mockResolvedValueOnce(null);
+    agentManager.getAgentsByRoleAsync.mockResolvedValueOnce([
+      { id: 'michael', name: 'Michael Brown', role: 'ceo' },
+    ]);
+
+    const target = await resolver.resolve({});
+
+    expect(target).toMatchObject({ agent: { id: 'michael' }, sessionId: undefined });
+    expect(agentManager.getAgentsByRoleAsync).toHaveBeenCalledWith('ceo');
   });
 });

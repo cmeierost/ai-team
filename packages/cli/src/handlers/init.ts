@@ -51,7 +51,6 @@ function isAbortLikeError(error: unknown): boolean {
 
 export async function renderInit(client: ICliCommandClient, options: InitOptions) {
   const abortControl = setupAbortController();
-  const mediatorLoggerEnabled = process.env.AI_TEAM_MEDIATOR_LOG === '1';
   const frontendFileLogEnabled = isFrontendFileLogEnabled();
 
   try {
@@ -63,7 +62,7 @@ export async function renderInit(client: ICliCommandClient, options: InitOptions
       {
         signal: abortControl.signal,
         logger:
-          mediatorLoggerEnabled || frontendFileLogEnabled
+          frontendFileLogEnabled
             ? (entry: { channel: string; event: unknown }) => {
                 if (frontendFileLogEnabled) {
                   writeFrontendDebugLog({
@@ -71,19 +70,6 @@ export async function renderInit(client: ICliCommandClient, options: InitOptions
                     channel: entry.channel,
                     event: entry.event,
                   });
-                }
-                try {
-                  if (mediatorLoggerEnabled) {
-                    process.stderr.write(
-                      `${chalk.gray('[frontend:mediator-log]')} ${JSON.stringify(entry)}\n`
-                    );
-                  }
-                } catch {
-                  if (mediatorLoggerEnabled) {
-                    process.stderr.write(
-                      `${chalk.gray('[frontend:mediator-log]')} ${String(entry)}\n`
-                    );
-                  }
                 }
               }
             : undefined,
@@ -97,18 +83,6 @@ export async function renderInit(client: ICliCommandClient, options: InitOptions
       if (event.kind === 'question') {
         if (frontendFileLogEnabled) {
           writeFrontendDebugLog({ command: 'init', event });
-        }
-        if (mediatorLoggerEnabled) {
-          process.stderr.write(
-            chalk.yellow(`[frontend:question:${event.questionType || 'input'}] ${event.message}\n`)
-          );
-          if (event.choices && event.choices.length > 0) {
-            for (const [index, choice] of event.choices.entries()) {
-              process.stderr.write(
-                chalk.yellow(`  ${index + 1}) ${choice.name} (${choice.value})\n`)
-              );
-            }
-          }
         }
         continue;
       }

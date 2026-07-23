@@ -1,26 +1,36 @@
-import type {
-  ChatOptions,
-  ChatCommandRegistryEntry,
-  StreamEvent,
-  CommandDescriptor,
-  QuestionConfirmRequest,
-  QuestionInputRequest,
-  QuestionSelectRequest,
-  QuestionChecklistRequest,
-  QuestionPasswordRequest,
-} from '@ai-team/api-contracts';
-import type { ICliCommandClient } from '../cli-command-client.js';
-import { createIdeAdapter, findWorkspaceRoot } from '@ai-team/infrastructure';
-import type { IQuestionService } from '@ai-team/core';
-import chalk from 'chalk';
-import { execSync } from 'node:child_process';
-import { createInterface } from 'node:readline/promises';
-import { stdin as input, stdout as output } from 'node:process';
-import { isFrontendFileLogEnabled, writeFrontendDebugLog } from './debug-log.js';
-import { askWithSlashSuggestions } from '../utils/slash-prompt.js';
-import { createQuestionResponders } from './question-responders.js';
+/**
+ * Chat orchestrator — ties TUI + ExtensionRegistry + WorkflowViewStack +
+ * WorkflowEventRegistry together.
+ *
+ * Replaces the ~1400 line monolithic renderChat with a clean ~100 line
+ * orchestrator that delegates rendering to TUI components.
+ */
 
-function setupAbortController(writeStderrLine: (text: string) => void) {
+import type { ChatOptions, CommandDescriptor } from '@ai-team/api-contracts';
+import type { ITerminal } from '@ai-team/core';
+import type { ICliCommandClient } from '../cli-command-client.js';
+import { findWorkspaceRoot } from '@ai-team/infrastructure';
+import { TUI, ProcessTerminal, Loader } from '@ai-team/tui';
+import {
+  ExtensionRegistry,
+  type ToolRenderDecision,
+} from '../extensions/index.js';
+import { ChatView } from '../tui/chat-view.js';
+import { WorkflowEventRegistry, type WorkflowEventState } from './workflow-event-registry.js';
+import { normalizeAgentDisplayName, resolveAgentDisplay } from '../tui/agent-color.js';
+import { Prompt } from '../tui/prompt.js';
+import { UserMessage } from '../tui/user-message.js';
+import { ChatLayout } from '../tui/chat-layout.js';
+import { StatusLine } from '../tui/status-line.js';
+import type { InquirerQuestionService } from './question-responders.js';
+import { TuiQuestionPresenter } from '../tui/question-composer.js';
+
+interface ChatTuiDependencies {
+  terminal?: ITerminal;
+  questionService?: InquirerQuestionService;
+}
+
+function setupAbortController() {
   const controller = new AbortController();
   let abortRequested = false;
   let forceExitTimer: NodeJS.Timeout | undefined;
@@ -30,12 +40,9 @@ function setupAbortController(writeStderrLine: (text: string) => void) {
       process.exit(130);
       return;
     }
-
     abortRequested = true;
-    writeStderrLine(chalk.yellow(`Received ${signalName}, aborting...`));
     controller.abort(new Error(`Aborted by ${signalName}`));
     forceExitTimer = setTimeout(() => {
-      writeStderrLine(chalk.yellow('Abort timed out, forcing exit.'));
       process.exit(130);
     }, 1500);
     forceExitTimer.unref();
@@ -50,1350 +57,551 @@ function setupAbortController(writeStderrLine: (text: string) => void) {
     signal: controller.signal,
     wasAborted: () => abortRequested,
     dispose: () => {
-      if (forceExitTimer) {
-        clearTimeout(forceExitTimer);
-        forceExitTimer = undefined;
-      }
+      clearTimeout(forceExitTimer);
       process.off('SIGINT', onSigint);
       process.off('SIGTERM', onSigterm);
     },
   };
 }
 
-const THINKING_TOKEN_PREFIX = '💭 ';
-
-function normalizeThinkingChunk(text: string): string {
-  if (!text) return '';
-  return text.replaceAll(/\s*💭\s*/g, ' ').replaceAll(/\s+/g, ' ');
-}
-
 function isAbortLikeError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = error instanceof Error ? error.message : '';
   return /aborted|abort/i.test(message);
 }
 
-/**
- * Tab-completion for the chat REPL.
- * When the line starts with `/`, suggests matching slash commands (key + trailing space).
- * Matches against key, aliases, and usage token.
- */
-function makeSlashCompleter(commands: Pick<CommandDescriptor, 'key' | 'aliases' | 'usage'>[]) {
-  return function slashCompleter(line: string): [string[], string] {
-    if (!line.startsWith('/')) return [[], line];
-    const fragment = line.slice(1).toLowerCase();
-    const hits = commands
-      .filter((cmd) => {
-        const usageToken = (cmd.usage ?? '')
-          .trim()
-          .replace(/^\//, '')
-          .split(/\s+/, 1)[0]
-          ?.toLowerCase();
-        const keys = [cmd.key, ...(cmd.aliases ?? []), usageToken]
-          .filter((value): value is string => Boolean(value))
-          .map((value) => value.toLowerCase());
-        return keys.some((k) => k.startsWith(fragment));
-      })
-      .map((cmd) => `/${cmd.key} `);
-    return [hits.length ? hits : [], line];
-  };
+interface ChatCtx {
+  tui: TUI;
+  chatView: ChatView;
+  extensionRegistry: ExtensionRegistry;
+  eventRegistry: WorkflowEventRegistry;
+  eventState: WorkflowEventState;
+  spinner: Loader;
+  spinnerActive: boolean;
+  prompt: Prompt;
+  layout: ChatLayout;
+  statusLine: StatusLine;
+  workspaceRoot: string;
+  gitBranch?: string;
+  sessionId?: string;
+  sessionTitle?: string;
+  slashCommands: CommandDescriptor[];
+  composerPlacements: Map<string, () => void>;
 }
 
-async function askLine(
-  commands: Pick<CommandDescriptor, 'key' | 'aliases' | 'usage'>[],
-  message: string,
-  signal?: AbortSignal
-): Promise<string> {
-  const rl = createInterface({ input, output, completer: makeSlashCompleter(commands) });
-  try {
-    return (await rl.question(`${message} `, { signal })).trim();
-  } finally {
-    rl.close();
+function setSpinner(ctx: ChatCtx, v: boolean): void {
+  ctx.spinnerActive = v;
+  if (!v) {
+    ctx.spinner.setVisible(false);
   }
 }
 
-function _createChatQuestionResponders(
-  signal: AbortSignal,
-  onAnswered?: () => void,
-  onQuestionStart?: () => void,
-  projectNameFn?: () => Promise<string | undefined>,
-  chatCommands: CommandDescriptor[] = [],
-  inquirerQuestionService: Pick<
-    IQuestionService,
-    'confirm' | 'select' | 'checklist' | 'password'
-  > = createQuestionResponders(),
-  promptMessageTransformer?: (message: string) => string
-): Pick<IQuestionService, 'input' | 'confirm' | 'select' | 'checklist' | 'password'> {
-  const normalizeSelection = (
-    raw: string,
-    choices: Array<{ name: string; value: string }>
-  ): string | undefined => {
-    const trimmed = raw.trim();
-    if (!trimmed) return undefined;
-
-    const byValue = choices.find((choice) => choice.value.toLowerCase() === trimmed.toLowerCase());
-    if (byValue) return byValue.value;
-
-    const idx = Number.parseInt(trimmed, 10);
-    if (!Number.isNaN(idx) && idx >= 1 && idx <= choices.length) {
-      return choices[idx - 1]?.value;
-    }
-
-    const byName = choices.find((choice) => choice.name.toLowerCase() === trimmed.toLowerCase());
-    return byName?.value;
-  };
-
-  return {
-    input: async (request: QuestionInputRequest) => {
-      onQuestionStart?.();
-      while (true) {
-        const promptMessage = promptMessageTransformer
-          ? promptMessageTransformer(request.message)
-          : request.message;
-        const answer = await askWithSlashSuggestions(promptMessage, chatCommands, signal);
-        const trimmed = answer.trim().toLowerCase();
-        if (
-          trimmed === 'exit' ||
-          trimmed === '/exit' ||
-          trimmed === 'quit' ||
-          trimmed === '/quit' ||
-          trimmed === 'q' ||
-          trimmed === '/q'
-        ) {
-          const resolvedName = await projectNameFn?.();
-          const team = resolvedName ? `the ${resolvedName} team` : 'the team';
-          process.stdout.write(`See you next time — ${team} will be here when you need us 👋\n`);
-          process.exit(0);
-        }
-        if (request.validate) {
-          const result = request.validate(answer);
-          if (result !== true) {
-            process.stderr.write(`${result}\n`);
-            continue;
-          }
-        }
-        // Slash commands are command-style control inputs and may resolve
-        // immediately (including "unknown command" responses). Avoid showing
-        // the agent "thinking" spinner for these inputs.
-        const isSlashCommandInput = answer.trim().startsWith('/');
-        if (!isSlashCommandInput) {
-          onAnswered?.();
-        }
-        return answer;
-      }
-    },
-    confirm: async (request: QuestionConfirmRequest) => {
-      onQuestionStart?.();
-      if (process.stdin.isTTY) {
-        const answer = await inquirerQuestionService.confirm(request);
-        onAnswered?.();
-        return answer;
-      }
-
-      const defaultValue = request.default ?? false;
-      const suffix = defaultValue ? '[Y/n]' : '[y/N]';
-
-      while (true) {
-        const raw = (await askLine([], `${request.message} ${suffix}`, signal)).toLowerCase();
-        if (!raw) {
-          onAnswered?.();
-          return defaultValue;
-        }
-        if (raw === 'y' || raw === 'yes') {
-          onAnswered?.();
-          return true;
-        }
-        if (raw === 'n' || raw === 'no') {
-          onAnswered?.();
-          return false;
-        }
-        process.stderr.write('Please answer yes or no.\n');
-      }
-    },
-    select: async (request: QuestionSelectRequest) => {
-      onQuestionStart?.();
-      if (process.stdin.isTTY) {
-        const selected = await inquirerQuestionService.select(request);
-        onAnswered?.();
-        return selected;
-      }
-
-      const lines = request.choices.map((choice, idx) => {
-        const desc = choice.description ? ` — ${choice.description}` : '';
-        return `  ${idx + 1}) ${choice.name} [${choice.value}]${desc}`;
-      });
-      const defaultValue = request.default;
-      while (true) {
-        process.stderr.write(`${request.message}\n${lines.join('\n')}\n`);
-        const suffix = defaultValue ? ` (default: ${defaultValue})` : '';
-        const raw = await askLine([], `Select one (number or value)${suffix}:`, signal);
-        if (!raw.trim() && defaultValue) {
-          onAnswered?.();
-          return defaultValue;
-        }
-        const normalized = normalizeSelection(raw, request.choices);
-        if (normalized) {
-          onAnswered?.();
-          return normalized;
-        }
-        if (request.allowOther && raw.trim()) {
-          onAnswered?.();
-          return raw.trim();
-        }
-        process.stderr.write('Please choose a listed option (number/value).\n');
-      }
-    },
-    checklist: async (request: QuestionChecklistRequest) => {
-      onQuestionStart?.();
-      if (process.stdin.isTTY) {
-        const selected = await inquirerQuestionService.checklist(request);
-        onAnswered?.();
-        return selected;
-      }
-
-      const lines = request.choices.map((choice, idx) => {
-        const desc = choice.description ? ` — ${choice.description}` : '';
-        return `  ${idx + 1}) ${choice.name} [${choice.value}]${desc}`;
-      });
-      const defaults = request.default ?? [];
-      const defaultSuffix = defaults.length > 0 ? ` (default: ${defaults.join(', ')})` : '';
-      while (true) {
-        process.stderr.write(`${request.message}\n${lines.join('\n')}\n`);
-        const raw = await askLine(
-          [],
-          `Select one or more (comma-separated numbers/values)${defaultSuffix}:`,
-          signal
-        );
-        const entries = raw
-          .split(',')
-          .map((entry) => entry.trim())
-          .filter(Boolean);
-        const selected = entries.length === 0 ? defaults : entries;
-        const resolved = selected
-          .map((entry) => normalizeSelection(entry, request.choices))
-          .filter((value): value is string => Boolean(value));
-        if (resolved.length !== selected.length) {
-          if (request.allowOther) {
-            const passthrough = selected.map((entry, idx) => resolved[idx] ?? entry);
-            onAnswered?.();
-            return passthrough;
-          }
-          process.stderr.write('One or more selections are invalid. Use listed numbers/values.\n');
-          continue;
-        }
-        if (request.minSelections && resolved.length < request.minSelections) {
-          process.stderr.write(`Please select at least ${request.minSelections} option(s).\n`);
-          continue;
-        }
-        if (request.maxSelections && resolved.length > request.maxSelections) {
-          process.stderr.write(`Please select at most ${request.maxSelections} option(s).\n`);
-          continue;
-        }
-        onAnswered?.();
-        return resolved;
-      }
-    },
-    password: async (request: QuestionPasswordRequest) => {
-      onQuestionStart?.();
-      if (process.stdin.isTTY) {
-        const answer = await inquirerQuestionService.password(request);
-        onAnswered?.();
-        return answer;
-      }
-      const answer = await askLine([], request.message, signal);
-      onAnswered?.();
-      return answer;
-    },
-  };
-}
-
-function handleOneShotEvent(
-  event: StreamEvent<string>,
-  writeStderrLine: (text: string) => void
-): void {
-  if (event.kind === 'status' && event.message) {
-    writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
-    return;
-  }
-
-  if (event.kind === 'question') {
-    writeStderrLine(
-      chalk.yellow(`[frontend:question:${event.questionType || 'input'}] ${event.message}`)
-    );
-    return;
-  }
-
-  if (event.kind === 'tool') {
-    const phase = event.toolPhase || 'event';
-    const formatted = formatToolEventMessage(event);
-    const suffix = formatted ? ` — ${formatted}` : '';
-    writeStderrLine(chalk.cyan(`[backend:tool:${phase}] ${event.toolName}${suffix}`));
-    const detail = formatToolEventDetail(event);
-    if (detail) writeStderrLine(detail);
-    return;
-  }
-
-  if (event.kind === 'error') {
-    throw new Error(event.message);
-  }
-}
-
-interface AgentAccessLike {
-  agentId: string;
-  canRead: boolean;
-  canWrite: boolean;
-  canList: boolean;
-}
-
-interface FileTreeNodeLike {
-  name?: string;
-  isDirectory?: boolean;
-  children?: FileTreeNodeLike[];
-  agentAccess?: AgentAccessLike[];
-}
-
-interface FileTreePayloadLike {
-  path?: string;
-  tree?: FileTreeNodeLike;
-}
-
-interface WhoShouldPayloadLike {
-  type?: string;
-  task?: string;
-  matches?: Array<{ agentId?: string; agentName?: string; agentRole?: string }>;
-}
-
-function parseJsonObject(value: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
-
-function toPayloadRecord(value: unknown): Record<string, unknown> | null {
-  if (value && typeof value === 'object') {
-    return value as Record<string, unknown>;
-  }
-  if (typeof value === 'string') {
-    return parseJsonObject(value);
-  }
-  return null;
-}
-
-function resolveDeveloperDisplayName(env: NodeJS.ProcessEnv): string {
-  const fromEnv =
-    env.AI_TEAM_USER_NAME?.trim() || env.AI_TEAM_USER?.trim() || env.AI_TEAM_DEVELOPER?.trim();
-  if (fromEnv) return fromEnv;
-  try {
-    const gitName = execSync('git config user.name', { encoding: 'utf-8' }).trim();
-    if (gitName) return gitName;
-  } catch {
-    // git not available or not configured
-  }
-  return 'You';
-}
-
-function hashStringToHue(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (str.codePointAt(i) ?? 0) + ((hash << 5) - hash);
-  }
-  return Math.abs(hash % 360);
-}
-
-function generateAgentColor(agent: {
-  name: string;
-  avatar?: { color?: string; seed?: string };
-}): string {
-  if (agent.avatar?.color) return agent.avatar.color;
-  const seed = agent.avatar?.seed || agent.name;
-  const hue = hashStringToHue(seed);
-  return `hsl(${hue}, 70%, 60%)`;
-}
-
-function parseHslHue(hsl: string): number | undefined {
-  const m = /^hsl\((\d+)/i.exec(hsl);
-  return m ? Number(m[1]) : undefined;
-}
-
-function toTitleCaseWords(input: string): string {
-  return input
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(' ');
-}
-
-function normalizeAgentDisplayName(agentName?: string, agentId?: string): string {
-  const explicit = agentName?.trim();
-  if (explicit) {
-    return explicit;
-  }
-
-  const fallback = agentId?.trim();
-  if (!fallback) {
-    return 'Agent';
-  }
-
-  // Convert ids/aliases like "clara-bishop" or "clara_bishop" to
-  // "Clara Bishop" and short aliases like "clara" to "Clara".
-  const words = fallback.replace(/[-_]+/g, ' ');
-  return toTitleCaseWords(words);
-}
-
-function countTreeNodes(node?: FileTreeNodeLike): { files: number; directories: number } {
-  if (!node) return { files: 0, directories: 0 };
-  let files = node.isDirectory ? 0 : 1;
-  let directories = node.isDirectory ? 1 : 0;
-
-  for (const child of node.children ?? []) {
-    const nested = countTreeNodes(child);
-    files += nested.files;
-    directories += nested.directories;
-  }
-
-  return { files, directories };
-}
-
-function renderAccessBadge(access?: AgentAccessLike[]): string | undefined {
-  if (!access?.length) return undefined;
-  const agents = access.map((a) => {
-    const rights = [a.canRead ? 'r' : '', a.canWrite ? 'w' : '', a.canList ? 'l' : '']
-      .filter(Boolean)
-      .join('');
-    return chalk.dim(`${a.agentId}:${rights}`);
-  });
-  return chalk.gray('[') + agents.join(chalk.gray(' ')) + chalk.gray(']');
-}
-
-function renderAsciiFileTree(
-  node: FileTreeNodeLike,
-  opts: { maxDepth?: number; maxItems?: number } = {}
-): string {
-  const maxDepth = opts.maxDepth ?? 4;
-  const maxItems = opts.maxItems ?? 60;
-  const lines: string[] = [];
-  let totalShown = 0;
-
-  function walk(n: FileTreeNodeLike, prefix: string, depth: number): void {
-    const children = n.children ?? [];
-    const sorted = [...children].sort((a, b) => {
-      if (!!a.isDirectory !== !!b.isDirectory) return a.isDirectory ? -1 : 1;
-      return (a.name ?? '').localeCompare(b.name ?? '');
-    });
-
-    for (let i = 0; i < sorted.length; i++) {
-      if (totalShown >= maxItems) {
-        lines.push(chalk.gray(`${prefix}… (${sorted.length - i} more)`));
-        break;
-      }
-      const child = sorted[i];
-      const isLast = i === sorted.length - 1;
-      const connector = isLast ? '└── ' : '├── ';
-      const childPrefix = prefix + (isLast ? '    ' : '│   ');
-      const name = child.name ?? '?';
-      const baseLabel = child.isDirectory ? chalk.bold(name + '/') : name;
-      const accessBadge = renderAccessBadge(child.agentAccess);
-      const label = accessBadge ? `${baseLabel} ${accessBadge}` : baseLabel;
-      lines.push(chalk.gray(prefix + connector) + label);
-      totalShown++;
-
-      if (child.isDirectory && child.children) {
-        if (depth + 1 >= maxDepth) {
-          if (child.children.length > 0) {
-            lines.push(chalk.gray(`${childPrefix}…`));
-          }
-        } else {
-          walk(child, childPrefix, depth + 1);
-        }
-      }
-    }
-  }
-
-  const rootName = node.name ?? '.';
-  lines.push(chalk.bold(node.isDirectory ? rootName + '/' : rootName));
-  walk(node, '', 0);
-  return lines.join('\n');
-}
-
-/**
- * Extracts the human-readable output from a `slash:*` tool result event.
- * Returns the `message` field if non-empty, otherwise serializes `data`.
- */
-function resolveSlashCommandOutput(event: Record<string, unknown>): string | undefined {
-  const toolResult = toPayloadRecord((event as { toolResult?: unknown }).toolResult);
-  if (!toolResult) return undefined;
-  const commandResponse = (
-    toolResult as { commandResponse?: { message?: unknown; data?: unknown; status?: unknown } }
-  ).commandResponse;
-  if (!commandResponse) return undefined;
-
-  if (typeof commandResponse.message === 'string' && commandResponse.message.trim()) {
-    return commandResponse.message;
-  }
-  if (commandResponse.data !== undefined) {
-    return typeof commandResponse.data === 'string'
-      ? commandResponse.data
-      : JSON.stringify(commandResponse.data, null, 2);
-  }
-  return undefined;
-}
-
-function formatToolEventMessage(event: Record<string, unknown>): string | undefined {
-  const toolName = typeof event.toolName === 'string' ? event.toolName : undefined;
-  const message = typeof event.message === 'string' ? event.message : undefined;
-  const toolResult = toPayloadRecord((event as { toolResult?: unknown }).toolResult);
-  const commandResponse = toolResult
-    ? (toolResult as { commandResponse?: { data?: unknown } }).commandResponse
-    : undefined;
-  const resultPayload = commandResponse ? commandResponse.data : undefined;
-  const payload = toPayloadRecord(resultPayload) ?? toPayloadRecord(message);
-
-  if (toolName === 'fs_tree') {
-    if (payload && 'tree' in payload) {
-      const fileTree = payload as FileTreePayloadLike;
-      const counts = countTreeNodes(fileTree.tree);
-      return `${fileTree.path ?? '.'} · ${counts.directories} dirs · ${counts.files} files`;
-    }
-  }
-
-  if (toolName === 'fs_who_should' && payload) {
-    const who = payload as WhoShouldPayloadLike;
-    const matches = Array.isArray(who.matches) ? who.matches : [];
-    const top = matches
-      .slice(0, 3)
-      .map((m) => m.agentName || m.agentId || 'unknown')
-      .join(', ');
-    if (matches.length > 0) {
-      return `matches: ${matches.length}${top ? ` (${top})` : ''}`;
-    }
-  }
-
-  if (payload) {
-    return summarizeGenericJsonPayload(payload);
-  }
-
-  return message;
-}
-
-function formatToolEventDetail(event: Record<string, unknown>): string | undefined {
-  const toolName = typeof event.toolName === 'string' ? event.toolName : undefined;
-  const phase = typeof event.toolPhase === 'string' ? event.toolPhase : undefined;
-  if (phase !== 'result') return undefined;
-
-  const toolResult = toPayloadRecord((event as { toolResult?: unknown }).toolResult);
-  const commandResponse = toolResult
-    ? (toolResult as { commandResponse?: { data?: unknown } }).commandResponse
-    : undefined;
-  const resultPayload = commandResponse ? commandResponse.data : undefined;
-  const payload = toPayloadRecord(resultPayload);
-
-  if (toolName === 'fs_tree' && payload && 'tree' in payload) {
-    const tree = (payload as FileTreePayloadLike).tree;
-    const denied =
-      typeof (payload as { denied?: unknown }).denied === 'number'
-        ? (payload as { denied: number }).denied
-        : undefined;
-    if (tree) {
-      const rendered = renderAsciiFileTree(tree, { maxDepth: 4, maxItems: 60 });
-      const footer =
-        denied && denied > 0
-          ? chalk.yellow(`\n  (${denied} item(s) hidden — access restricted)`)
-          : '';
-      return rendered + footer;
-    }
-  }
-
-  return undefined;
-}
-
-function summarizeGenericJsonPayload(payload: Record<string, unknown>): string {
-  if (Array.isArray(payload)) {
-    return `json array (${payload.length} items)`;
-  }
-
-  const entries = Object.entries(payload);
-  const keys = entries.map(([key]) => key);
-  const preview = keys.slice(0, 5).join(', ');
-
-  // Common shape: { entries: [...] }
-  const entriesField = payload.entries;
-  if (Array.isArray(entriesField)) {
-    return `json object keys: ${preview || 'none'} · entries: ${entriesField.length}`;
-  }
-
-  return `json object keys: ${preview || 'none'}`;
-}
-
-async function handleCodeEditProposal(
-  event: any,
-  writeStderrLine: (text: string) => void,
-  isOneShot: boolean,
+function buildChatCtx(
+  requestPayload: Record<string, unknown> | undefined,
+  terminal: ITerminal,
   workspaceRoot: string
-): Promise<void> {
-  const { proposalId, description, filesChanged, additions, deletions, warnings } = event;
+): Omit<ChatCtx, 'setSpinnerActive'> {
+  const tui = new TUI(terminal);
 
-  // Display proposal summary
-  writeStderrLine('');
-  writeStderrLine(chalk.bold.cyan('📝 Code Edit Proposal'));
-  writeStderrLine(chalk.gray('─'.repeat(60)));
-  writeStderrLine(`${chalk.bold('ID:')} ${proposalId}`);
-  writeStderrLine(`${chalk.bold('Description:')} ${description}`);
-  writeStderrLine(`${chalk.bold('Files:')} ${filesChanged}`);
-  writeStderrLine(
-    `${chalk.bold('Changes:')} ${chalk.green(`+${additions ?? 0}`)} ${chalk.red(`-${deletions ?? 0}`)}`
+  const extensionRegistry = new ExtensionRegistry();
+  const eventRegistry = new WorkflowEventRegistry();
+
+  const eventState: WorkflowEventState = {
+    currentAgentId:
+      requestPayload && typeof requestPayload['agentId'] === 'string'
+        ? requestPayload['agentId']
+        : undefined,
+    currentAgent: null,
+    currentResponse: null,
+    workflowName: requestPayload?.['workflowName'] as string | undefined,
+  };
+
+  const spinner = new Loader('Agent is thinking…');
+
+  const chatView = new ChatView();
+
+  // Spinner (hidden by default)
+  spinner.setVisible(false);
+
+  // Prompt (created with empty text, updated before each prompt)
+  const prompt = new Prompt('', () => {});
+  prompt.invalidate();
+  const statusLine = new StatusLine();
+  statusLine.setLeft(`${workspaceRoot} -`);
+  const sessionId =
+    requestPayload && typeof requestPayload['sessionId'] === 'string'
+      ? requestPayload['sessionId']
+      : undefined;
+  const slashCommands = Array.isArray(requestPayload?.['__slashSuggestions'])
+    ? (requestPayload['__slashSuggestions'] as CommandDescriptor[])
+    : [];
+
+  // Resolve startup agent from payload
+  const startupAgentName =
+    requestPayload && typeof requestPayload['agentName'] === 'string'
+      ? requestPayload['agentName']
+      : undefined;
+  const startupAgentId =
+    requestPayload && typeof requestPayload['agentId'] === 'string'
+      ? requestPayload['agentId']
+      : undefined;
+  const startupAgentModel =
+    requestPayload && typeof requestPayload['llmModel'] === 'string'
+      ? requestPayload['llmModel']
+      : undefined;
+
+  if (startupAgentName || startupAgentId) {
+    eventState.currentAgent = resolveAgentDisplay({
+      name: normalizeAgentDisplayName(startupAgentName, startupAgentId),
+      model: startupAgentModel,
+    });
+  }
+
+  const layout = new ChatLayout(terminal, chatView, spinner, prompt, statusLine);
+  tui.addChild(layout);
+
+  const ctx = {
+    tui,
+    chatView,
+    extensionRegistry,
+    eventRegistry,
+    eventState,
+    spinner,
+    spinnerActive: false,
+    prompt,
+    layout,
+    statusLine,
+    workspaceRoot,
+    sessionId,
+    slashCommands,
+    composerPlacements: new Map<string, () => void>(),
+  };
+  updateStatusLine(ctx);
+  return ctx;
+}
+
+function addToChatView(ctx: ChatCtx, component: unknown): void {
+  ctx.chatView.getContent().addChild(component as any);
+}
+
+function isToolRenderDecision(value: unknown): value is ToolRenderDecision {
+  return Boolean(
+    value
+    && typeof value === 'object'
+    && 'handled' in value
+    && 'placements' in value
   );
+}
 
-  if (warnings && warnings.length > 0) {
-    writeStderrLine('');
-    writeStderrLine(chalk.yellow('⚠️  Warnings:'));
-    warnings.forEach((warning: string) => {
-      writeStderrLine(chalk.yellow(`   • ${warning}`));
-    });
+function applyProjection(ctx: ChatCtx, projection: unknown, event: unknown): boolean {
+  if (!projection) return false;
+  if (!isToolRenderDecision(projection)) {
+    addToChatView(ctx, projection);
+    return true;
   }
 
-  writeStderrLine(chalk.gray('─'.repeat(60)));
-
-  // Notify VS Code plugin (best-effort, non-blocking)
-  createIdeAdapter(workspaceRoot, 'cli')
-    .then((adapter) => {
-      if (adapter.isConnected()) {
-        return adapter
-          .notifyCodeEditProposal({
-            proposalId: event.proposalId ?? '',
-            agentName: event.agentName ?? '',
-            description: event.description ?? '',
-            files: (event.files ?? []).map((f: any) => ({
-              filePath: f.filePath,
-              oldContent: f.oldContent ?? '',
-              newContent: f.newContent ?? '',
-              additions: f.additions ?? 0,
-              deletions: f.deletions ?? 0,
-            })),
-          })
-          .then(() => adapter.dispose());
-      }
-      adapter.dispose();
-    })
-    .catch(() => {
-      /* VS Code not running — silent */
-    });
-
-  // In one-shot mode, just log and continue
-  if (isOneShot) {
-    writeStderrLine(chalk.dim('Run with --interactive to review and apply proposals'));
-    return;
+  const payload = event as any;
+  const key = payload.toolCallId ?? payload.toolName ?? payload.name ?? 'tool';
+  const phase = payload.toolPhase;
+  if (phase === 'result' || phase === 'error' || phase === 'denied') {
+    ctx.composerPlacements.get(key)?.();
+    ctx.composerPlacements.delete(key);
   }
 
-  // Interactive mode: ask for approval
-  const rl = createInterface({ input, output: process.stderr });
-
-  try {
-    const answer = await rl.question(chalk.yellow('Review this proposal? [y/n/view] (y): '));
-
-    const choice = (answer || 'y').toLowerCase().trim();
-
-    if (choice === 'view' || choice === 'v') {
-      writeStderrLine(chalk.dim('Detailed diff view requires VS Code extension or web UI'));
-      writeStderrLine(chalk.dim(`Proposal ID: ${proposalId}`));
-    } else if (choice === 'y' || choice === 'yes') {
-      writeStderrLine(chalk.green('✅ Proposal accepted for review'));
-      writeStderrLine(chalk.dim('Use the VS Code extension or web UI to apply changes'));
+  let addedTranscript = false;
+  for (const placement of projection.placements) {
+    if (placement.target === 'transcript') {
+      addToChatView(ctx, placement.component);
+      addedTranscript = true;
     } else {
-      writeStderrLine(chalk.red('❌ Proposal review skipped'));
+      ctx.composerPlacements.get(key)?.();
+      ctx.composerPlacements.set(key, ctx.layout.pushComposer(placement.component));
     }
-  } finally {
-    rl.close();
+  }
+  return addedTranscript;
+}
+
+function handleStreamEvent(ctx: ChatCtx, event: unknown): boolean {
+  const kind = (event as any)?.kind;
+  if (!kind) return false;
+
+  switch (kind) {
+    case 'token':
+    case 'tool':
+    case 'error':
+    case 'log':
+      stopSpinner(ctx);
+      break;
+    case 'status':
+      handleStatusEvent(ctx, event);
+      return true;
+    case 'agent_info':
+      handleAgentInfoEvent(ctx, event);
+      return true;
+    case 'workspace_info':
+      ctx.workspaceRoot =
+        typeof (event as any).workspace === 'string' ? (event as any).workspace : ctx.workspaceRoot;
+      ctx.gitBranch =
+        typeof (event as any).gitBranch === 'string' ? (event as any).gitBranch : undefined;
+      updateStatusLine(ctx);
+      ctx.tui.invalidate();
+      return true;
+    case 'handoff':
+      stopSpinner(ctx);
+      break;
+    case 'subworkflow_start':
+      stopSpinner(ctx);
+      handleSubworkflowStart(ctx, event);
+      return true;
+    case 'subworkflow_end':
+      handleSubworkflowEnd(ctx);
+      return true;
+    case 'session_switched':
+      ctx.sessionId = (event as any).sessionId ?? ctx.sessionId;
+      ctx.eventState.currentAgentId = (event as any).agentId ?? ctx.eventState.currentAgentId;
+      updateStatusLine(ctx);
+      ctx.tui.invalidate();
+      return true;
+    case 'session_title_updated':
+      ctx.sessionTitle = (event as any).title ?? ctx.sessionTitle;
+      updateStatusLine(ctx);
+      ctx.tui.invalidate();
+      return true;
+    case 'done':
+    case 'turn_finished':
+      stopSpinner(ctx);
+      applyProjection(
+        ctx,
+        ctx.eventRegistry.handle(event as any, ctx.eventState, ctx.extensionRegistry),
+        event
+      );
+      ctx.tui.invalidate();
+      return true;
+    case 'aborted':
+      stopSpinner(ctx);
+      process.exitCode = 130;
+      return false;
   }
 
-  writeStderrLine('');
+  const comp = ctx.eventRegistry.handle(event as any, ctx.eventState, ctx.extensionRegistry);
+  if (comp) {
+    const addedTranscript = applyProjection(ctx, comp, event);
+    if (kind === 'handoff' || kind === 'tool' || kind === 'history_message') {
+      if (addedTranscript) ctx.chatView.addSpacer();
+    }
+  }
+  if (kind === 'handoff') updateStatusLine(ctx);
+
+  ctx.tui.invalidate();
+  return true;
+}
+
+function stopSpinner(ctx: ChatCtx): void {
+  if (ctx.spinnerActive) {
+    setSpinner(ctx, false);
+  }
+}
+
+function handleStatusEvent(ctx: ChatCtx, event: unknown): void {
+  const phase = (event as any).phase ?? '';
+  if (phase === 'thinking' && !ctx.spinnerActive) {
+    ctx.spinner.setMessage(formatThinkingMessage(ctx.eventState.currentAgent));
+    setSpinner(ctx, true);
+    ctx.spinner.setVisible(true);
+    ctx.spinner.start(() => ctx.tui.invalidate());
+  } else if (phase === 'complete') {
+    stopSpinner(ctx);
+  }
+}
+
+function handleAgentInfoEvent(ctx: ChatCtx, event: unknown): void {
+  ctx.eventRegistry.handle(event as any, ctx.eventState, ctx.extensionRegistry);
+  if (ctx.eventState.currentAgent) {
+    if (ctx.spinnerActive) {
+      ctx.spinner.setMessage(formatThinkingMessage(ctx.eventState.currentAgent));
+    }
+  }
+  updateStatusLine(ctx);
+  ctx.tui.invalidate();
+}
+
+function handleSubworkflowStart(ctx: ChatCtx, event: unknown): void {
+  const payload = event as any;
+  if (payload.agentName) {
+    ctx.eventState.currentAgentId = payload.agentId ?? ctx.eventState.currentAgentId;
+    ctx.eventState.currentAgent = resolveAgentDisplay({
+      name: payload.agentName,
+      avatarColor: payload.avatarColor,
+      model: payload.llmModel,
+    });
+  }
+  ctx.eventState.currentThinking?.collapse();
+  ctx.eventState.currentThinking = null;
+  ctx.eventState.currentResponse = null;
+  updateStatusLine(ctx);
+  ctx.tui.invalidate();
+}
+
+function formatThinkingMessage(agent: WorkflowEventState['currentAgent']): string {
+  if (!agent) return 'Agent is thinking…';
+  const { r, g, b } = agent.color;
+  return `\x1b[38;2;${r};${g};${b}m${agent.name} is thinking…\x1b[0m`;
+}
+
+function handleSubworkflowEnd(ctx: ChatCtx): void {
+  ctx.eventState.currentThinking?.collapse();
+  ctx.eventState.currentThinking = null;
+  ctx.eventState.currentResponse = null;
+  ctx.tui.invalidate();
+}
+
+function updateStatusLine(
+  ctx: Pick<
+    ChatCtx,
+    'statusLine' | 'eventState' | 'workspaceRoot' | 'gitBranch' | 'sessionId' | 'sessionTitle'
+  >
+): void {
+  const workspace = ctx.gitBranch
+    ? `${ctx.workspaceRoot} - ${ctx.gitBranch} -`
+    : `${ctx.workspaceRoot} -`;
+  ctx.statusLine.setLeft(workspace);
+
+  const right: string[] = [];
+  const agent = ctx.eventState.currentAgent;
+  if (agent?.name) {
+    const color = agent.color;
+    const coloredName =
+      `\x1b[22m\x1b[38;2;${color.r};${color.g};${color.b}m` + `${agent.name}\x1b[39m\x1b[2m`;
+    right.push(agent.model ? `${coloredName} (${agent.model})` : coloredName);
+  }
+  if (ctx.sessionId) right.push(`session id: ${ctx.sessionId}`);
+  ctx.statusLine.setRight(right.join(' - '));
+}
+
+async function streamTurn(
+  ctx: ChatCtx,
+  client: ICliCommandClient,
+  requestCommand: string,
+  turnPayload: Record<string, unknown>,
+  workspaceRoot: string,
+  signal: AbortSignal
+): Promise<boolean> {
+  for await (const event of client.streamInteraction(
+    { command: requestCommand, payload: turnPayload },
+    { workspaceRoot, invocationSurface: 'cli' as const, calledByHuman: true, signal }
+  )) {
+    if ((event as any).kind === 'error') {
+      const msg = (event as any).message ?? '';
+      if (isAbortLikeError(msg)) return false;
+      throw new Error(msg);
+    }
+
+    if (!handleStreamEvent(ctx, event)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function promptForMessage(ctx: ChatCtx, signal: AbortSignal): Promise<string> {
+  const promptText = '\x1b[1m>\x1b[0m ';
+
+  // Create new prompt that resolves the returned promise
+  return new Promise<string>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error('Chat input aborted'));
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+    const prompt = new Prompt(
+      promptText,
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      ctx.slashCommands
+    );
+    ctx.prompt = prompt;
+    ctx.layout.setComposer(prompt);
+    ctx.tui.setFocused(ctx.layout);
+    ctx.tui.invalidate();
+  });
 }
 
 export async function renderChat(
   client: ICliCommandClient,
   agentId: string | undefined,
   options: ChatOptions,
-  mediatorLog: boolean = false,
+  // Kept as a positional compatibility slot for integrations compiled against
+  // the pre-TUI handler. Mediator logging is intentionally no longer supported.
+  _legacyUnused: boolean = false,
   resolveProjectName?: (workspaceRoot: string) => Promise<string | undefined>,
   requestCommand: string = 'chat-chat',
-  requestPayload?: Record<string, unknown>
-) {
-  const mediatorLoggerEnabled = mediatorLog || process.env.AI_TEAM_MEDIATOR_LOG === '1';
-  const frontendFileLogEnabled = isFrontendFileLogEnabled();
+  requestPayload?: Record<string, unknown>,
+  dependencies: ChatTuiDependencies = {}
+): Promise<void> {
   const workspaceRoot = findWorkspaceRoot();
-  const resolveProjectNameFromWorkspace = async (): Promise<string | undefined> => {
-    if (resolveProjectName) {
-      return resolveProjectName(workspaceRoot);
-    }
-    try {
-      const { readFile } = await import('node:fs/promises');
-      const { join } = await import('node:path');
-      const pkg = JSON.parse(await readFile(join(workspaceRoot, 'package.json'), 'utf8'));
-      return pkg.name as string | undefined;
-    } catch {
-      return undefined;
-    }
-  };
-  const payloadSuggestions = Array.isArray(requestPayload?.['__slashSuggestions'])
-    ? (requestPayload?.['__slashSuggestions'] as Array<
-        | Pick<CommandDescriptor, 'key' | 'aliases' | 'usage' | 'description'>
-        | ChatCommandRegistryEntry
-      >)
-    : undefined;
-  const chatCommands =
-    payloadSuggestions && payloadSuggestions.length > 0
-      ? (payloadSuggestions as CommandDescriptor[])
-      : client.getCommands({ chat: true });
-  const writeStderrLine = (text: string) => {
-    process.stderr.write(`${text}\n`);
-  };
-  const streamOut = options.oneShot ? process.stdout : process.stderr;
-  const abortControl = setupAbortController(writeStderrLine);
+  const abortControl = setupAbortController();
 
-  // ── Agent color tracking ──────────────────────────────────────────────────
-  // Colors are resolved from the agent's identity at render time.
-  // The current agent identity is updated from status (agent_info) and handoff events.
-  let currentAgentId: string | undefined = agentId;
-  let currentAgentName: string | undefined;
-  let currentAgentRole: string | undefined;
-  let currentLlmModel: string | undefined;
-  let developerDisplayName = resolveDeveloperDisplayName(process.env);
-  let tokenBurstOpen = false;
-  // Chalk instance locked in at burst open — stays consistent even if agent_info
-  // arrives mid-stream and updates currentAgentName to a different hash input.
-  let currentBurstChalk: ReturnType<typeof agentChalk> = chalk;
-  let bufferingBracketToolCall = false;
-  let bracketToolBuffer = '';
-  let bracketToolRenderedViaEvent = false;
-  let thinkingBurstOpen = false;
-  let thinkingHasWrittenContent = false;
-  let thinkingLastEndedWithWhitespace = true;
+  const ctx = buildChatCtx(
+    requestPayload,
+    dependencies.terminal ?? new ProcessTerminal(),
+    workspaceRoot
+  );
 
-  let spinnerActive = false;
-  let spinnerText = '';
-  let spinnerFrameIndex = 0;
-  let spinnerTimer: NodeJS.Timeout | undefined;
-  let inToolRound = false;
-  const runtimeWorkflowState: Record<string, unknown> = {};
-  let inPreviousConversationLogBlock = false;
-  const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  const questionPresenter = new TuiQuestionPresenter(ctx.layout, ctx.tui);
+  const detachQuestionPresenter =
+    dependencies.questionService?.attachPresenter(questionPresenter);
+  const abortQuestions = () => questionPresenter.abort(
+    abortControl.signal.reason ?? new Error('Chat aborted')
+  );
+  abortControl.signal.addEventListener('abort', abortQuestions, { once: true });
 
-  const renderSpinnerFrame = () => {
-    if (!spinnerActive || options.oneShot || !process.stderr.isTTY) return;
-    const frame = spinnerFrames[spinnerFrameIndex % spinnerFrames.length] ?? '⠋';
-    spinnerFrameIndex = (spinnerFrameIndex + 1) % spinnerFrames.length;
-    const line = chalk.dim(`${frame} ${spinnerText}`);
-    // Clear current terminal line and redraw spinner in-place.
-    process.stderr.write(`\u001b[2K\r${line}`);
-  };
-
-  const startSpinner = (text?: string) => {
-    if (options.oneShot || !process.stderr.isTTY) return;
-    spinnerText =
-      text ?? `${normalizeAgentDisplayName(currentAgentName, currentAgentId)} is thinking…`;
-    if (spinnerActive) {
-      return;
-    }
-    spinnerActive = true;
-    spinnerFrameIndex = 0;
-    renderSpinnerFrame();
-    spinnerTimer = setInterval(renderSpinnerFrame, 80);
-    spinnerTimer.unref();
-  };
-
-  const stopSpinner = () => {
-    if (!spinnerActive) return;
-    spinnerActive = false;
-    if (spinnerTimer) {
-      clearInterval(spinnerTimer);
-      spinnerTimer = undefined;
-    }
-    // Clear spinner line and return cursor to column 0.
-    process.stderr.write('\u001b[2K\r');
-  };
-
-  function resolveAgentIdentity(id?: string, name?: string) {
-    const displayName = normalizeAgentDisplayName(name, id);
-    return {
-      id,
-      name: displayName,
-      avatar: undefined,
-    };
-  }
-
-  function agentChalk(id?: string, name?: string) {
-    const identity = resolveAgentIdentity(id, name);
-    const hsl = generateAgentColor({
-      name: identity.name,
-      avatar: identity.avatar,
-    });
-    const hue = parseHslHue(hsl);
-    if (hue !== undefined) {
-      // Convert HSL(hue, 70%, 60%) to RGB for chalk v5 compatibility
-      const s = 0.7,
-        l = 0.6;
-      const c = (1 - Math.abs(2 * l - 1)) * s;
-      const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
-      const m = l - c / 2;
-      let r1 = 0,
-        g1 = 0,
-        b1 = 0;
-      if (hue < 60) {
-        r1 = c;
-        g1 = x;
-      } else if (hue < 120) {
-        r1 = x;
-        g1 = c;
-      } else if (hue < 180) {
-        g1 = c;
-        b1 = x;
-      } else if (hue < 240) {
-        g1 = x;
-        b1 = c;
-      } else if (hue < 300) {
-        r1 = x;
-        b1 = c;
-      } else {
-        r1 = c;
-        b1 = x;
-      }
-      const r = Math.round((r1 + m) * 255);
-      const g = Math.round((g1 + m) * 255);
-      const b = Math.round((b1 + m) * 255);
-      return chalk.rgb(r, g, b);
-    }
-    return chalk;
-  }
-
-  function openTokenHeaderIfNeeded() {
-    if (tokenBurstOpen) return;
-    closeThinkingBurstIfNeeded();
-    const agentName = normalizeAgentDisplayName(currentAgentName, currentAgentId);
-    const title = currentAgentRole ? `${agentName} (${currentAgentRole})` : agentName;
-    // Lock in the chalk instance for this entire burst so every token uses the
-    // same color — even if agent_info arrives later and updates currentAgentName.
-    currentBurstChalk = agentChalk(currentAgentId, currentAgentName);
-    const styledTitle = currentBurstChalk.bold(title);
-    const modelSuffix = currentLlmModel ? chalk.dim(` (${currentLlmModel})`) : '';
-    process.stdout.write(
-      `\n${styledTitle}${modelSuffix}${chalk.dim(' → ')}${developerDisplayName}: `
-    );
-    tokenBurstOpen = true;
-  }
-
-  function writeVisibleAssistantToken(text: string) {
-    if (!text) return;
-    openTokenHeaderIfNeeded();
-    process.stdout.write(currentBurstChalk(text));
-  }
-
-  function writeThinkingToken(text: string) {
-    if (!text) return;
-    if (tokenBurstOpen) {
-      process.stdout.write('\n');
-      tokenBurstOpen = false;
-    }
-    if (!thinkingBurstOpen) {
-      process.stdout.write(`\n${chalk.dim.italic('💭 thinking: ')}`);
-      thinkingBurstOpen = true;
-    }
-    const normalized = normalizeThinkingChunk(text);
-    if (!normalized.trim()) return;
-    const needsBoundarySpace =
-      thinkingHasWrittenContent && !thinkingLastEndedWithWhitespace && !/^\s/.test(normalized);
-    const outputText = needsBoundarySpace ? ` ${normalized}` : normalized;
-    process.stdout.write(chalk.dim.italic(outputText));
-    thinkingHasWrittenContent = true;
-    thinkingLastEndedWithWhitespace = /\s$/.test(outputText);
-  }
-
-  function closeThinkingBurstIfNeeded() {
-    if (!thinkingBurstOpen) return;
-    process.stdout.write('\n');
-    thinkingBurstOpen = false;
-    thinkingHasWrittenContent = false;
-    thinkingLastEndedWithWhitespace = true;
-  }
-
-  function closeTokenBurstIfNeeded() {
-    if (!tokenBurstOpen) return;
-    process.stdout.write('\n');
-    tokenBurstOpen = false;
-  }
-
-  function formatPreviousConversationLogLine(line: string): string {
-    if (!inPreviousConversationLogBlock) return line;
-
-    const dividerRegex = /^\s*─{10,}\s*$/;
-    if (dividerRegex.test(line)) {
-      return line;
-    }
-
-    const speakerMatch = /^([^:\n]+):\s(.*)$/u.exec(line);
-    if (!speakerMatch) {
-      return line;
-    }
-
-    const speaker = speakerMatch[1]?.trim();
-    const rest = speakerMatch[2] ?? '';
-    if (!speaker) {
-      return line;
-    }
-
-    const currentAgentDisplay = normalizeAgentDisplayName(currentAgentName, currentAgentId);
-    const isAgentSpeaker = speaker.toLowerCase() === currentAgentDisplay.toLowerCase();
-    if (!isAgentSpeaker) {
-      return line;
-    }
-
-    const speakerStyled = agentChalk(currentAgentId, currentAgentName).bold(speaker);
-    return `${speakerStyled}: ${rest}`;
-  }
-
-  function handleAssistantTokenChunk(deltaText: string) {
-    if (!deltaText) return;
-
-    if (deltaText.startsWith(THINKING_TOKEN_PREFIX)) {
-      const thought = deltaText.slice(THINKING_TOKEN_PREFIX.length);
-      writeThinkingToken(thought);
-      return;
-    }
-
-    closeThinkingBurstIfNeeded();
-
-    if (bufferingBracketToolCall) {
-      bracketToolBuffer += deltaText;
-      return;
-    }
-
-    const markerIndex = deltaText.toLowerCase().indexOf('[tool:');
-    if (markerIndex === -1) {
-      writeVisibleAssistantToken(deltaText);
-      return;
-    }
-
-    const visiblePrefix = deltaText.slice(0, markerIndex);
-    if (visiblePrefix) {
-      writeVisibleAssistantToken(visiblePrefix);
-    }
-
-    bufferingBracketToolCall = true;
-    bracketToolBuffer += deltaText.slice(markerIndex);
-  }
-
-  function flushBracketToolBufferFallbackIfNeeded() {
-    if (!bufferingBracketToolCall) return;
-    const buffered = bracketToolBuffer;
-    bufferingBracketToolCall = false;
-    bracketToolBuffer = '';
-    if (bracketToolRenderedViaEvent) return;
-    if (!buffered.trim()) return;
-    writeVisibleAssistantToken(buffered);
-  }
+  ctx.tui.start();
+  let exitRequested = false;
 
   try {
     if (!options.oneShot && requestCommand === 'chat-chat') {
-      const startupAgentId =
-        requestPayload && typeof requestPayload['agentId'] === 'string'
-          ? requestPayload['agentId']
-          : undefined;
-      const startupAgentName =
-        requestPayload && typeof requestPayload['agentName'] === 'string'
-          ? requestPayload['agentName']
-          : undefined;
-      const startupAgentModel =
-        requestPayload && typeof requestPayload['llmModel'] === 'string'
-          ? requestPayload['llmModel']
-          : undefined;
-      const startupSessionId =
-        requestPayload && typeof requestPayload['sessionId'] === 'string'
-          ? requestPayload['sessionId']
-          : undefined;
-
-      // Set agent identity from payload BEFORE the stream starts, so the
-      // greeting token header uses the correct color and name.
-      if (startupAgentId) {
-        currentAgentId = startupAgentId;
-      }
-      if (startupAgentName) {
-        currentAgentName = startupAgentName;
-      }
-      if (startupAgentModel) {
-        currentLlmModel = startupAgentModel;
-      }
-
-      process.stdout.write(chalk.dim('chat ready — type a message or "exit" to quit.') + '\n');
-      if (startupSessionId || startupAgentId) {
-        const label = startupAgentName?.trim()
-          ? startupAgentName.trim()
-          : startupAgentId
-            ? normalizeAgentDisplayName(undefined, startupAgentId)
-            : 'last active agent';
-        const sessionPart = startupSessionId ? `session ${startupSessionId}` : 'latest session';
-        process.stdout.write(chalk.dim(`Resuming ${sessionPart} with ${label}.`) + '\n');
-      }
-    }
-
-    const promptForNextMessageAsync = async (): Promise<string> => {
-      while (true) {
-        const to = normalizeAgentDisplayName(currentAgentName, currentAgentId);
-        const toStyled = agentChalk(currentAgentId, currentAgentName).bold(to);
-        const modelSuffix = currentLlmModel ? chalk.dim(` (${currentLlmModel})`) : '';
-        const answer = await askWithSlashSuggestions(
-          `${developerDisplayName} -> ${toStyled}${modelSuffix}:`,
-          chatCommands,
-          abortControl.signal
-        );
-        const trimmed = answer.trim().toLowerCase();
-        if (
-          trimmed === 'exit' ||
-          trimmed === '/exit' ||
-          trimmed === 'quit' ||
-          trimmed === '/quit' ||
-          trimmed === 'q' ||
-          trimmed === '/q'
-        ) {
-          const resolvedName = await resolveProjectNameFromWorkspace();
-          const team = resolvedName ? `the ${resolvedName} team` : 'the team';
-          process.stdout.write(`See you next time — ${team} will be here when you need us 👋\n`);
-          process.exit(0);
-        }
-        if (!answer.trim()) {
-          continue;
-        }
-        return answer;
-      }
-    };
-
-    let pendingMessage = options.message;
-    const interactivePromptLoopEnabled = !options.oneShot && options.message === undefined;
-    while (true) {
-      if (!options.oneShot) {
-        const hasPendingMessage =
-          typeof pendingMessage === 'string' && pendingMessage.trim().length > 0;
-        if (!hasPendingMessage) {
-          pendingMessage = await promptForNextMessageAsync();
-        }
-      }
-
-      const currentMessage = pendingMessage;
-      bracketToolRenderedViaEvent = false;
-      bufferingBracketToolCall = false;
-      bracketToolBuffer = '';
-
-      if (
-        !options.oneShot &&
-        typeof currentMessage === 'string' &&
-        currentMessage.trim().length > 0
-      ) {
-        const to = normalizeAgentDisplayName(currentAgentName, currentAgentId);
-        const toStyled = agentChalk(currentAgentId, currentAgentName).bold(to);
-        const modelSuffix = currentLlmModel ? chalk.dim(` (${currentLlmModel})`) : '';
-        process.stdout.write(
-          `${developerDisplayName} -> ${toStyled}${modelSuffix}: ${currentMessage}\n`
-        );
-      }
-
-      if (typeof currentMessage === 'string' && currentMessage.trim().length > 0) {
-        startSpinner();
-      }
-
-      const turnPayload = requestPayload
-        ? {
-            ...requestPayload,
-            message: currentMessage,
-          }
-        : {
-            agentId,
-            message: currentMessage,
+      const startupOk = await streamTurn(
+        ctx,
+        client,
+        'chat-chat-startup',
+        {
+          employeeId: agentId,
+          options: {
             sessionId: options.sessionId,
             createNewSession: options.createNewSession,
-          };
-
-      for await (const event of client.streamInteraction(
-        {
-          command: requestCommand,
-          payload: turnPayload,
+            introduction: true,
+          },
         },
-        {
-          workspaceRoot,
-          invocationSurface: 'cli' as const,
-          calledByHuman: true,
-          workflowState: runtimeWorkflowState,
-          signal: abortControl.signal,
-          logger:
-            mediatorLoggerEnabled || frontendFileLogEnabled
-              ? (entry: { channel: string; event: unknown }) => {
-                  if (frontendFileLogEnabled) {
-                    writeFrontendDebugLog({
-                      command: 'chat-chat',
-                      channel: entry.channel,
-                      event: entry.event,
-                    });
-                  }
-                  try {
-                    if (mediatorLoggerEnabled) {
-                      writeStderrLine(
-                        `${chalk.gray('[frontend:mediator-log]')} ${JSON.stringify(entry)}`
-                      );
-                    }
-                  } catch {
-                    if (mediatorLoggerEnabled) {
-                      writeStderrLine(
-                        `${chalk.gray('[frontend:mediator-log]')} ${JSON.stringify(entry)}`
-                      );
-                    }
-                  }
-                }
-              : undefined,
-        }
-      )) {
-        if (event.kind === 'token') {
-          stopSpinner();
-          // Always write tokens to stdout — same stream as readline's prompt,
-          // guaranteeing correct ordering on Windows (ConPTY merges stdout/stderr
-          // but they may flush in non-deterministic order).
-          handleAssistantTokenChunk(event.text);
-          continue;
-        }
+        workspaceRoot,
+        abortControl.signal
+      );
+      if (!startupOk) return;
+    }
 
-        closeTokenBurstIfNeeded();
+    const interactiveLoop = !options.oneShot && options.message === undefined;
+    let message: string | null | undefined = options.message;
 
-        if (event.kind === 'done' || event.kind === 'turn_finished') {
-          closeThinkingBurstIfNeeded();
-          flushBracketToolBufferFallbackIfNeeded();
-          continue;
-        }
-
-        if (event.kind === 'aborted') {
-          stopSpinner();
-          closeThinkingBurstIfNeeded();
-          flushBracketToolBufferFallbackIfNeeded();
-          writeStderrLine(chalk.yellow('Chat aborted.'));
-          process.exitCode = 130;
-          return;
-        }
-
-        if (event.kind === 'status') {
-          const phase = (event.phase ?? '').toLowerCase();
-          if (phase === 'thinking') {
-            // Suppress spinner during tool round — tool events already provide
-            // visible progress. Re-starting here masks thinking token output.
-            if (!inToolRound) {
-              startSpinner(event.message || undefined);
-            }
-          } else if (phase === 'complete') {
-            stopSpinner();
-            inToolRound = false;
-          }
-
-          if (event.message && mediatorLoggerEnabled) {
-            writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
-          }
-          continue;
-        }
-
-        if (event.kind === 'agent_info') {
-          currentAgentId = event.agentId || currentAgentId;
-          currentAgentName = event.agentName.trim() || currentAgentName;
-          currentAgentRole = event.agentRole?.trim() || currentAgentRole;
-          if (event.llmModel?.trim()) {
-            currentLlmModel = event.llmModel.trim();
-          }
-          if (event.developerName?.trim()) {
-            developerDisplayName = event.developerName.trim();
-          }
-          // Update spinner text now that we know the agent's name
-          if (spinnerActive) {
-            spinnerText = `${normalizeAgentDisplayName(currentAgentName, currentAgentId)} is thinking…`;
-          }
-          if (mediatorLoggerEnabled && event.message) {
-            writeStderrLine(chalk.dim(`[backend:mediator:${event.command}] ${event.message}`));
-          }
-          continue;
-        }
-
-        if (event.kind === 'tool') {
-          stopSpinner();
-          closeThinkingBurstIfNeeded();
-          inToolRound = true;
-          const phase = event.toolPhase || 'event';
-
-          // Slash command results go directly to stdout — they ARE the response.
-          if (
-            typeof event.toolName === 'string' &&
-            event.toolName.startsWith('slash:') &&
-            (phase === 'result' || phase === 'error')
-          ) {
-            const slashOutput = resolveSlashCommandOutput(event);
-            if (slashOutput) {
-              process.stdout.write(slashOutput.endsWith('\n') ? slashOutput : slashOutput + '\n');
-            }
-            continue;
-          }
-
-          if (
-            bufferingBracketToolCall &&
-            (phase === 'result' || phase === 'error' || phase === 'denied')
-          ) {
-            bracketToolRenderedViaEvent = true;
-            bufferingBracketToolCall = false;
-            bracketToolBuffer = '';
-          }
-
-          // Skip tool result line for com_handoff — the handoff event already rendered
-          // the transition (FromAgent → ToAgent + briefing) and the subworkflow tokens
-          // streamed live. Showing a second tool result line would be redundant.
-          if (event.toolName === 'com_handoff' && phase === 'result') {
-            stopSpinner();
-            continue;
-          }
-
-          const formatted = formatToolEventMessage(event as unknown as Record<string, unknown>);
-          const suffix = formatted ? chalk.gray(` — ${formatted}`) : '';
-          writeStderrLine(
-            `${chalk.cyan(`[backend:tool:${phase}]`)} ${chalk.white(event.toolName)}${suffix}`
-          );
-          const detail = formatToolEventDetail(event as unknown as Record<string, unknown>);
-          if (detail) writeStderrLine(detail);
-          // After tool completes, stop the spinner so the next thinking phase
-          // or token burst renders cleanly. Re-starting the spinner here caused
-          // "⠋ is thinking…" to reappear over already-rendered thinking content.
-          if (phase === 'result' || phase === 'error' || phase === 'denied') {
-            stopSpinner();
-          }
-          continue;
-        }
-
-        // Handle code edit proposals
-        if (event.kind === 'code_edit_proposal') {
-          stopSpinner();
-          closeThinkingBurstIfNeeded();
-          await handleCodeEditProposal(
-            event,
-            writeStderrLine,
-            options.oneShot || false,
-            workspaceRoot
-          );
-          continue;
-        }
-
-        // Handle agent handoff — print a single clean transition line
-        if (event.kind === 'handoff') {
-          stopSpinner();
-          closeThinkingBurstIfNeeded();
-          const e = event;
-          const from = normalizeAgentDisplayName(e.fromAgentName, e.fromAgentId);
-          const to = normalizeAgentDisplayName(e.toAgentName, e.toAgentId);
-          currentAgentId = e.toAgentId || currentAgentId;
-          currentAgentName = e.toAgentName || e.toAgentId || currentAgentName;
-          currentAgentRole = e.toAgentRole || currentAgentRole;
-          const note = e.handoffNote ? `: ${e.handoffNote}` : '';
-          const fromStyled = agentChalk(e.fromAgentId, e.fromAgentName).bold(String(from));
-          const toStyled = agentChalk(e.toAgentId, e.toAgentName).bold(String(to));
-          writeStderrLine('');
-          writeStderrLine(fromStyled + chalk.dim(' → ') + toStyled + chalk.dim(note));
-          if (e.briefingContent) {
-            writeStderrLine('');
-            writeStderrLine(chalk.italic.gray(e.briefingContent));
-          }
-          writeStderrLine('');
-          continue;
-        }
-
-        // Handle subworkflow start — prepare token header for the target agent.
-        if (event.kind === 'subworkflow_start') {
-          stopSpinner();
-          closeThinkingBurstIfNeeded();
-          const e = event;
-          currentAgentId = e.agentId || currentAgentId;
-          currentAgentName = e.agentName || currentAgentName;
-          currentAgentRole = e.agentRole || currentAgentRole;
-          continue;
-        }
-
-        // Handle subworkflow end — close any open token burst.
-        if (event.kind === 'subworkflow_end') {
-          stopSpinner();
-          closeTokenBurstIfNeeded();
-          continue;
-        }
-
-        if (event.kind === 'question') {
-          if (frontendFileLogEnabled) {
-            writeFrontendDebugLog({ command: 'chat-chat', event });
-          }
-          if (mediatorLoggerEnabled) {
-            writeStderrLine(
-              chalk.yellow(`[frontend:question:${event.questionType || 'input'}] ${event.message}`)
-            );
-          }
-          continue;
-        }
-
-        if (event.kind === 'log') {
-          stopSpinner();
-          closeThinkingBurstIfNeeded();
-
-          if (/─── Previous conversation/i.test(event.message)) {
-            inPreviousConversationLogBlock = true;
-          } else if (
-            inPreviousConversationLogBlock &&
-            /^\s*─{10,}\s*$/u.test(event.message.trim())
-          ) {
-            inPreviousConversationLogBlock = false;
-          }
-
-          const lineText = formatPreviousConversationLogLine(event.message);
-          const line = `${lineText}\n`;
-          if (event.level === 'error') {
-            process.stderr.write(chalk.red(line));
-          } else if (event.level === 'warn') {
-            process.stderr.write(chalk.yellow(line));
-          } else {
-            streamOut.write(chalk.dim(line));
-          }
-          continue;
-        }
-
-        if (event.kind === 'error') {
-          stopSpinner();
-          closeThinkingBurstIfNeeded();
-          flushBracketToolBufferFallbackIfNeeded();
-          if (abortControl.wasAborted() || isAbortLikeError(event.message)) {
-            writeStderrLine(chalk.yellow('Chat aborted.'));
-            process.exitCode = 130;
-            return;
-          }
-          throw new Error(event.message);
-        }
-
-        if (options.oneShot) {
-          handleOneShotEvent(event, writeStderrLine);
-        }
-      }
-
-      if (options.oneShot) {
+    while (true) {
+      message = await getNextMessage(ctx, options, message, abortControl.signal);
+      if (message === null) {
+        exitRequested = true;
         break;
       }
-      if (!interactivePromptLoopEnabled) {
-        break;
+      if (!message) {
+        message = await promptForMessage(ctx, abortControl.signal);
+        if (!message) continue;
       }
-      pendingMessage = undefined;
+
+      const userMessage = new UserMessage(message, ctx.eventState.developerName);
+      ctx.eventState.currentUserMessage = userMessage;
+      addToChatView(ctx, userMessage);
+      ctx.chatView.addSpacer();
+      ctx.tui.invalidate();
+
+      const turnPayload = buildTurnPayload(ctx, requestPayload, agentId, options, message);
+      const ok = await streamTurn(
+        ctx,
+        client,
+        requestCommand,
+        turnPayload,
+        workspaceRoot,
+        abortControl.signal
+      );
+
+      if (!ok || options.oneShot || !interactiveLoop) break;
+      message = undefined;
     }
   } catch (error) {
     if (abortControl.wasAborted() || isAbortLikeError(error)) {
-      closeThinkingBurstIfNeeded();
-      flushBracketToolBufferFallbackIfNeeded();
-      writeStderrLine(chalk.yellow('Chat aborted.'));
       process.exitCode = 130;
       return;
     }
     throw error;
   } finally {
-    stopSpinner();
-    closeThinkingBurstIfNeeded();
+    abortControl.signal.removeEventListener('abort', abortQuestions);
+    questionPresenter.abort(new Error('Chat closed'));
+    detachQuestionPresenter?.();
+    for (const restore of ctx.composerPlacements.values()) restore();
+    ctx.composerPlacements.clear();
+    stopSpinner(ctx);
+    ctx.tui.flush();
+    ctx.tui.stop();
     abortControl.dispose();
   }
+
+  if (exitRequested) {
+    const resolvedName = await resolveProjectNameFromWorkspace(workspaceRoot, resolveProjectName);
+    const team = resolvedName ? `the ${resolvedName} team` : 'the team';
+    const lines = [`See you next time — ${team} will be here when you need us 👋`, ''];
+    if (ctx.sessionId) {
+      lines.push(`Resume this session: ait chat ${ctx.sessionId}`);
+    }
+    lines.push('Return to your last session: ait chat');
+    process.stdout.write(`${lines.join('\n')}\n`);
+  }
+}
+
+async function resolveProjectNameFromWorkspace(
+  workspaceRoot: string,
+  resolver?: (workspaceRoot: string) => Promise<string | undefined>
+): Promise<string | undefined> {
+  if (resolver) return resolver(workspaceRoot);
+
+  try {
+    const { readFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    const pkg = JSON.parse(await readFile(join(workspaceRoot, 'package.json'), 'utf8')) as {
+      name?: string;
+    };
+    return pkg.name;
+  } catch {
+    return undefined;
+  }
+}
+
+async function getNextMessage(
+  ctx: ChatCtx,
+  options: ChatOptions,
+  currentMessage: string | null | undefined,
+  signal: AbortSignal
+): Promise<string | null | undefined> {
+  if (!options.oneShot && !currentMessage?.trim()) {
+    currentMessage = await promptForMessage(ctx, signal);
+  }
+
+  if (!currentMessage?.trim()) return undefined;
+
+  const trimmed = currentMessage.toLowerCase();
+  if (['exit', '/exit', 'quit', '/quit', 'q', '/q'].includes(trimmed)) {
+    return null;
+  }
+
+  return currentMessage;
+}
+
+function buildTurnPayload(
+  ctx: Pick<ChatCtx, 'eventState' | 'sessionId'>,
+  requestPayload: Record<string, unknown> | undefined,
+  agentId: string | undefined,
+  options: ChatOptions,
+  message: string
+): Record<string, unknown> {
+  if (requestPayload) {
+    const { __slashSuggestions: _slashSuggestions, ...servicePayload } = requestPayload;
+    return {
+      ...servicePayload,
+      agentId: ctx.eventState.currentAgentId ?? servicePayload['agentId'],
+      sessionId: ctx.sessionId ?? servicePayload['sessionId'],
+      message,
+    };
+  }
+  return {
+    agentId: ctx.eventState.currentAgentId ?? agentId,
+    message,
+    sessionId: ctx.sessionId ?? options.sessionId,
+    createNewSession: options.createNewSession,
+  };
 }

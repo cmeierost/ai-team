@@ -115,7 +115,7 @@ describe('ChatStartupCommand', () => {
     expect(response).toEqual({ status: 'ok', data: '', message: 'completed' });
   });
 
-  it('returns ok no-op when employeeId is omitted', async () => {
+  it('returns an explicit error when no startup target can be resolved', async () => {
     const command = new ChatStartupCommand(
       { execute: vi.fn() } as any,
       { execute: vi.fn() } as any,
@@ -150,6 +150,9 @@ describe('ChatStartupCommand', () => {
       { history: [] } as any
     );
 
-    expect(response).toEqual({ status: 'ok', data: '', message: 'completed' });
+    expect(response).toEqual({
+      status: 'error',
+      message: 'Unable to resolve a chat agent or resumable session',
+    });
   });
 });

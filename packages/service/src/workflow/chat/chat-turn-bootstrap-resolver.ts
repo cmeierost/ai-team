@@ -175,11 +175,14 @@ export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
     const latestResumeSession = await this.sessionManager.resolveLatestSessionForResume(
       input.developerId
     );
-    if (!latestResumeSession?.agentId) {
-      return null;
+    if (latestResumeSession?.agentId) {
+      return (await this.agentManager.getAgentAsync(latestResumeSession.agentId)) ?? null;
     }
 
-    return (await this.agentManager.getAgentAsync(latestResumeSession.agentId)) ?? null;
+    // A bare first turn has no session cursor. Use the top-level CEO as the
+    // default root agent; session creation happens below once it is resolved.
+    const ceos = await this.agentManager.getAgentsByRoleAsync('ceo');
+    return ceos[0] ?? null;
   }
 
   private async resolveSessionForTurnAsync(

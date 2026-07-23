@@ -3,7 +3,6 @@ import type { ITerminal } from '@ai-team/core';
 import { Loader, TUI } from '@ai-team/tui';
 import { ChatLayout } from './chat-layout.js';
 import { ChatView } from './chat-view.js';
-import { HeaderBar } from './header-bar.js';
 import { Prompt } from './prompt.js';
 import { TuiQuestionPresenter } from './question-composer.js';
 import { StatusLine } from './status-line.js';
@@ -26,7 +25,6 @@ function harness() {
   const base = new Prompt('> ', () => {});
   const layout = new ChatLayout(
     terminal,
-    new HeaderBar(),
     new ChatView(),
     new Loader(),
     base,

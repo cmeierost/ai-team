@@ -17,7 +17,7 @@ tags:
   - terminal
   - testing
 createdAt: 2026-07-23T11:46:32.6615697+02:00
-updatedAt: 2026-07-23T19:47:56.5852981+02:00
+updatedAt: 2026-07-23T20:25:47.0000000+02:00
 ---
 
 ## Goal
@@ -59,7 +59,7 @@ information to the Web client; it must not diverge into a separate runtime.
 ## Action Items
 
 - [x] Establish the baseline: both TUI and CLI compile, the TUI has no tests, and the CLI has six reproducible test failures.
-- [x] Confirm that the production CLI still imports the legacy `handlers/chat.ts`; the new `handlers/chat-new.ts` is not wired into the `chat` command.
+- [x] Remove the obsolete non-TUI chat implementation and promote the TUI chat handler to `handlers/chat.ts`.
 - [x] Identify an incorrect prompt cursor offset and leaking signal handlers in the new chat orchestrator.
 - [x] Move the new cross-package TUI/terminal contracts into `packages/core` without adding runtime implementation there.
 - [x] Add a fake-terminal regression harness for rendering, request coalescing, resize, focus, and cursor placement.

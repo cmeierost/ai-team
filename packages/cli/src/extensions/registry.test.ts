@@ -83,4 +83,35 @@ describe('ExtensionRegistry tool renderers', () => {
     expect(rendered).toContain('••••••••');
     expect(rendered).not.toContain('secret');
   });
+
+  it('renders fs_tree as a standalone sorted access-aware tree', () => {
+    const registry = new ExtensionRegistry();
+    expect(registry.renderTool({
+      toolName: 'fs_tree', phase: 'start', historical: false, output: undefined,
+    }).placements).toEqual([]);
+
+    const decision = registry.renderTool({
+      toolName: 'fs_tree',
+      phase: 'result',
+      historical: false,
+      output: {
+        path: '.',
+        denied: 2,
+        tree: {
+          name: '.', isDirectory: true,
+          children: [
+            { name: 'README.md', isDirectory: false, rights: { r: true } },
+            { name: 'src', isDirectory: true, rights: { r: true, w: true, l: true }, children: [
+              { name: 'index.ts', isDirectory: false },
+            ] },
+          ],
+        },
+      },
+    });
+    const rendered = decision.placements[0]?.component.render(80).join('\n') ?? '';
+    expect(rendered).toContain('src/');
+    expect(rendered.indexOf('src/')).toBeLessThan(rendered.indexOf('README.md'));
+    expect(rendered).toContain('[rwl]');
+    expect(rendered).toContain('2 items hidden — access restricted');
+  });
 });

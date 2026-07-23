@@ -16,6 +16,7 @@ function createResolver() {
   const agentManager = {
     getAgentAsync: vi.fn(async (id: string) => agents.get(id)),
     resolveAgentForOperationAsync: vi.fn(async (id: string) => ({ id })),
+    getAgentsByRoleAsync: vi.fn(async () => [MICHAEL]),
   } as any;
   const sessionManager = {
     getSession: vi.fn(async (id: string) => sessions.get(id) ?? null),
@@ -55,6 +56,7 @@ function createResolver() {
       threadManager
     ),
     threadManager,
+    sessionManager,
   };
 }
 
@@ -87,5 +89,16 @@ describe('ChatTurnBootstrapResolver thread resume', () => {
       agent: { id: 'emily' },
       sessionId: 'session-emily',
     });
+  });
+
+  it('uses the CEO when bare chat has no resumable session', async () => {
+    const { resolver, threadManager, sessionManager } = createResolver();
+    threadManager.resolveLatestActiveSession.mockResolvedValueOnce(null);
+    sessionManager.resolveLatestSessionForResume.mockResolvedValueOnce(null);
+    sessionManager.createSession.mockResolvedValueOnce({ id: 'session-ceo', agentId: 'michael' });
+    const ctx: any = { history: [] };
+    const result = await resolver.resolveAsync({}, ctx);
+
+    expect(result).toMatchObject({ ok: true, agent: { id: 'michael' } });
   });
 });

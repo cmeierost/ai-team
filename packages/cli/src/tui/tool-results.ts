@@ -1,4 +1,4 @@
-import { Markdown, type Component } from '@ai-team/tui';
+import { Markdown, truncateToWidth, type Component } from '@ai-team/tui';
 
 export class SlashCommandResult implements Component {
   _parent: import('@ai-team/tui').Container | null = null;
@@ -54,6 +54,89 @@ export class AskResult implements Component {
   remove(): void {
     this._parent?.removeChild(this);
   }
+}
+
+/** Compact, scrollable rendering of the access-aware fs_tree result. */
+export class FileTreeResult implements Component {
+  _parent: import('@ai-team/tui').Container | null = null;
+
+  constructor(private readonly value: unknown) {}
+
+  render(width: number): string[] {
+    const payload = asRecord(this.value);
+    const tree = asRecord(payload?.['tree']);
+    const path = readString(payload?.['path']) ?? '.';
+    if (!tree) {
+      return [truncateToWidth(`\x1b[2m${path}: (empty or not accessible)\x1b[0m`, width)];
+    }
+
+    const lines: string[] = [];
+    const state = { count: 0 };
+    renderTreeNode(tree, '', true, 0, lines, state, width);
+    const denied = typeof payload?.['denied'] === 'number' ? payload['denied'] : 0;
+    if (denied > 0) {
+      lines.push(truncateToWidth(
+        `\x1b[33m(${denied} ${denied === 1 ? 'item' : 'items'} hidden — access restricted)\x1b[0m`,
+        width
+      ));
+    }
+    return lines;
+  }
+
+  invalidate(): void {}
+
+  remove(): void {
+    this._parent?.removeChild(this);
+  }
+}
+
+const TREE_MAX_DEPTH = 4;
+const TREE_MAX_ITEMS = 60;
+
+function renderTreeNode(
+  node: Record<string, unknown>,
+  prefix: string,
+  isLast: boolean,
+  depth: number,
+  lines: string[],
+  state: { count: number },
+  width: number
+): void {
+  if (state.count++ >= TREE_MAX_ITEMS) return;
+  const name = readString(node['name']) ?? readString(node['path']) ?? '?';
+  const directory = node['isDirectory'] === true || Array.isArray(node['children']);
+  const label = `${directory ? '\x1b[1m' : ''}${name}${directory ? '/' : ''}${directory ? '\x1b[0m' : ''}`;
+  const rights = formatRights(node['rights']);
+  const connector = depth === 0 ? '' : `${prefix}${isLast ? '└── ' : '├── '}`;
+  const connectorStyle = depth === 0 ? '' : '\x1b[90m';
+  const connectorEnd = depth === 0 ? '' : '\x1b[0m';
+  lines.push(truncateToWidth(`${connectorStyle}${connector}${connectorEnd}${label}${rights}`, width));
+
+  if (!directory || depth + 1 >= TREE_MAX_DEPTH) return;
+  const children = Array.isArray(node['children'])
+    ? node['children'].map(asRecord).filter((child): child is Record<string, unknown> => !!child)
+    : [];
+  children.sort((a, b) => {
+    const aDir = a['isDirectory'] === true || Array.isArray(a['children']);
+    const bDir = b['isDirectory'] === true || Array.isArray(b['children']);
+    if (aDir !== bDir) return aDir ? -1 : 1;
+    return (readString(a['name']) ?? '').localeCompare(readString(b['name']) ?? '');
+  });
+  const childPrefix = depth === 0 ? '' : `${prefix}${isLast ? '    ' : '│   '}`;
+  for (let index = 0; index < children.length; index++) {
+    if (state.count >= TREE_MAX_ITEMS) {
+      lines.push(truncateToWidth(`${childPrefix}\x1b[2m… more\x1b[0m`, width));
+      break;
+    }
+    renderTreeNode(children[index], childPrefix, index === children.length - 1, depth + 1, lines, state, width);
+  }
+}
+
+function formatRights(value: unknown): string {
+  const rights = asRecord(value);
+  if (!rights) return '';
+  const flags = `${rights['r'] === true ? 'r' : '-'}${rights['w'] === true ? 'w' : '-'}${rights['l'] === true ? 'l' : '-'}`;
+  return ` \x1b[2m[${flags}]\x1b[0m`;
 }
 
 function unwrapAskResult(value: unknown): Record<string, unknown> | undefined {

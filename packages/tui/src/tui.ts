@@ -274,8 +274,13 @@ export class TUI extends Container {
   }
 
   private handleInput(data: string): void {
-    // Filter out mouse escape sequences (\x1b[<...M or \x1b[M...)
+    // Let the focused component consume mouse-wheel sequences (chat uses them
+    // for transcript scrolling); other mouse events remain ignored.
     if (this.isMouseSequence(data)) {
+      if (this.isMouseWheelSequence(data) && this.focusedComponent?.handleInput) {
+        this.focusedComponent.handleInput(data);
+        this.requestRender();
+      }
       return;
     }
 
@@ -300,5 +305,9 @@ export class TUI extends Container {
       return true;
     }
     return false;
+  }
+
+  private isMouseWheelSequence(data: string): boolean {
+    return /^\x1b\[<6[45];\d+;\d+[mM]$/.test(data);
   }
 }

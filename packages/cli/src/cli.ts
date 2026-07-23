@@ -26,7 +26,7 @@ import { registerCliResultHandlers } from './handlers/result-renderers.js';
 import { createConsoleEmitService } from './emit/console-emit-service.js';
 import type { ChatOptions } from '@ai-team/api-contracts';
 import { CONTRACT_SERVICE_TOKENS } from '@ai-team/api-contracts';
-import { renderChat } from './handlers/chat-new.js';
+import { renderChat } from './handlers/chat.js';
 import { launchServer, launchServerWithUi } from './handlers/serve.js';
 import { launchUi } from './handlers/ui.js';
 import { resolveChatInvocationTarget } from './chat-invocation-target.js';
@@ -422,7 +422,7 @@ class CliApplication {
         this.deps.commandClient,
         resolvedAgentId,
         chatOptions,
-        opts.mediatorLog === true,
+        false,
         undefined,
         'chat-chat',
         {
