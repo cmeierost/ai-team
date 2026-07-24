@@ -61,11 +61,10 @@ describe('ToolManager wildcard selectors and default-deny policy', () => {
     const manager = makeManager(makeTool('tree', 'fs'));
 
     const agent = makeAgent({ tools: [] });
-    expect(manager.getForAgent(agent)).toEqual([]);
+    expect(manager.getForAgent(agent).map((cmd) => ToolIdentity.key(cmd.metadata))).toEqual(['fs_tree']);
 
     const permission = await manager.canExecute(agent, 'fs_tree', {});
-    expect(permission.allowed).toBe(false);
-    expect(permission.reason).toContain('not available');
+    expect(permission.allowed).toBe(true);
   });
 
   it('supports wildcard allow selectors like fs_*', () => {
@@ -90,7 +89,7 @@ describe('ToolManager wildcard selectors and default-deny policy', () => {
     const agent = makeAgent({ tools: ['tree'] });
     const available = manager.getForAgent(agent).map((cmd) => ToolIdentity.key(cmd.metadata));
 
-    expect(available).toEqual([]);
+    expect(available.sort()).toEqual(['fs_read', 'fs_tree']);
   });
 
   it('applies disallowed selectors before allowed selectors', () => {

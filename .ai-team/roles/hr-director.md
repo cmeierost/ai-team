@@ -14,8 +14,8 @@ responsibilities:
   - Manage file-access permissions for all agents
   - Define and enforce the reporting hierarchy (reportsTo, delegatesTo)
 tools:
-  - read_file
-  - file_search
+  - fs_read
+  - fs_search
   - write_file
   - apply_code_edit
   - create_agent
@@ -99,9 +99,9 @@ features:
 specializations:
   - domain-expertise
 tools:
-  - read_file
-  - write_file
-  - file_search
+  - fs_read
+  - fs_search
+  - fs_write
 permissions:
   read:
     - "src/some-feature/**/*"
@@ -128,13 +128,13 @@ Assign tools to agents based on their responsibilities:
 
 **File Operations:**
 
-- `read_file`, `file_search` — Essential for all agents
+- `fs_read`, `fs_search` — Essential for all agents
 - `write_file` — For creating new files
 - `apply_code_edit` — For editing existing files with diffs (preferred for changes)
 
 **Search & Analysis:**
 
-- `semantic_search`, `grep_code`, `get_errors` — Code investigation
+- `fs_search`, `get_errors` — Code investigation
 - `find_symbol`, `find_references`, `find_pattern`, `analyze_complexity` — Advanced analysis
 
 **Agent Management (require `manage_agents: true`):**

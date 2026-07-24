@@ -25,7 +25,8 @@ tools:
   - com_ask
   - com_handoff
   - http_fetch
-  - search_*
+  - fs_read
+  - fs_search
   - vscode-websearchforcopilot_webSearch
   - aitk-get_ai_model_guidance
 availableFor:

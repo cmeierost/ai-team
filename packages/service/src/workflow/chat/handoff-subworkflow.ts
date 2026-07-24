@@ -12,11 +12,16 @@ import type {
 import type { AgentRuntimeIdentityResolver } from '../../commands/chat/agent-runtime-identity.js';
 import { LlmStreamDeltaExtractor, type LlmStreamChunk } from '../../llm/stream-events.js';
 
+const HANDOFF_BRIEFING_MAX_TOKENS = 1600;
+const FALLBACK_STREAM_CHUNK_CHARACTERS = 64;
+
 export interface HandoffSubWorkflowInput {
   ctx: ExecutionContext;
   targetAgentQuery: string;
   handoffNote?: string;
   navigationIntent?: 'handoff' | 'back';
+  sourceToolCallId?: string;
+  sourceSessionId?: string;
 }
 
 export interface HandoffSubWorkflowResult {
@@ -43,7 +48,7 @@ export class HandoffSubWorkflow {
   ) {}
 
   async executeAsync(input: HandoffSubWorkflowInput): Promise<HandoffSubWorkflowResult> {
-    const { ctx, targetAgentQuery, handoffNote, navigationIntent = 'handoff' } = input;
+    const { ctx, targetAgentQuery, handoffNote, navigationIntent = 'handoff', sourceToolCallId, sourceSessionId } = input;
 
     if (!ctx.agent?.id || !ctx.sessionId) {
       throw new Error('Handoff requires an active agent and session context.');
@@ -154,6 +159,8 @@ export class HandoffSubWorkflow {
         agentId: fromAgent.id,
         agentName: fromAgent.name,
         sessionId: fromSessionId,
+        ...(sourceToolCallId ? { handoffToolCallId: sourceToolCallId } : {}),
+        ...(sourceSessionId ? { handoffSourceSessionId: sourceSessionId } : {}),
       };
       threadState =
         navigationIntent === 'back'
@@ -255,27 +262,41 @@ export class HandoffSubWorkflow {
     isReturn: boolean,
     onDelta: (delta: string) => void
   ): Promise<string> {
+    let fromSessionHistory = ctx.history;
     try {
-      const fromSessionHistory =
+      fromSessionHistory =
         ctx.history.length > 0
           ? ctx.history
           : await this.sessionManager.getSessionMessages(ctx.sessionId ?? '');
 
-      const recentHistory = fromSessionHistory.slice(-12);
+      // A long delegated conversation can push the incoming briefing out of the
+      // recent window. Keep it so a return summary still answers the original
+      // handoff rather than only recapping its final few messages.
+      const recentHistory = this.selectBriefingHistory(fromSessionHistory);
       const historyText = recentHistory
         .map((m) => `${m.isHuman ? developerName : m.from}: ${m.content}`)
         .join('\n');
 
       const agentTitle = fromAgent.role ? `${fromAgent.name} (${fromAgent.role})` : fromAgent.name;
       const briefingInstructions = isReturn
-        ? `Write 2-10 sentences in first person as ${fromAgent.name}. Summarise the work completed, ` +
-          `important discoveries, decisions made, unresolved questions, and the recommended next action ` +
-          `for ${toAgent.name}. Include only information needed to continue; do not copy the full private ` +
-          `conversation. Do not add a subject line or greeting.`
+        ? `Write 2-10 sentences in first person as ${fromAgent.name}. This is a return briefing for ` +
+          `${toAgent.name}${toAgent.role ? ` (${toAgent.role})` : ''}; it must stand alone as the ` +
+          `useful response to the handoff they originally made. Answer the original incoming handoff ` +
+          `and every question or request that led to it using the conclusions in the later conversation. ` +
+          `Do not mention /return, navigation, returning, or ask the recipient what was discovered. ` +
+          `Lead with the outcome, then cover the ` +
+          `decisions made, important discoveries, unresolved questions or risks, ownership, and the recommended ` +
+          `next action for ${toAgent.name}. Tailor the detail to ${toAgent.name}'s responsibilities: ` +
+          `${this.buildRecipientFocus(toAgent)} Include only information needed to continue; do not copy ` +
+          `the full private conversation. Do not add a subject line or greeting.`
         : `Write 2-10 sentences in first person as ${fromAgent.name}: summarise what you and ` +
-          `${developerName} discussed, what ${developerName}'s goal is, and why you are ` +
-          `forwarding them to ${toAgent.name}. ` +
-          `Do not repeat the request word-for-word. Do not add a subject line or greeting.`;
+          `${developerName} discussed and why you are forwarding them to ${toAgent.name}. Make ` +
+          `the developer's objective, the receiving agent's responsibility, what the receiving ` +
+          `agent should do first, relevant decisions or constraints, and any requested return or ` +
+          `follow-up path explicit. Tell ${toAgent.name} that they must continue the conversation ` +
+          `with the developer, not reply to you. Address ${toAgent.name} as "you" when assigning ` +
+          `the next step. Do not invent missing decisions or a return path, repeat the request ` +
+          `word-for-word, or add a subject line or greeting.`;
 
       const stream = await this.llmService.streamChat(
         fromAgent,
@@ -285,12 +306,14 @@ export class HandoffSubWorkflow {
             content:
               `You are ${agentTitle}. ` +
               `Write a handoff briefing for ${toAgent.name}.\n` +
-              (triggerMessage ? `${developerName} said: "${triggerMessage}"\n\n` : '') +
+              (!isReturn && triggerMessage
+                ? `${developerName} said: "${triggerMessage}"\n\n`
+                : '') +
               (historyText ? `Recent conversation:\n${historyText}\n\n` : '') +
               briefingInstructions,
           },
         ],
-        { maxTokens: 250 }
+        { maxTokens: HANDOFF_BRIEFING_MAX_TOKENS }
       );
 
       let reply = '';
@@ -301,9 +324,106 @@ export class HandoffSubWorkflow {
         onDelta(delta);
       }
 
-      return reply.trim() || triggerMessage || `Handoff from ${fromAgent.name} to ${toAgent.name}.`;
+      if (reply.trim()) {
+        return reply;
+      }
+      return await this.streamFallbackBriefing(
+        fromSessionHistory,
+        fromAgent,
+        triggerMessage,
+        isReturn,
+        onDelta
+      );
     } catch {
-      return triggerMessage || `Handoff from ${fromAgent.name} to ${toAgent.name}.`;
+      return await this.streamFallbackBriefing(
+        fromSessionHistory,
+        fromAgent,
+        triggerMessage,
+        isReturn,
+        onDelta
+      );
     }
+  }
+
+  private async streamFallbackBriefing(
+    history: ChatMessage[],
+    fromAgent: Agent,
+    triggerMessage: string,
+    isReturn: boolean,
+    onDelta: (delta: string) => void
+  ): Promise<string> {
+    const fallback = this.buildFallbackBriefing(history, fromAgent, triggerMessage, isReturn);
+    const characters = Array.from(fallback);
+
+    for (let offset = 0; offset < characters.length; offset += FALLBACK_STREAM_CHUNK_CHARACTERS) {
+      onDelta(characters.slice(offset, offset + FALLBACK_STREAM_CHUNK_CHARACTERS).join(''));
+      // Let InteractionStream dequeue and transport each fallback chunk before
+      // the handoff completes. Without this yield, the TUI sees only the final
+      // briefing event when a provider emits reasoning but no visible content.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+
+    return fallback;
+  }
+
+  private buildFallbackBriefing(
+    history: ChatMessage[],
+    fromAgent: Agent,
+    triggerMessage: string,
+    isReturn: boolean
+  ): string {
+    if (isReturn) {
+      const latestSubstantiveAnswer = [...history]
+        .reverse()
+        .find(
+          (message) =>
+            !message.isHuman &&
+            message.from === fromAgent.id &&
+            !message.handoffType &&
+            !message.archived &&
+            !message.hiddenFromLlm &&
+            message.content.trim().length > 0
+        );
+      if (latestSubstantiveAnswer) {
+        return latestSubstantiveAnswer.content.trim();
+      }
+
+      const originalBriefing = history.find(
+        (message) =>
+          message.handoffType === 'agent-briefing' && message.content.trim().length > 0
+      );
+      if (originalBriefing) {
+        return (
+          `I do not have a substantive result to return yet. ` +
+          `The original request was: ${originalBriefing.content.trim()}`
+        );
+      }
+    }
+
+    return triggerMessage || `Handoff from ${fromAgent.name} to the receiving agent.`;
+  }
+
+  private selectBriefingHistory(history: ChatMessage[]): ChatMessage[] {
+    const recent = history.slice(-12);
+    const incomingBriefing = [...history]
+      .reverse()
+      .find((message) => message.handoffType === 'agent-briefing');
+
+    return incomingBriefing && !recent.includes(incomingBriefing)
+      ? [incomingBriefing, ...recent]
+      : recent;
+  }
+
+  private buildRecipientFocus(agent: Agent): string {
+    const role = agent.role.toLowerCase();
+    const isExecutive =
+      agent.type === 'executive' ||
+      ['ceo', 'cto', 'vp', 'director', 'executive'].some((term) => role.includes(term));
+
+    if (isExecutive) {
+      return 'For this executive recipient, focus on the goal, outcome, decisions, business impact, risks, ownership, and any decision or support needed. Omit implementation mechanics, code details, and routine troubleshooting unless they materially affect one of those points.';
+    }
+
+    return 'Include the decisions, constraints, ownership, and technical or domain detail needed for this recipient to continue their own work; omit details outside their responsibility.';
   }
 }

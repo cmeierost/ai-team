@@ -29,7 +29,8 @@ tools:
   - access_analyze_permission_overlap
   - fs_who_should
   - http_fetch
-  - search_*
+  - fs_read
+  - fs_search
   - mcp_microsoft_mar_convert_to_markdown
   - vscode-websearchforcopilot_webSearch
 availableFor:

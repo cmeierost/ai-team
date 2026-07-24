@@ -46,6 +46,8 @@ export interface HandoffRequest {
     add?: string[];
     remove?: string[];
   };
+  sourceToolCallId?: string;
+  sourceSessionId?: string;
   timestamp: string;
 }
 

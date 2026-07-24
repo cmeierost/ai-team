@@ -1,4 +1,4 @@
-import type { Agent, ChatMessage, IEmitService } from '@ai-team/core';
+import type { Agent, ChatMessage, IEmitService, RuntimeStreamEvent } from '@ai-team/core';
 import type { ChatThreadTranscriptEntry } from './chat-thread-transcript.js';
 import { isHandoffAutoReactMessage } from '../../workflow/chat/handoff-auto-react.js';
 
@@ -33,7 +33,6 @@ export class ChatInfoService implements IChatInfoService {
   }): void {
     const { agent, developerName, workflowMode, workflowExitWords } = args;
 
-    this.emitService.log('info', `\nChat with ${agent.name} (${agent.role})`);
     this.emitService.emit({
       kind: 'agent_info',
       agentId: agent.id,
@@ -42,11 +41,8 @@ export class ChatInfoService implements IChatInfoService {
       developerName: developerName ?? undefined,
       llmModel: agent.resolvedLlm?.model,
       avatarColor: agent.avatar?.color,
+      message: 'exit · /help · /handoff <name>',
     });
-
-    this.emitService.log('info', 'Type "exit" to end the conversation');
-    this.emitService.log('info', 'Type "/help" to see available in-chat commands');
-    this.emitService.log('info', 'Ask to be forwarded or type "/handoff <name>" to switch agents');
 
     if (workflowMode && (workflowExitWords?.length ?? 0) > 0) {
       const exitWords = workflowExitWords?.filter(Boolean).join(', ');
@@ -93,9 +89,14 @@ export class ChatInfoService implements IChatInfoService {
     );
     if (visible.length === 0) return;
 
+    const timeline: HistoricalTimelineEntry[] = [];
+    let order = 0;
     for (const msg of visible) {
       if (msg.content.trim().length > 0 || !msg.tool_calls?.length) {
-        this.emitService.emit({
+        timeline.push({
+          at: msg.timestamp ?? '',
+          order: order++,
+          event: {
           kind: 'history_message',
           historical: true,
           content: msg.content,
@@ -106,16 +107,26 @@ export class ChatInfoService implements IChatInfoService {
           agentRole: agent.role,
           llmModel: agent.resolvedLlm?.model,
           avatarColor: agent.avatar?.color,
+          },
         });
       }
-      this.emitHistoricalTools(msg);
+      for (const event of this.buildHistoricalToolEvents(msg)) {
+        timeline.push({
+          at: String(event.timestamp ?? msg.timestamp ?? ''),
+          order: order++,
+          event,
+        });
+      }
     }
+    this.emitTimeline(timeline);
   }
 
   showThreadResume(
     entries: ChatThreadTranscriptEntry[],
     developerName: string | undefined
   ): void {
+    const timeline: HistoricalTimelineEntry[] = [];
+    let order = 0;
     for (const entry of entries) {
       const message = entry.message;
       if (
@@ -129,48 +140,79 @@ export class ChatInfoService implements IChatInfoService {
       if (entry.kind === 'handoff') {
         const fromAgent = entry.fromAgent;
         const toAgent = entry.toAgent;
-        this.emitService.emit({
-          kind: 'handoff',
-          historical: true,
-          fromAgentId: fromAgent?.id ?? message.from,
-          fromAgentName: fromAgent?.name ?? message.from,
-          fromAgentRole: fromAgent?.role,
-          fromAvatarColor: fromAgent?.avatar?.color,
-          fromLlmModel: fromAgent?.resolvedLlm?.model,
-          fromSessionId: message.handoffFromSessionId,
-          handoffId: message.handoffId,
-          toAgentId: toAgent?.id ?? message.to ?? message.targetAgentId ?? 'unknown',
-          toAgentName: toAgent?.name ?? message.to ?? message.targetAgentId ?? 'Agent',
-          toAgentRole: toAgent?.role,
-          toAvatarColor: toAgent?.avatar?.color,
-          toLlmModel: toAgent?.resolvedLlm?.model,
-          toSessionId: message.handoffToSessionId,
-          briefingContent: message.content,
+        timeline.push({
+          at: message.timestamp ?? '',
+          order: order++,
+          event: {
+            kind: 'handoff',
+            historical: true,
+            fromAgentId: fromAgent?.id ?? message.from,
+            fromAgentName: fromAgent?.name ?? message.from,
+            fromAgentRole: fromAgent?.role,
+            fromAvatarColor: fromAgent?.avatar?.color,
+            fromLlmModel: fromAgent?.resolvedLlm?.model,
+            fromSessionId: message.handoffFromSessionId,
+            handoffId: message.handoffId,
+            toAgentId: toAgent?.id ?? message.to ?? message.targetAgentId ?? 'unknown',
+            toAgentName: toAgent?.name ?? message.to ?? message.targetAgentId ?? 'Agent',
+            toAgentRole: toAgent?.role,
+            toAvatarColor: toAgent?.avatar?.color,
+            toLlmModel: toAgent?.resolvedLlm?.model,
+            toSessionId: message.handoffToSessionId,
+            briefingContent: message.content,
+          },
         });
         continue;
       }
 
       const agent = entry.agent;
       if (message.content.trim().length > 0 || !message.tool_calls?.length) {
-        this.emitService.emit({
-          kind: 'history_message',
-          historical: true,
-          content: message.content,
-          isHuman: message.isHuman === true,
-          developerName,
-          agentId: agent?.id,
-          agentName: agent?.name,
-          agentRole: agent?.role,
-          llmModel: agent?.resolvedLlm?.model,
-          avatarColor: agent?.avatar?.color,
+        timeline.push({
+          at: message.timestamp ?? '',
+          order: order++,
+          event: {
+            kind: 'history_message',
+            historical: true,
+            content: message.content,
+            isHuman: message.isHuman === true,
+            developerName,
+            agentId: agent?.id,
+            agentName: agent?.name,
+            agentRole: agent?.role,
+            llmModel: agent?.resolvedLlm?.model,
+            avatarColor: agent?.avatar?.color,
+          },
         });
       }
-      this.emitHistoricalTools(message);
+      for (const event of this.buildHistoricalToolEvents(message)) {
+        timeline.push({
+          at: String(event.timestamp ?? message.timestamp ?? ''),
+          order: order++,
+          event,
+        });
+      }
     }
+    this.emitTimeline(timeline);
   }
 
-  private emitHistoricalTools(message: ChatMessage): void {
+  private buildHistoricalToolEvents(message: ChatMessage): RuntimeStreamEvent[] {
+    const events: RuntimeStreamEvent[] = [];
     for (const call of message.tool_calls ?? []) {
+      const toolCallId = call.callId ?? (call.id === undefined ? undefined : String(call.id));
+      events.push({
+        kind: 'tool',
+        historical: true,
+        toolName: call.tool,
+        toolCallId,
+        toolPhase: 'request',
+        input: call.params,
+        timestamp: call.requestedAt ?? message.timestamp,
+      });
+
+      if (call.result === undefined && call.resultLlm === undefined) {
+        continue;
+      }
+
       const resultStatus =
         call.result
         && typeof call.result === 'object'
@@ -182,15 +224,28 @@ export class ChatInfoService implements IChatInfoService {
         ? (call.resultLlm ?? call.result)
         : (call.result ?? call.resultLlm);
 
-      this.emitService.emit({
+      events.push({
         kind: 'tool',
         historical: true,
         toolName: call.tool,
-        toolCallId: call.id === undefined ? undefined : String(call.id),
-        toolPhase,
-        input: call.params,
+        toolCallId,
+        toolPhase: call.resultPhase ?? toolPhase,
         output,
+        timestamp: call.completedAt ?? message.timestamp,
       });
     }
+    return events;
   }
+
+  private emitTimeline(timeline: HistoricalTimelineEntry[]): void {
+    timeline
+      .sort((left, right) => left.at.localeCompare(right.at) || left.order - right.order)
+      .forEach(({ event }) => this.emitService.emit(event));
+  }
+}
+
+interface HistoricalTimelineEntry {
+  at: string;
+  order: number;
+  event: RuntimeStreamEvent;
 }

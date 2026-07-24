@@ -294,7 +294,8 @@ function stopSpinner(ctx: ChatCtx): void {
 }
 
 function handleStatusEvent(ctx: ChatCtx, event: unknown): void {
-  const phase = (event as any).phase ?? '';
+  const payload = event as { phase?: unknown; message?: unknown };
+  const phase = payload.phase ?? '';
   if (phase === 'thinking' && !ctx.spinnerActive) {
     ctx.spinner.setMessage(formatThinkingMessage(ctx.eventState.currentAgent));
     setSpinner(ctx, true);
@@ -302,11 +303,23 @@ function handleStatusEvent(ctx: ChatCtx, event: unknown): void {
     ctx.spinner.start(() => ctx.tui.invalidate());
   } else if (phase === 'complete') {
     stopSpinner(ctx);
+  } else if (phase === 'error') {
+    stopSpinner(ctx);
+    const message =
+      typeof payload.message === 'string' && payload.message.trim()
+        ? payload.message
+        : 'The chat request failed.';
+    applyProjection(
+      ctx,
+      ctx.eventRegistry.handle({ kind: 'error', message } as any, ctx.eventState, ctx.extensionRegistry),
+      event
+    );
   }
 }
 
 function handleAgentInfoEvent(ctx: ChatCtx, event: unknown): void {
-  ctx.eventRegistry.handle(event as any, ctx.eventState, ctx.extensionRegistry);
+  const projection = ctx.eventRegistry.handle(event as any, ctx.eventState, ctx.extensionRegistry);
+  if (projection) applyProjection(ctx, projection, event);
   if (ctx.eventState.currentAgent) {
     if (ctx.spinnerActive) {
       ctx.spinner.setMessage(formatThinkingMessage(ctx.eventState.currentAgent));
@@ -384,7 +397,8 @@ async function streamTurn(
     if ((event as any).kind === 'error') {
       const msg = (event as any).message ?? '';
       if (isAbortLikeError(msg)) return false;
-      throw new Error(msg);
+      handleStreamEvent(ctx, event);
+      return false;
     }
 
     if (!handleStreamEvent(ctx, event)) {
@@ -487,6 +501,7 @@ export async function renderChat(
 
       const userMessage = new UserMessage(message, ctx.eventState.developerName);
       ctx.eventState.currentUserMessage = userMessage;
+      ctx.eventState.lastErrorMessage = undefined;
       addToChatView(ctx, userMessage);
       ctx.chatView.addSpacer();
       ctx.tui.invalidate();

@@ -47,6 +47,7 @@ export interface ToolRuntimePayloadEvent {
   commandResponse?: CommandResponse;
   resultLlm?: unknown;
   denial?: ToolDenialEvent;
+  longRunning?: boolean;
 }
 
 export interface ChatCommandEmitter {

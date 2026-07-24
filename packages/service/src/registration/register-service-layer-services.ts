@@ -48,15 +48,13 @@ import {
   FsExistsTool,
   FsInfoTool,
   FsReadFileTool,
-  FsReadLinesTool,
   FsWriteFileTool,
   FsCreateFileTool,
   FsDeletePathTool,
   FsMkdirTool,
   FsListTool,
   FsTreeTool,
-  FsSearchContentTool,
-  FsSearchMetadataTool,
+  FsSearchTool,
 } from '../commands/fs/fs-tools.js';
 import { FileTreeService } from '../commands/fs/file-tree.js';
 import {
@@ -74,17 +72,12 @@ import { HttpCrawlCommand, HttpCrawlCommandMetadata } from '../commands/http/htt
 import { CodeSearchTool, CodeSearchToolMetadata } from '../commands/edit/codesearch-tool.js';
 import { ApplyPatchTool, MultiEditTool, FsEditTool } from '../commands/fs/edit-tools.js';
 import { FsReadFileToolMetadata } from '../commands/fs/fs-read-file.tool.js';
-import { FsReadLinesToolMetadata } from '../commands/fs/fs-read-lines.tool.js';
-import { FsWriteFileToolMetadata } from '../commands/fs/fs-write-file.tool.js';
-import { FsCreateFileToolMetadata } from '../commands/fs/fs-create-file.tool.js';
+import { FsWriteTool, FsWriteToolMetadata } from '../commands/fs/fs-write.tool.js';
 import { FsDeletePathToolMetadata } from '../commands/fs/fs-delete-path.tool.js';
 import { FsMkdirToolMetadata } from '../commands/fs/fs-mkdir.tool.js';
-import { FsExistsToolMetadata } from '../commands/fs/fs-exists.tool.js';
 import { FsInfoToolMetadata } from '../commands/fs/fs-info.tool.js';
-import { FsListToolMetadata } from '../commands/fs/fs-list.tool.js';
 import { FsTreeToolMetadata } from '../commands/fs/fs-tree.tool.js';
-import { FsSearchContentToolMetadata } from '../commands/fs/fs-search-content.tool.js';
-import { FsSearchMetadataToolMetadata } from '../commands/fs/fs-search-metadata.tool.js';
+import { FsSearchToolMetadata } from '../commands/fs/fs-search.tool.js';
 import { WhoHasAccessTool, WhoHasAccessToolMetadata } from '../commands/fs/who-has-access.tool.js';
 import {
   DoIHaveAccessTool,
@@ -94,7 +87,6 @@ import {
   AnalyzePermissionOverlapTool,
   AnalyzePermissionOverlapToolMetadata,
 } from '../commands/fs/analyze-permission-overlap.tool.js';
-import { FsEditToolMetadata } from '../commands/fs/fs-edit.tool.js';
 import { ApplyPatchToolMetadata } from '../commands/fs/apply-patch.tool.js';
 import { MultiEditToolMetadata } from '../commands/fs/multi-edit.tool.js';
 import { createOrchestrationTools } from '../commands/orchestration/orchestration-tools-bridge.js';
@@ -108,12 +100,7 @@ import {
 } from '../commands/agents/update-agent-llm.command.js';
 import { RegisterCliTool, RegisterCliToolMetadata } from '../commands/cli/register-cli.command.js';
 import { RunCliTool, RunCliToolMetadata } from '../commands/cli/run.command.js';
-import {
-  SemanticSearchTool,
-  SemanticSearchToolMetadata,
-  GetErrorsTool,
-  GetErrorsToolMetadata,
-} from '../commands/edit/search-tools.js';
+import { GetErrorsTool, GetErrorsToolMetadata } from '../commands/edit/search-tools.js';
 import { listWorkflowToolIds } from '../commands/workflow/workflow-catalog.js';
 import { getWorkflowDefinitionResolvers } from '../workflow/definition-catalog.js';
 import {
@@ -299,24 +286,6 @@ export function registerServiceLayerServices(
         )
     );
     registry.register(
-      FsReadLinesToolMetadata,
-      (r) =>
-        new FsReadLinesTool(
-          new FsReadFileTool(
-            r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
-            r.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory)
-          )
-        )
-    );
-    registry.register(
-      FsWriteFileToolMetadata,
-      () => new FsWriteFileTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
-    );
-    registry.register(
-      FsCreateFileToolMetadata,
-      () => new FsCreateFileTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
-    );
-    registry.register(
       FsDeletePathToolMetadata,
       () => new FsDeletePathTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
     );
@@ -325,36 +294,31 @@ export function registerServiceLayerServices(
       () => new FsMkdirTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
     );
     registry.register(
-      FsExistsToolMetadata,
-      () => new FsExistsTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
-    );
-    registry.register(
       FsInfoToolMetadata,
       () => new FsInfoTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
-    );
-    registry.register(
-      FsListToolMetadata,
-      () => new FsListTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
     );
     registry.register(
       FsTreeToolMetadata,
       () => new FsTreeTool(_c.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory))
     );
     registry.register(
-      FsSearchContentToolMetadata,
+      FsSearchToolMetadata,
       (r) =>
-        new FsSearchContentTool(
+        new FsSearchTool(
           r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
-          r.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory)
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory),
+          r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+          r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker)
         )
     );
     registry.register(
-      FsSearchMetadataToolMetadata,
-      (r) =>
-        new FsSearchMetadataTool(
-          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
-          r.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory)
-        )
+      FsWriteToolMetadata,
+      (r) => new FsWriteTool(
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+        r.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory),
+        r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker),
+        r.resolve(CORE_SERVICE_TOKENS.IdeAdapterFactory)
+      )
     );
     // File system access tools
     registry.register(
@@ -414,15 +378,6 @@ export function registerServiceLayerServices(
     // Additional editing tools
     registry.register(CodeSearchToolMetadata, () => new CodeSearchTool());
     registry.register(
-      FsEditToolMetadata,
-      (r) =>
-        new FsEditTool(
-          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
-          r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker),
-          r.resolve(CORE_SERVICE_TOKENS.IdeAdapterFactory)
-        )
-    );
-    registry.register(
       ApplyPatchToolMetadata,
       (r) =>
         new ApplyPatchTool(
@@ -470,14 +425,6 @@ export function registerServiceLayerServices(
           r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
           r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
           r.resolve(CORE_SERVICE_TOKENS.EmitService)
-        )
-    );
-    registry.register(
-      SemanticSearchToolMetadata,
-      (r) =>
-        new SemanticSearchTool(
-          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
-          r.resolve(CORE_SERVICE_TOKENS.FileAnnotationService)
         )
     );
     registry.register(
@@ -717,7 +664,7 @@ export function registerServiceLayerServices(
     (c) => new DefaultOutputHandler(c.resolve(CORE_SERVICE_TOKENS.EmitService))
   );
   container.registerSingleton(CORE_SERVICE_TOKENS.TurnResultParsers, (c) =>
-    buildDefaultTurnResultParsers(c.resolve(CORE_SERVICE_TOKENS.AgentManager))
+    buildDefaultTurnResultParsers()
   );
   container.registerSingleton(
     CONTRACT_SERVICE_TOKENS.SystemService,

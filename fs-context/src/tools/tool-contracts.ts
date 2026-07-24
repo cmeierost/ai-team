@@ -9,19 +9,13 @@
 export type FsAccessRight = 'read' | 'write' | 'list';
 
 export const FS_TOOL_NAMES = [
-  'fs_read_file',
-  'fs_read_lines',
-  'fs_write_file',
-  'fs_create_file',
+  'fs_read',
+  'fs_write',
   'fs_delete_path',
   'fs_mkdir',
-  'fs_exists',
   'fs_info',
-  'fs_list',
   'fs_tree',
-  'fs_search_content',
-  'fs_search_metadata',
-  'fs_edit',
+  'fs_search',
   'bash',
   'fs_copy',
   'fs_move',
@@ -44,19 +38,13 @@ export type FsToolName = (typeof FS_TOOL_NAMES)[number];
  * - read maps to read; write/create/delete/edit/bash map to write
  */
 export const FS_TOOL_REQUIRED_RIGHT: Record<FsToolName, FsAccessRight> = {
-  fs_read_file: 'read',
-  fs_read_lines: 'read',
-  fs_write_file: 'write',
-  fs_create_file: 'write',
+  fs_read: 'read',
+  fs_write: 'write',
   fs_delete_path: 'write',
   fs_mkdir: 'write',
-  fs_exists: 'list',
   fs_info: 'list',
-  fs_list: 'list',
   fs_tree: 'list',
-  fs_search_content: 'list',
-  fs_search_metadata: 'list',
-  fs_edit: 'write',
+  fs_search: 'list',
   bash: 'write',
   fs_copy: 'write',
   fs_move: 'write',
@@ -68,3 +56,9 @@ export const FS_TOOL_REQUIRED_RIGHT: Record<FsToolName, FsAccessRight> = {
   fs_temp: 'write',
   fs_find: 'list',
 };
+
+export const FS_LIST_RIGHT_TOOLS = new Set<FsToolName>(
+  Object.entries(FS_TOOL_REQUIRED_RIGHT)
+    .filter(([, right]) => right === 'list')
+    .map(([name]) => name as FsToolName)
+);

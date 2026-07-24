@@ -88,6 +88,8 @@ flowchart TD
   ORCH[ChatOrchestrator.run\npackages/service/src/orchestrator/chat-orchestrator.ts]
   SENDTURN[sendTurn\npackages/service/src/orchestrator/send-turn.ts]
   HANDOFF[handoff.ts\ncontext switch + briefing]
+  BACK[/return]
+  RETURN[Workflow-defined return command]
   SESSION[Session + workflow state]
   TOOLS[Local tools + MCP tools]
   MODEL[LlmService / provider APIs]
@@ -100,6 +102,8 @@ flowchart TD
   SENDTURN --> TOOLS
   SENDTURN --> MODEL
   SENDTURN -->|handoff result| HANDOFF
+  BACK --> RETURN
+  RETURN -->|chat: session-handoff-return| HANDOFF
   HANDOFF --> SESSION
   HANDOFF --> ORCH
 ```

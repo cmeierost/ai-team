@@ -52,10 +52,22 @@ export const messageFiles = sqliteTable('message_files', {
 export const messageToolCalls = sqliteTable('message_tool_calls', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   messageId: integer('message_id').notNull(),
+  toolCallId: text('tool_call_id'),
   toolName: text('tool_name').notNull(),
   paramsJson: text('params_json').notNull(),
+  requestedAt: text('requested_at'),
+  // Legacy compatibility only. New completions live in message_tool_results.
   resultJson: text('result_json'),
   resultLlm: text('result_llm'),
+});
+
+export const messageToolResults = sqliteTable('message_tool_results', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  messageToolCallId: integer('message_tool_call_id').notNull(),
+  phase: text('phase').notNull(),
+  resultJson: text('result_json'),
+  resultLlm: text('result_llm'),
+  completedAt: text('completed_at').notNull(),
 });
 
 export const messageSuggestions = sqliteTable('message_suggestions', {

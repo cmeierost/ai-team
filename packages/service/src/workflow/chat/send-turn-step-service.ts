@@ -25,6 +25,8 @@ import type { IChatSkillService } from './chat-skill-service.js';
 
 export interface SendTurnOptions {
   skipPersist?: boolean;
+  /** Keep an automatic continuation failure visible in the receiving agent's transcript. */
+  archiveFailure?: boolean;
 }
 
 /**
@@ -127,8 +129,7 @@ export class SendTurnStepService implements ISendTurnStepService {
   async prepareMessagesAsync(
     userMessage: string,
     plugins: ResolvedPlugins,
-    ctx: ExecutionContext,
-    options?: { internalInstruction?: string }
+    ctx: ExecutionContext
   ): Promise<ILlmChatMessageParam[]> {
     const compressed = await plugins.compressor.compress(ctx.history, ctx);
     const messages = await plugins.contextBuilder.build(compressed, ctx);
@@ -144,15 +145,6 @@ export class SendTurnStepService implements ISendTurnStepService {
       role: 'system',
       content: this.buildConversationParticipantsPrompt(),
     });
-
-    if (options?.internalInstruction) {
-      messages.push({
-        role: 'system',
-        content:
-          'Internal conversation transition (not written by the developer): ' +
-          options.internalInstruction,
-      });
-    }
 
     const ragSnippet = await plugins.ragProvider.retrieve(userMessage, ctx);
     if (ragSnippet) {
@@ -170,10 +162,14 @@ export class SendTurnStepService implements ISendTurnStepService {
     return [
       '## Conversation Participants',
       `You are speaking directly with ${developerName}, the human developer using ai-team.`,
-      `${developerName} is the author of messages with the user role and is your current conversational counterpart.`,
+      `Ordinary messages with the user role are authored by ${developerName}, who is your current conversational counterpart.`,
+      'The explicit exception is an "[Internal handoff —" message: the runtime injects it with the user role so you will respond, but its text is a colleague-to-colleague briefing.',
       `When addressing the developer by name, usually use their first name, ${developerFirstName}. Use ${developerName} only when the full name is genuinely useful or a more formal tone is appropriate.`,
       'You may also address the developer naturally as "you". Do not address the developer as another AI team member.',
       'People named in your role, reporting line, team roster, handoff context, or tool output are other team members unless they are explicitly identified as the human developer.',
+      `When the latest input is an internal handoff, address ${developerName} directly, not the sending colleague. Briefly acknowledge only the useful context, translate third-person wording such as "${developerFirstName} wants" into "you want", and take the requested next step. Do not quote the briefing, ask the developer to repeat known context, or answer the sender. If essential information is missing, ask the developer one focused question.`,
+      'An internal handoff may establish a return path, but its existence is not an instruction to return immediately. Use session_return only after the developer clearly asks to return/report back or confirms the delegated work is finished and they want to continue with the parent. If their intent is ambiguous, ask one concise question. Do not return merely because you answered the current question.',
+      'If the developer asks to switch to or involve a different agent—or the work clearly belongs to another agent—call com_handoff instead of merely describing a transfer. Do not use com_handoff to return to the parent workflow. For a new handoff, write a briefingNote that states the developer’s objective, relevant decisions or constraints, the receiving agent’s responsibility and expected first action, and any requested return or follow-up path.',
     ].join('\n');
   }
 
@@ -242,9 +238,9 @@ export class SendTurnStepService implements ISendTurnStepService {
 
     const message = this.toErrorMessage(error);
     process.stderr.write(`\n[LLM error] ${message}\n`);
-    this.emitService.status('error', message);
 
     const persistedContent = this.buildRetryableFailureMessage(message);
+    this.emitService.status('error', `${persistedContent}\n\nDetails: ${message}`);
 
     const failedAgentMsg: ChatMessage = {
       timestamp: new Date().toISOString(),
@@ -252,7 +248,7 @@ export class SendTurnStepService implements ISendTurnStepService {
       to: 'human',
       content: persistedContent,
       isHuman: false,
-      archived: true,
+      archived: options?.archiveFailure ?? true,
     };
 
     if (!options?.skipPersist) {

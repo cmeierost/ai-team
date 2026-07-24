@@ -54,7 +54,7 @@ example, use `/system help` or `/chat run git status`. The registry dispatch
 key remains `group-key` and is not a public slash spelling.
 
 Only explicitly declared aliases may be invoked as one token. The core aliases
-are `/help`, `/new`, `/back`, and `/switch`; `/ho` and `/shell` remain aliases.
+are `/help`, `/new`, `/return`, and `/switch`; `/ho` and `/shell` remain aliases.
 Other bare built-in keys are rejected. Dynamic skill, prompt, and workflow
 commands remain one-token commands because their key is their public interface.
 
@@ -280,14 +280,26 @@ tail. `CommandDispatcher` owns parsing and validation.
 Each slash invocation is persisted as:
 
 - the original developer transcript line
-- a distinct `slash:<token>` tool call
+- a distinct `slash:<token>` tool invocation, recorded before execution
 - invocation metadata in the tool request (`commandKey`, `commandToken`,
   `rawArgs`, `rawInput`, and `invokedBy`)
-- the normalized `CommandResponse` and presentation result
+- a separately timestamped normalized `CommandResponse` and presentation result
 
 The result is emitted as a tool lifecycle event. UI adapters render it as a
 standalone transcript component; command implementations must not write
 presentation output directly to the terminal.
+
+Session creation is a detached navigation command: `/session new` updates the
+active session cursor and completes the current chat turn without injecting an
+automatic workflow follow-up. The new session therefore starts with its own
+conversation boundary rather than inheriting the workflow that launched it.
+
+The same split lifecycle applies to LLM tool calls. Request and terminal
+outcome share `toolCallId` but are independent append-only records. Renderers
+must not mutate the request component when the result arrives; this allows
+tokens, handoff transitions, questions, and other events emitted between the
+two phases to retain their true transcript position. `start` updates are
+transient progress and may be omitted by transcript-oriented clients.
 
 `/chat run` and agent-invoked `cli_run` additionally emit correlated, non-persisted
 tool `start` updates as stdout and stderr chunks arrive. The CLI's exact run

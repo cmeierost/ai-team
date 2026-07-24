@@ -24,7 +24,8 @@ tools:
   - com_ask
   - com_handoff
   - hr_hire
-  - search_*
+  - fs_read
+  - fs_search
 canDelegate: true
 delegatesTo:
   - leah-brooks

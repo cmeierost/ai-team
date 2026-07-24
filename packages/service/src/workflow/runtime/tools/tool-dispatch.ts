@@ -46,6 +46,8 @@ export interface ToolCallResponse {
   isError: boolean;
   /** Set when the tool returned a typed orchestration result. */
   structured?: StructuredToolResult;
+  /** Terminal orchestration tools must not prompt the source LLM for another turn. */
+  terminal?: boolean;
   /** Set when tool execution was denied (user or policy) or failed. */
   denial?: ToolDenial;
 }
@@ -71,6 +73,7 @@ export class ToolDispatcher implements IToolDispatchService {
   ): Promise<ToolCallResponse> {
     const { toolName, toolCallId, args } = call;
     const label = `${toolName}(${this.support.formatArgs(args)})`;
+    await this._appendToolRequest(ctx, toolName, toolCallId, args);
     this.emitToolLifecycle('request', toolName, toolCallId, label, args);
 
     const deniedByUser = await this._requestExecutionApproval(
@@ -90,7 +93,9 @@ export class ToolDispatcher implements IToolDispatchService {
       };
     }
 
-    this.emitToolLifecycle('start', toolName, toolCallId, 'In progress', args);
+    if (this.toolManager.get(toolName)?.metadata.longRunning !== true) {
+      this.emitToolLifecycle('start', toolName, toolCallId, 'In progress', args);
+    }
 
     const executionContext = this.buildExecutionContext(
       ctx,
@@ -110,29 +115,64 @@ export class ToolDispatcher implements IToolDispatchService {
     );
 
     const processed = this.prepareExecutionOutput(execResult, toolName);
-    await this._appendToolHistory(
-      ctx,
-      toolName,
-      processed.outputText,
-      processed.persistedToolResult,
-      processed.persistedLlmResult,
-      args
-    );
+    const toolEvent = this.buildToolEvent(toolName, args, processed);
+    const structured = execResult.ok ? asStructuredToolResult(processed.strippedResult) : undefined;
+    const isDeferredWorkflow = this.toolManager.get(toolName)?.metadata.longRunning === true;
+    const deferCompletion = isDeferredWorkflow && toolName === 'com_handoff';
+    const returnedHandoff = toolName === 'session_return' && isHandoffRequest(structured)
+      ? structured
+      : undefined;
+    if (returnedHandoff?.sourceToolCallId && returnedHandoff.sourceSessionId) {
+      const finalText = returnedHandoff.briefingNote || processed.outputText;
+      await this.sessionManager.appendToolCallResult?.(
+        returnedHandoff.sourceSessionId,
+        returnedHandoff.sourceToolCallId,
+        finalText,
+        finalText,
+        'result',
+        new Date().toISOString()
+      );
+      this.emitService.toolEvent(
+        'com_handoff',
+        returnedHandoff.sourceToolCallId,
+        'result',
+        finalText,
+        undefined,
+        this.support.buildToolRuntimePayload(
+          'com_handoff',
+          'result',
+          undefined,
+          this.support.buildToolCommandResponse('com_handoff', finalText, finalText),
+          undefined,
+          finalText
+        )
+      );
+    } else if (!deferCompletion) {
+      await this._appendToolCompletion(
+        ctx,
+        toolName,
+        toolCallId,
+        processed.outputText,
+        processed.persistedToolResult,
+        processed.persistedLlmResult,
+        args,
+        toolEvent.toolPhase
+      );
+    }
     // Persist the source agent's tool call before adopting a handoff target.
     // Otherwise the handoff result is incorrectly attributed to the target session.
     this.applyHandoffContextMutation(ctx, toolName, execResult.ok, executionContext);
 
-    const toolEvent = this.buildToolEvent(toolName, args, processed);
-    this.emitService.toolEvent(
-      toolName,
-      toolCallId,
-      toolEvent.toolPhase,
-      toolEvent.toolEventMessage,
-      toolEvent.toolDenial,
-      toolEvent.toolEventPayload
-    );
-
-    const structured = execResult.ok ? asStructuredToolResult(processed.strippedResult) : undefined;
+    if (!deferCompletion && !returnedHandoff) {
+      this.emitService.toolEvent(
+        toolName,
+        toolCallId,
+        toolEvent.toolPhase,
+        toolEvent.toolEventMessage,
+        toolEvent.toolDenial,
+        toolEvent.toolEventPayload
+      );
+    }
 
     if (execResult.ok && toolName === 'fs_apply_patch') {
       await this.support
@@ -150,6 +190,9 @@ export class ToolDispatcher implements IToolDispatchService {
       result: execResult.ok ? processed.strippedResult : processed.outputText,
       isError: !execResult.ok,
       structured,
+      terminal:
+        toolName === 'session_return'
+        || (structured !== undefined && isHandoffRequest(structured)),
       denial: processed.denial,
     };
   }
@@ -191,9 +234,10 @@ export class ToolDispatcher implements IToolDispatchService {
         denial
       )
     );
-    await this._appendToolHistory(
+    await this._appendToolCompletion(
       ctx,
       toolName,
+      toolCallId,
       denied,
       {
         status: 'denied',
@@ -204,22 +248,74 @@ export class ToolDispatcher implements IToolDispatchService {
         },
       },
       denied,
-      args
+      args,
+      'denied'
     );
     return denial;
   }
 
-  private async _appendToolHistory(
+  private supportsSplitToolHistory(): boolean {
+    return (
+      typeof this.sessionManager.appendToolCallRequest === 'function'
+      && typeof this.sessionManager.appendToolCallResult === 'function'
+    );
+  }
+
+  private async _appendToolRequest(
     ctx: ExecutionContext,
     toolName: string,
+    toolCallId: string,
+    callArgs: unknown
+  ): Promise<void> {
+    if (!this.supportsSplitToolHistory()) return;
+
+    const timestamp = new Date().toISOString();
+    await this.sessionManager.appendToolCallRequest!(ctx.sessionId!, {
+      from: ctx.agent!.id,
+      content: '',
+      timestamp,
+      isHuman: false,
+      tool_calls: [{
+        callId: toolCallId,
+        tool: toolName,
+        params: (callArgs ?? {}) as Record<string, unknown>,
+          requestedAt: timestamp,
+          longRunning: this.toolManager.get(toolName)?.metadata.longRunning === true,
+      }],
+    });
+  }
+
+  private async _appendToolCompletion(
+    ctx: ExecutionContext,
+    toolName: string,
+    toolCallId: string,
     output: string,
     rawResult?: unknown,
     llmResult?: string,
-    callArgs?: unknown
+    callArgs?: unknown,
+    phase: 'result' | 'error' | 'denied' = 'result'
   ): Promise<void> {
+    if (this.supportsSplitToolHistory() && rawResult !== undefined) {
+      await this.sessionManager.appendToolCallResult!(
+        ctx.sessionId!,
+        toolCallId,
+        rawResult,
+        llmResult,
+        phase,
+        new Date().toISOString()
+      );
+      return;
+    }
+
     let content = '';
     let toolCall:
-      | { tool: string; params: Record<string, unknown>; result: unknown; resultLlm?: string }
+      | {
+          callId: string;
+          tool: string;
+          params: Record<string, unknown>;
+          result: unknown;
+          resultLlm?: string;
+        }
       | undefined;
     if (rawResult === undefined) {
       const prepared = await this.support.prepareToolOutputForHistory(ctx, toolName, output);
@@ -229,6 +325,7 @@ export class ToolDispatcher implements IToolDispatchService {
           : `Tool ${toolName}: ${prepared.output}`;
     } else {
       toolCall = {
+        callId: toolCallId,
         tool: toolName,
         params: (callArgs ?? {}) as Record<string, unknown>,
         result: rawResult,
@@ -260,7 +357,12 @@ export class ToolDispatcher implements IToolDispatchService {
       toolCallId,
       toolPhase: phase,
       message,
-      toolResult: this.support.buildPendingToolRuntimePayload(toolName, phase, args),
+      toolResult: this.support.buildPendingToolRuntimePayload(
+        toolName,
+        phase,
+        args,
+        this.toolManager.get(toolName)?.metadata.longRunning === true
+      ),
     } as RuntimeStreamEvent);
   }
 
@@ -289,8 +391,11 @@ export class ToolDispatcher implements IToolDispatchService {
       workflowState: clonedWorkflowState,
       workflowLastResult: ctx.workflowLastResult,
       navStack: ctx.navStack,
-      invocationSurface: ctx.invocationSurface,
-      calledByHuman: ctx.calledByHuman,
+      // Commands invoked by the model must retain tool semantics even when the
+      // surrounding chat turn originated from a human message.
+      invocationSurface: 'tool' as const,
+      calledByHuman: false,
+      callerType: 'agent' as const,
       subworkflowDepth: ctx.subworkflowDepth,
       signal: ctx.signal,
       workspaceRoot: this.support.getWorkspaceRoot(),
@@ -304,7 +409,7 @@ export class ToolDispatcher implements IToolDispatchService {
     ok: boolean,
     executionContext: ReturnType<ToolDispatcher['buildExecutionContext']>
   ): void {
-    if (!ok || toolName !== 'com_handoff') {
+    if (!ok || (toolName !== 'com_handoff' && toolName !== 'session_return')) {
       return;
     }
 

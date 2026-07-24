@@ -23,7 +23,8 @@ description: >-
 tools:
   - com_ask
   - com_handoff
-  - search_*
+  - fs_read
+  - fs_search
   - get_vscode_api
 availableFor:
   - vscode-extension-ownership

@@ -1,9 +1,23 @@
 import type { ICommandDescriptor, ExecutionContext, IServiceContainer } from '@ai-team/core';
 
 export class WorkflowAbortError extends Error {
-  constructor() {
+  readonly reasonMessage?: string;
+
+  constructor(reason?: unknown) {
     super('Workflow aborted');
     this.name = 'WorkflowAbortError';
+    this.reasonMessage = WorkflowAbortError.toReasonMessage(reason);
+  }
+
+  private static toReasonMessage(reason: unknown): string | undefined {
+    if (reason instanceof Error) return reason.message || undefined;
+    if (typeof reason === 'string') return reason || undefined;
+    if (reason === undefined || reason === null) return undefined;
+    try {
+      return JSON.stringify(reason) || undefined;
+    } catch {
+      return String(reason);
+    }
   }
 }
 
@@ -32,6 +46,13 @@ export type WorkflowArgValue =
   | WorkflowLiteralTransform
   | WorkflowCoalesceTransform
   | WorkflowMapTransform;
+
+export interface WorkflowReturnDefinition {
+  /** Command executed by the generic /return shortcut. */
+  command: string;
+  /** Arguments resolved against current workflow state before command execution. */
+  args?: Record<string, WorkflowArgValue>;
+}
 
 export interface WorkflowCommandStep<TState> {
   id: string;
@@ -67,6 +88,8 @@ export type WorkflowStep<TState> =
 
 export interface WorkflowDefinition<TState> extends Omit<ICommandDescriptor, 'key'> {
   readonly id: string;
+  /** Optional workflow-defined behavior for returning control to its parent. */
+  readonly return?: WorkflowReturnDefinition;
   prepare?: (params: unknown) => TState;
   toResult?: (state: TState) => unknown;
   result?: WorkflowArgValue;

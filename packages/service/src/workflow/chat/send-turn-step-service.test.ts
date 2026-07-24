@@ -127,46 +127,27 @@ describe('SendTurnStepService.prepareMessagesAsync', () => {
       ),
     });
     expect(messages[0]?.content).toContain(
-      'Clemens Meier is the author of messages with the user role'
+      'Ordinary messages with the user role are authored by Clemens Meier'
     );
+    expect(messages[0]?.content).toContain('The explicit exception is an "[Internal handoff —"');
     expect(messages[0]?.content).toContain('usually use their first name, Clemens');
+    expect(messages[0]?.content).toContain('address Clemens Meier directly');
+    expect(messages[0]?.content).toContain(
+      'translate third-person wording such as "Clemens wants" into "you want"'
+    );
+    expect(messages[0]?.content).toContain('Use session_return only after');
+    expect(messages[0]?.content).toContain(
+      'developer clearly asks to return/report back'
+    );
+    expect(messages[0]?.content).toContain(
+      'Do not return merely because you answered the current question'
+    );
+    expect(messages[0]?.content).toContain(
+      'the receiving agent’s responsibility and expected first action'
+    );
     expect(messages[1]).toEqual({ role: 'user', content: "what's up today?" });
   });
 
-  it('labels a handoff continuation as internal system context', async () => {
-    const plugins = {
-      compressor: { compress: vi.fn(async (history: unknown[]) => history) },
-      contextBuilder: { build: vi.fn(async () => []) },
-      enrichers: [],
-      ragProvider: { retrieve: vi.fn(async () => null) },
-    } as any;
-    const ctx = {
-      agent: { id: 'michael-brown', name: 'Michael Brown' },
-      sessionId: 'session-1',
-      history: [],
-    } as unknown as ExecutionContext;
-    const { stepService } = createStepService();
-
-    const messages = await stepService.prepareMessagesAsync(
-      '[Handoff received] continue naturally',
-      plugins,
-      ctx,
-      { internalInstruction: '[Handoff received] continue naturally' }
-    );
-
-    expect(messages).toContainEqual({
-      role: 'system',
-      content: expect.stringContaining(
-        'Internal conversation transition (not written by the developer)'
-      ),
-    });
-    expect(messages).not.toContainEqual(
-      expect.objectContaining({
-        role: 'user',
-        content: expect.stringContaining('[Handoff received]'),
-      })
-    );
-  });
 });
 
 describe('SendTurnStepService.resolveSkillsAndToolsAsync', () => {
@@ -309,5 +290,33 @@ describe('SendTurnStepService title generation policy', () => {
 
     expect(sessionManager.appendMessage).toHaveBeenCalledOnce();
     expect(sessionManager.appendMessage.mock.calls[0][2]).toBe(llmService);
+  });
+});
+
+describe('SendTurnStepService.handleLlmFailureAsync', () => {
+  it('emits the persisted fallback message and its technical details for live chat', async () => {
+    const emitService = { log: vi.fn(), emit: vi.fn(), status: vi.fn() } as any;
+    const { stepService, sessionManager } = createStepService({ emitService });
+    const ctx = {
+      agent: { id: 'sarah-lee' },
+      sessionId: 'session-1',
+      history: [],
+    } as unknown as ExecutionContext;
+    const plugins = { outputHandler: { handle: vi.fn(async () => undefined) } } as any;
+
+    const result = await stepService.handleLlmFailureAsync(
+      new Error('LLM returned an empty response'),
+      plugins,
+      ctx
+    );
+
+    expect(result.text).toBe(
+      'Sorry — I ran into a temporary issue while processing your request. Please try again.'
+    );
+    expect(emitService.status).toHaveBeenCalledWith(
+      'error',
+      'Sorry — I ran into a temporary issue while processing your request. Please try again.\n\nDetails: LLM returned an empty response'
+    );
+    expect(sessionManager.appendMessage).toHaveBeenCalledOnce();
   });
 });

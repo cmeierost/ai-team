@@ -228,13 +228,23 @@ This is now the source of truth for onboarding flow behavior (CEO/HR creation, b
 
 ## Workflow engine behavior (current)
 
-The workflow runtime in `packages/service/src/workflow/runner.ts` and `param-resolver.ts` supports:
+The workflow runtime in
+`packages/service/src/workflow/xstate-workflow-runner.ts` and
+`workflow-param-resolver.ts` supports:
 
 - declarative step args with template interpolation (`args`)
 - declarative guards (`when`) alongside callback guards (`skipWhen`)
 - loop steps (`kind: 'loop'`)
 - declarative result projection (`result`) and typed projection (`toResult`)
 - declarative transforms such as `$map` and `$coalesce`
+- optional workflow return commands via `return: { command, args? }`
+
+The runner exposes the resolved return command and parent workflow frames
+through `ExecutionContext`. `/return` is workflow-neutral: it dispatches that
+configured command or, when none is configured, returns the last completed
+command response. Chat defines `session-handoff-return`, which calls
+`com_handoff` in parent-return mode so the handoff path owns summary generation
+and control restoration.
 
 This functionality is used by onboarding/hiring workflows and is part of the current orchestration architecture.
 

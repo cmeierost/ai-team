@@ -24,13 +24,6 @@ export interface FsReadParams {
 }
 export type FsReadResult = Record<string, unknown>;
 
-export interface FsReadLinesParams {
-  filePath: string;
-  startLine: number;
-  endLine: number;
-}
-export type FsReadLinesResult = Record<string, unknown>;
-
 export interface FsCreateParams {
   filePath: string;
   content?: string;
@@ -104,31 +97,38 @@ export interface FsTreeResult {
   access: { allowed: boolean; explanation?: string };
 }
 
-export interface FsSearchContentParams {
-  path?: string;
+export type FsSearchMode = 'names' | 'content';
+export interface FsSearchParams {
   query: string;
-  maxResults?: number;
+  mode?: FsSearchMode;
+  glob?: string;
+  regex?: boolean;
   caseSensitive?: boolean;
-}
-export interface FsSearchContentResult {
-  path: string;
-  query: string;
-  matches: Array<{ path: string; line: number; content: string }>;
-  denied: number;
-  access: { allowed: boolean; explanation?: string };
-}
-
-export interface FsSearchMetadataParams {
-  pattern: string;
-  path?: string;
+  wholeWord?: boolean;
   maxResults?: number;
 }
-export interface FsSearchMetadataResult {
-  pattern: string;
-  path: string;
-  matches: Array<{ path: string; size: number; mtime: string }>;
-  numMatches: number;
+export interface FsSearchResult {
+  query: string;
+  mode: FsSearchMode;
+  scope: 'workspace' | 'agent-permissions';
+  glob?: string;
+  totalMatches: number;
+  returnedMatches: number;
+  contentHitsKnown: number;
   truncated: boolean;
-  denied: number;
-  access: { allowed: boolean; explanation?: string };
+  results: Array<{
+    path: string;
+    score: number;
+    matchedBy: Array<'name' | 'content'>;
+    readable: boolean;
+    writable: boolean;
+    contentSearched: boolean;
+    lines?: number[];
+    snippets?: Array<{ line: number; content: string }>;
+    size?: number;
+    mtime?: string;
+    readers?: Array<{ contextId: string; label: string }>;
+    writers?: Array<{ contextId: string; label: string }>;
+    nextAction?: string;
+  }>;
 }

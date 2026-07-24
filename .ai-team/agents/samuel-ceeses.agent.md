@@ -21,7 +21,8 @@ tools:
   - com_ask
   - com_handoff
   - code_codesearch
-  - search_*
+  - fs_read
+  - fs_search
   - mcp_microsoft_pla_browser_console_messages
   - mcp_microsoft_pla_browser_run_code
   - open_browser_page

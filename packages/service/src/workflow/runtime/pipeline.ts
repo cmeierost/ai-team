@@ -128,4 +128,6 @@ export interface TurnResult {
     add?: string[];
     remove?: string[];
   };
+  sourceToolCallId?: string;
+  sourceSessionId?: string;
 }

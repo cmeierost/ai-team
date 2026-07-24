@@ -12,15 +12,12 @@ import {
   FsExistsTool,
   FsInfoTool,
   FsReadFileTool,
-  FsReadLinesTool,
   FsWriteFileTool,
   FsCreateFileTool,
   FsDeletePathTool,
   FsMkdirTool,
   FsListTool,
   FsTreeTool,
-  FsSearchContentTool,
-  FsSearchMetadataTool,
 } from '../fs/fs-tools.js';
 import { FindSymbolTool, FindReferencesTool, LspTool, GrepCodeTool } from '../edit/code-tools.js';
 import { HttpFetchCommand } from '../http/http-fetch.command.js';
@@ -67,11 +64,9 @@ function getBuiltInTools(
     }),
   } as any;
   const readFileTool = new FsReadFileTool(workspaceRoot, workspaceFsFactory as any);
-  const readLinesTool = new FsReadLinesTool(readFileTool);
   const fsEditTool = new FsEditTool(workspaceRoot, accessChecker as any, ideAdapterFactory);
   return [
     readFileTool,
-    readLinesTool,
     new FsWriteFileTool(workspaceFsFactory as any),
     new FsCreateFileTool(workspaceFsFactory as any),
     new FsDeletePathTool(workspaceFsFactory as any),
@@ -80,8 +75,6 @@ function getBuiltInTools(
     new FsInfoTool(workspaceFsFactory as any),
     new FsListTool(workspaceFsFactory as any),
     new FsTreeTool(workspaceFsFactory as any),
-    new FsSearchContentTool(workspaceRoot, workspaceFsFactory as any),
-    new FsSearchMetadataTool(workspaceRoot, workspaceFsFactory as any),
     whoHasAccessTool,
     doIHaveAccessTool,
     analyzePermissionOverlapTool,

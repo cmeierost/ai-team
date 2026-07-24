@@ -171,6 +171,15 @@ commands writing directly to a terminal. The detailed contract and `/run`
 example live in
 [`docs/implementation/command-dispatch-and-parameters.md`](docs/implementation/command-dispatch-and-parameters.md).
 
+Tool history is an append-only timeline. `message_tool_calls` stores the
+invocation identity, input, and request timestamp before execution begins;
+`message_tool_results` stores the correlated terminal outcome and its own
+completion timestamp. Live and resumed clients therefore render request and
+result as separate immutable transcript entries. A `start` event remains
+ephemeral execution state and is not a durable transcript record. Legacy
+combined rows are migrated into the split representation and remain readable
+through the `ChatMessage.tool_calls` compatibility projection.
+
 ### `@ai-team/api-contracts`
 
 - Defines the service interface contracts and wire protocol types.
@@ -306,13 +315,19 @@ This keeps onboarding behavior declarative and easier to evolve by editing workf
 
 ## Workflow engine semantics (current implementation)
 
-The workflow runtime (`packages/service/src/workflow/runner.ts` + `param-resolver.ts`) supports both typed and declarative workflow definitions:
+The workflow runtime (`packages/service/src/workflow/xstate-workflow-runner.ts` +
+`workflow-param-resolver.ts`) supports both typed and declarative workflow definitions:
 
 - Step args can be declared with template interpolation (`args`) or computed in code (`params`).
 - Step guards support both callback checks (`skipWhen`) and declarative expressions (`when`).
 - Loop steps are supported via `kind: 'loop'` + `while` + `maxIterations`.
 - Step outputs are stored by default under `state[step.id]` unless `applyResult` overrides state mapping.
 - Workflow result projection supports declarative `result` and typed `toResult`.
+- A workflow may define `return: { command, args? }`. The runner resolves those
+  arguments against current state and exposes the return contract plus outer
+  workflow frames through `ExecutionContext`.
+- `/return` is a generic shortcut that dispatches the active workflow's return
+  command. It does not contain workflow-specific navigation logic.
 
 Declarative arg/result transforms currently include:
 
@@ -320,7 +335,16 @@ Declarative arg/result transforms currently include:
 - `$coalesce`
 - `$map`
 
-These semantics are relied on by onboarding/hiring workflows and are part of the current architecture contract for workflow-authored orchestration.
+Chat configures `session-handoff-return` as its return command. That command
+resolves the persisted parent handoff frame and invokes `com_handoff` with
+`navigationIntent: back`; the handoff tool writes the return summary, restores
+the parent session/workflow identity, and pops the return stack. Workflows
+without a custom return command use their last completed tool response; only a
+workflow with neither a return command nor a completed tool result rejects
+`/return`.
+
+These semantics are relied on by onboarding/hiring/chat workflows and are part
+of the current architecture contract for workflow-authored orchestration.
 
 ## Request-scoped runtime event correlation (current implementation)
 
@@ -352,8 +376,11 @@ state themselves.
 `com_handoff` owns delegation approval and transition semantics. A trusted
 human slash invocation is pre-approved; an agent tool call to a target absent
 from its configured `handoffs` invokes `com_ask` before any transition side
-effect. A handoff to the current return-stack top is a summarized return, which
-is also the implementation used by `/back`.
+effect. A handoff to the current return-stack top is a summarized return.
+`/return` reaches that behavior through the generic workflow return contract:
+`chat-runtime-loop.return` dispatches `session-handoff-return`, which invokes
+`com_handoff` in parent-return mode. The slash command itself knows nothing
+about chat sessions or handoff summaries.
 Denied, timed-out, or unavailable approval returns a typed `cancelled` command
 response without changing messages, cursor, stack, or runtime identity.
 

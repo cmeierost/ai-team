@@ -58,6 +58,48 @@ function createResolver(): IServiceContainer {
 }
 
 describe('ChatRuntime handoff routing', () => {
+  it('finishes cleanly when a slash command starts an unrelated new session', async () => {
+    const sendTurn = vi.fn(async () => ({
+      text: 'New session started.',
+      toolRoundNeeded: false as const,
+      agentId: 'sarah',
+      sessionId: 'session-new',
+    }));
+    const steps = new Map<ChatRuntimeStepName, ReturnType<typeof createChatRuntimeStepCommand>>([
+      [
+        'preturn',
+        createChatRuntimeStepCommand('preturn', async () => ({ outcome: 'continue' as const })),
+      ],
+      ['sendTurn', createChatRuntimeStepCommand('sendTurn', sendTurn)],
+      [
+        'postTurnResolution',
+        createChatRuntimeStepCommand(
+          'postTurnResolution',
+          async () => ({ outcome: 'normal_complete' as const })
+        ),
+      ],
+      ['handoffTransition', createChatRuntimeStepCommand('handoffTransition', async () => ({}))],
+    ]);
+
+    const runtime = new ChatRuntime(
+      ((step) => steps.get(step)) as ChatRuntimeStepResolver,
+      new WorkflowRunner(createResolver(), noOpBackendLogService)
+    );
+
+    const result = await runtime.runAsync({
+      message: '/session new',
+      agentId: 'sarah',
+      sessionId: 'session-old',
+    });
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      text: 'New session started.',
+      hopCount: 0,
+    });
+    expect(sendTurn).toHaveBeenCalledOnce();
+  });
+
   it('dispatches the acknowledgement turn to the session returned by the handoff transition', async () => {
     const sendTurn = vi
       .fn<
@@ -177,7 +219,7 @@ describe('ChatRuntime handoff routing', () => {
     );
 
     const result = await runtime.runAsync({
-      message: '/back',
+      message: '/return',
       agentId: 'emily',
       sessionId: 'session-emily',
     });
@@ -196,6 +238,9 @@ describe('ChatRuntime handoff routing', () => {
         options: {
           messageOrigin: 'internal',
         },
+      }),
+      expect.objectContaining({
+        workflowReturn: { command: 'session-handoff-return' },
       })
     );
     expect(postTurn).toHaveBeenCalledOnce();

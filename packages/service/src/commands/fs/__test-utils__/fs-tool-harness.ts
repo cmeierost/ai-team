@@ -9,7 +9,6 @@ import { CommandRegistry } from '../../../command-dispatcher/command-registry.js
 import { ToolManager } from '../../../tooling/manager/tool-manager.js';
 import {
   FsReadFileTool,
-  FsReadLinesTool,
   FsWriteFileTool,
   FsCreateFileTool,
   FsDeletePathTool,
@@ -18,8 +17,6 @@ import {
   FsInfoTool,
   FsListTool,
   FsTreeTool,
-  FsSearchContentTool,
-  FsSearchMetadataTool,
 } from '../fs-tools.js';
 
 const workspaces: string[] = [];
@@ -93,7 +90,6 @@ function getFsTools(workspaceRoot: string): ICommand[] {
 
   return [
     new FsReadFileTool(workspaceRoot, workspaceFsFactory as any),
-    new FsReadLinesTool(new FsReadFileTool(workspaceRoot, workspaceFsFactory as any)),
     new FsWriteFileTool(workspaceFsFactory as any),
     new FsCreateFileTool(workspaceFsFactory as any),
     new FsDeletePathTool(workspaceFsFactory as any),
@@ -102,8 +98,6 @@ function getFsTools(workspaceRoot: string): ICommand[] {
     new FsInfoTool(workspaceFsFactory as any),
     new FsListTool(workspaceFsFactory as any),
     new FsTreeTool(workspaceFsFactory as any),
-    new FsSearchContentTool(workspaceRoot, workspaceFsFactory as any),
-    new FsSearchMetadataTool(workspaceRoot, workspaceFsFactory as any),
   ];
 }
 
@@ -136,7 +130,7 @@ export function makeAgent(id: string, readPatterns: string[]): Agent {
 export function makeSearchAgent(id: string, readPatterns: string[]): Agent {
   return {
     ...makeAgent(id, readPatterns),
-    tools: ['fs_search_content', 'fs_search_metadata'],
+    tools: ['fs_search'],
   };
 }
 
@@ -153,7 +147,6 @@ export function makeFullFsAgent(id: string): Agent {
     permissions: perms({ read: ['**'], write: ['**'] }),
     tools: [
       'fs_read',
-      'fs_read_lines',
       'fs_write_file',
       'fs_create',
       'fs_delete_path',

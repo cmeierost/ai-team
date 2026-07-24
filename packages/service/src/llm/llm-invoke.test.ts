@@ -131,6 +131,44 @@ describe('LlmInvokeService', () => {
     expect(String(policy?.content)).not.toContain('must call com_handoff in this turn');
   });
 
+  it('limits session_return to an explicit developer signal', async () => {
+    const capturedMessages: any[] = [];
+    const llmService = {
+      chatWithTools: vi.fn(async (...args: unknown[]) => {
+        capturedMessages.push(args[1]);
+        return { text: '' };
+      }),
+      streamChat: vi.fn(),
+    };
+
+    const service = createService(llmService, new EmitService(() => {}));
+    await service.invokeAsync({
+      messages: [{ role: 'user', content: 'That covers it. Please return to Emily.' } as any],
+      tools: [makeTool('session_return')],
+      toolDefs: [
+        {
+          name: 'session_return',
+          description: 'Return to the parent workflow',
+          parameters: { type: 'object', properties: {} },
+        },
+      ],
+      skills: [],
+      teamRoster: [makeAgent('sarah-lee', 'Sarah Lee')],
+      ctx: {
+        agent: makeAgent('sarah-lee', 'Sarah Lee'),
+        workspaceRoot: '/workspace',
+        history: [],
+      } as any,
+    });
+
+    const policy = String(capturedMessages[0]?.[0]?.content);
+    expect(policy).toContain(
+      'Call it only when the developer clearly asks to return or report back'
+    );
+    expect(policy).toContain('Do not call it merely because you answered the current question');
+    expect(policy).toContain('Do not use com_handoff as a substitute for session_return');
+  });
+
   it('emits fallback token text when tool loop returns final text without streamed deltas', async () => {
     const emittedTokens: string[] = [];
     const emitService = new EmitService((event) => {

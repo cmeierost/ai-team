@@ -143,7 +143,7 @@ describe('ChatService tool result actions', () => {
           tool_calls: [
             {
               id: 307,
-              tool: 'semantic_search',
+              tool: 'fs_search',
               result: {
                 summary:
                   'Found references in service and web layers. Main touchpoints are chat-service and ToolCallBlock. Recommend updating router contract and controller wiring.',

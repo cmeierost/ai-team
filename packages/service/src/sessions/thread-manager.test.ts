@@ -331,7 +331,7 @@ describe('ThreadManager active thread navigation', () => {
     });
   });
 
-  it('records an explicit return as conversational history and lets /back revisit its source', async () => {
+  it('records an explicit return as conversational history and lets /return revisit its source', async () => {
     const michael = await sessionManager.createSession('michael-brown', 'dev-1');
     const emily = await sessionManager.createHandoffSession('emily-davis', 'dev-1', michael.id);
 
@@ -427,7 +427,7 @@ describe('ThreadManager active thread navigation', () => {
     expect(await threadManager.getSessionChain(emily.id)).toHaveLength(2);
   });
 
-  it('supports multi-hop navigation and pops one frame per repeated /back', async () => {
+  it('supports multi-hop navigation and pops one frame per repeated /return', async () => {
     const michael = await sessionManager.createSession('michael-brown', 'dev-1');
     const emily = await sessionManager.createHandoffSession('emily-davis', 'dev-1', michael.id);
     const sarah = await sessionManager.createHandoffSession('sarah-lee', 'dev-1', emily.id);

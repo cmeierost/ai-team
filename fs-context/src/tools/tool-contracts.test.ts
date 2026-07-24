@@ -6,13 +6,10 @@ import {
 } from './tool-contracts.js';
 
 describe('fs tool contracts', () => {
-  it('maps exists/info/list/tree/search tools to list rights', () => {
-    expect(FS_TOOL_REQUIRED_RIGHT.fs_exists).toBe('list');
+  it('maps info/tree/search tools to list rights', () => {
     expect(FS_TOOL_REQUIRED_RIGHT.fs_info).toBe('list');
-    expect(FS_TOOL_REQUIRED_RIGHT.fs_list).toBe('list');
     expect(FS_TOOL_REQUIRED_RIGHT.fs_tree).toBe('list');
-    expect(FS_TOOL_REQUIRED_RIGHT.fs_search_content).toBe('list');
-    expect(FS_TOOL_REQUIRED_RIGHT.fs_search_metadata).toBe('list');
+    expect(FS_TOOL_REQUIRED_RIGHT.fs_search).toBe('list');
   });
 
   it('has a right mapping for every declared fs tool', () => {

@@ -5,6 +5,7 @@ import {
   RunCommandResult,
   SlashCommandResult,
 } from '../tui/tool-results.js';
+import { ToolEvent } from '../tui/tool-event.js';
 
 export function createDefaultToolRendererManifest(): ExtensionManifest {
   const completedAskCalls = new Set<string>();
@@ -17,10 +18,18 @@ export function createDefaultToolRendererManifest(): ExtensionManifest {
         render: (event) => renderAsk(event, completedAskCalls),
       },
       {
+        toolName: 'com_handoff',
+        render: (event) => renderHandoff(event),
+      },
+      {
         toolName: 'fs_tree',
         render: (event) => terminalTranscriptResult(event, new FileTreeResult(
           event.error ?? event.output
         )),
+      },
+      {
+        toolName: 'fs_read',
+        render: (event) => renderReadResult(event),
       },
       {
         toolName: 'slash:run',
@@ -38,6 +47,44 @@ export function createDefaultToolRendererManifest(): ExtensionManifest {
       },
     ],
   };
+}
+
+function renderReadResult(event: NormalizedToolEvent): ToolRenderDecision {
+  if (
+    event.phase !== 'result'
+    && event.phase !== 'error'
+    && event.phase !== 'denied'
+  ) {
+    // Leave request/start events to the standard ToolEvent renderer so the
+    // request and result remain separate transcript entries.
+    return { handled: false, placements: [] };
+  }
+
+  return terminalTranscriptResult(
+    event,
+    new ToolEvent(
+      'fs_read',
+      undefined,
+      formatReadOutput(event.error ?? event.output),
+      event.phase,
+      { maxInputLines: 4, maxOutputLines: 24 }
+    )
+  );
+}
+
+function formatReadOutput(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const result = value as Record<string, unknown>;
+  if (typeof result['content'] !== 'string') return value;
+
+  const path = typeof result['path'] === 'string' ? result['path'] : 'file';
+  const startLine = typeof result['startLine'] === 'number' ? result['startLine'] : undefined;
+  const endLine = typeof result['endLine'] === 'number' ? result['endLine'] : undefined;
+  const scope = result['isFullFile'] === true ? 'full-file' : 'partial-slice';
+  const range = startLine !== undefined && endLine !== undefined
+    ? ` lines ${startLine}-${endLine}`
+    : '';
+  return `File: ${path}\nScope: ${scope}${range}\n\n${result['content']}`;
 }
 
 function renderStreamingRun(
@@ -134,6 +181,20 @@ function renderAsk(
         ? (event.error ?? event.denial ?? event.output)
         : undefined
     )
+  );
+}
+
+function renderHandoff(event: NormalizedToolEvent): ToolRenderDecision {
+  if (event.phase !== 'result' && event.phase !== 'error' && event.phase !== 'denied') {
+    return { handled: false, placements: [] };
+  }
+
+  // Handoff output contains the routing contract and briefing note. It is
+  // materially useful context, so do not apply the generic historical
+  // eight-line preview limit that is appropriate for routine tool output.
+  return terminalTranscriptResult(
+    event,
+    new ToolEvent('com_handoff', undefined, event.error ?? event.output, event.phase)
   );
 }
 

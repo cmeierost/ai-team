@@ -76,6 +76,20 @@ Swagger UI provides:
 
 ## Chat API
 
+### Tool lifecycle stream events
+
+Tool execution uses correlated, ordered events:
+
+- `request` contains `toolCallId`, `toolName`, and input.
+- `start` is optional transient progress.
+- `result`, `error`, or `denied` contains the terminal output.
+
+Request and terminal events are separate timeline entries and carry
+independent timestamps. Clients must append them in stream order (using
+`toolEventSeq` as the per-request tie-breaker) rather than merging them into a
+single mutable component. Session replay emits the same request-then-terminal
+shape from the split persistence records.
+
 ### Send Message
 
 - **Endpoint**: `POST /api/chat/:agentId`

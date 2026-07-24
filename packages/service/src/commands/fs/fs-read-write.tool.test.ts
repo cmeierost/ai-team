@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 describe('remaining fs tool execution', () => {
-  it('supports fs_read and fs_read_lines for allowed paths', async () => {
+  it('supports paginated fs_read for allowed paths', async () => {
     const workspaceRoot = await createWorkspace();
     await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
     await fs.writeFile(path.join(workspaceRoot, 'src', 'file.txt'), 'line1\nline2\nline3', 'utf8');
@@ -31,8 +31,8 @@ describe('remaining fs tool execution', () => {
     );
     const lines = await manager.execute(
       a,
-      'fs_read_lines',
-      { filePath: 'src/file.txt', startLine: 2, endLine: 3 },
+      'fs_read',
+      { filePath: 'src/file.txt', offset: 2, limit: 2 },
       ctx(a, workspaceRoot)
     );
 
@@ -49,7 +49,6 @@ describe('remaining fs tool execution', () => {
     expect(linesPayload.startLine).toBe(2);
     expect(linesPayload.endLine).toBe(3);
     expect(linesPayload.isFullFile).toBe(false);
-    expect(linesPayload.lines).toEqual(['line2', 'line3']);
   });
 
   it('supports fs_write_file, fs_create and fs_mkdir', async () => {

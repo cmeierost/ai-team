@@ -24,7 +24,8 @@ description: >-
 tools:
   - com_ask
   - com_handoff
-  - search_*
+  - fs_read
+  - fs_search
 cliTools:
   - pnpm
 availableFor:

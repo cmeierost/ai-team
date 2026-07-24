@@ -11,6 +11,17 @@ function createDeps(overrides: {
   getSessionMessages?: (sessionId: string) => Promise<any[]>;
   createSession?: (agentId: string, developerId: string) => Promise<any>;
   getLatestSession?: (agentId: string) => Promise<any>;
+  getCommands?: () => any[];
+  dispatchSlash?: (key: string, payload: unknown, ctx: any) => Promise<any>;
+  appendToolCallRequest?: (sessionId: string, message: any) => Promise<void>;
+  appendToolCallResult?: (
+    sessionId: string,
+    callId: string,
+    result: unknown,
+    resultLlm: string | undefined,
+    phase: string,
+    timestamp: string
+  ) => Promise<void>;
 }) {
   const agentManager = {
     getAgentAsync: vi.fn(overrides.getAgentAsync ?? (async (_id: string) => undefined)),
@@ -31,6 +42,12 @@ function createDeps(overrides: {
     ),
     getLatestSession: vi.fn(overrides.getLatestSession ?? (async () => null)),
     appendMessage: vi.fn(async () => null),
+    ...(overrides.appendToolCallRequest
+      ? { appendToolCallRequest: vi.fn(overrides.appendToolCallRequest) }
+      : {}),
+    ...(overrides.appendToolCallResult
+      ? { appendToolCallResult: vi.fn(overrides.appendToolCallResult) }
+      : {}),
   } as any;
 
   const developerIdentityService = {
@@ -72,14 +89,18 @@ function createDeps(overrides: {
       }
       return undefined;
     }),
-    getCommands: vi.fn(() => [
-      { key: 'help', group: 'system', aliases: ['help'], availableIn: { chat: true } },
-    ]),
-    dispatch: vi.fn(async (_key: string, _payload: unknown, _ctx: unknown) => ({
-      status: 'ok',
-      message: 'Help output',
-      data: 'Help output',
-    })),
+    getCommands: vi.fn(
+      overrides.getCommands ?? (() => [
+        { key: 'help', group: 'system', aliases: ['help'], availableIn: { chat: true } },
+      ])
+    ),
+    dispatch: vi.fn(
+      overrides.dispatchSlash ?? (async (_key: string, _payload: unknown, _ctx: unknown) => ({
+        status: 'ok',
+        message: 'Help output',
+        data: 'Help output',
+      }))
+    ),
   } as any;
 
   const plugins = {
@@ -282,6 +303,52 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     expect(sessionManager.createSession).toHaveBeenCalledWith('sarah-lee', 'clemens-meier');
   });
 
+  it('does not continue the active workflow after /session new', async () => {
+    const appendToolCallRequest = vi.fn(async () => undefined);
+    const appendToolCallResult = vi.fn(async () => undefined);
+    const { command, bootstrapResolver, sessionManager } = createDeps({
+      getSession: async (id: string) => ({ id, agentId: 'sarah-lee' }),
+      getCommands: () => [
+        { key: 'new', group: 'session', aliases: ['new'], availableIn: { chat: true } },
+      ],
+      dispatchSlash: async (_key, _payload, ctx) => {
+        ctx.sessionId = 'new-session';
+        return { status: 'ok', message: 'New session started.', data: 'new-session' };
+      },
+      appendToolCallRequest,
+      appendToolCallResult,
+    });
+
+    const response = await command.execute(
+      { options: { message: '/session new' } } as any,
+      {
+        agent: { id: 'sarah-lee' },
+        agentId: 'sarah-lee',
+        sessionId: 'old-session',
+        history: [],
+      } as any
+    );
+
+    expect(response).toMatchObject({
+      status: 'ok',
+      data: {
+        sessionId: 'new-session',
+        text: 'New session started.',
+      },
+    });
+    expect((response.data as any).followUpMessage).toBeUndefined();
+    expect(bootstrapResolver.updateCachedRuntimeState).not.toHaveBeenCalled();
+    expect(sessionManager.appendToolCallRequest).toHaveBeenCalledWith('old-session', expect.anything());
+    expect(sessionManager.appendToolCallResult).toHaveBeenCalledWith(
+      'old-session',
+      expect.any(String),
+      expect.anything(),
+      expect.any(String),
+      'result',
+      expect.any(String)
+    );
+  });
+
   it('resolves fuzzy/alias agent query via resolveAgentForOperationAsync', async () => {
     const { command, agentManager } = createDeps({
       resolveAgentForOperationAsync: async () => ({ id: 'clara-bishop' }) as any,
@@ -383,8 +450,7 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     expect(stepService.prepareMessagesAsync).toHaveBeenCalledWith(
       '[Handoff received] continue naturally',
       expect.anything(),
-      expect.anything(),
-      { internalInstruction: '[Handoff received] continue naturally' }
+      expect.anything()
     );
   });
 
@@ -440,6 +506,62 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     expect(stepService.persistUserMessageAsync).toHaveBeenCalledOnce();
     expect(stepService.persistAssistantMessageAsync).not.toHaveBeenCalled();
     expect(stepService.parseTurnResultAsync).not.toHaveBeenCalled();
+  });
+
+  it('does not persist the source agent text emitted alongside a handoff request', async () => {
+    const { command, stepService } = createDeps({
+      getAgentAsync: async (id: string) => ({ id, name: 'Sarah Lee', role: 'chief-architect' }),
+      getLatestSession: async () => ({ id: 'session-sarah', agentId: 'sarah-lee' }),
+      getSessionMessages: async () => [],
+    });
+    stepService.invokeTurnLlmAsync.mockResolvedValueOnce({
+      fullResponse: "I've transferred you to Alex Morgan. They'll take it from here.",
+      structuredResults: [{ type: 'handoff', targetAgentId: 'alex-morgan' }],
+    });
+    stepService.parseTurnResultAsync.mockResolvedValueOnce({
+      text: '',
+      done: false,
+      handedOff: true,
+      handoffTargetId: 'alex-morgan',
+      handoffNote: 'CLI discussion',
+    });
+
+    const response = await command.execute(
+      { agentId: 'sarah-lee', options: { message: 'Talk to the CLI owner.' } } as any,
+      { history: [] } as any
+    );
+
+    expect(stepService.persistAssistantMessageAsync).not.toHaveBeenCalled();
+    expect(response.data).toMatchObject({
+      text: '',
+      handoffTargetId: 'alex-morgan',
+    });
+  });
+
+  it('retries one empty provider response for an automatic receiving-agent turn', async () => {
+    const { command, stepService } = createDeps({
+      getAgentAsync: async (id: string) => ({ id, name: 'Alex Morgan', role: 'backend-lead' }),
+      getLatestSession: async () => ({ id: 'session-alex', agentId: 'alex-morgan' }),
+      getSessionMessages: async () => [],
+    });
+    stepService.invokeTurnLlmAsync
+      .mockRejectedValueOnce(new Error('LLM returned an empty response'))
+      .mockResolvedValueOnce({ fullResponse: 'I own the CLI surface. What would you like to discuss?', structuredResults: [] });
+
+    const response = await command.execute(
+      {
+        agentId: 'alex-morgan',
+        options: { message: '[Handoff received]', messageOrigin: 'internal' },
+      } as any,
+      { history: [] } as any
+    );
+
+    expect(stepService.invokeTurnLlmAsync).toHaveBeenCalledTimes(2);
+    expect(stepService.persistAssistantMessageAsync).toHaveBeenCalledWith(
+      'I own the CLI surface. What would you like to discuss?',
+      expect.anything()
+    );
+    expect(response.data).toMatchObject({ text: 'assistant output' });
   });
 
   it('routes and persists every later developer turn to the cached handoff target', async () => {

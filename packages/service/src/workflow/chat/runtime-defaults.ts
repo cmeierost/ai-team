@@ -34,10 +34,67 @@ function historyToMessages(history: ChatMessage[]): ILlmChatMessageParam[] {
         !msg.hiddenFromLlm &&
         !(msg.isHuman && isHandoffAutoReactMessage(msg.content))
     )
-    .map((msg) => ({
-      role: msg.from === 'human' ? ('user' as const) : ('assistant' as const),
-      content: msg.content,
-    }));
+    .flatMap<ILlmChatMessageParam>((msg): ILlmChatMessageParam[] => {
+      if (msg.handoffType === 'agent-briefing') {
+        const fromAgentName = formatAgentName(msg.from);
+        const toAgentName = formatAgentName(msg.to ?? msg.targetAgentId ?? 'target-agent');
+        return [{
+          role: 'user' as const,
+          content: [
+            `[Internal handoff — ${fromAgentName} → ${toAgentName}]`,
+            `The human developer is now your conversational counterpart. Respond to the developer, not ${fromAgentName}.`,
+            `A return path to ${fromAgentName} is available through session_return. Call it only after the developer clearly asks to return/report back or confirms this delegated work is finished. Do not return merely because you have produced an answer, and do not use com_handoff to simulate a return.`,
+            'Use this colleague briefing as context and continue from it. Do not ask the developer to repeat information already included here.',
+            `${fromAgentName} wrote:`,
+            msg.content,
+          ].join('\n\n'),
+        }];
+      }
+
+      if (!msg.isHuman && msg.tool_calls?.length) {
+        return msg.tool_calls.flatMap<ILlmChatMessageParam>((toolCall, index) => {
+          const toolCallId = `persisted-tool-${msg.id ?? msg.timestamp}-${toolCall.id ?? index}`;
+          const toolResult =
+            toolCall.resultLlm
+            ?? (toolCall.result === undefined ? '' : JSON.stringify(toolCall.result));
+
+          return [
+            {
+              role: 'assistant' as const,
+              content: msg.content || null,
+              tool_calls: [
+                {
+                  id: toolCallId,
+                  type: 'function' as const,
+                  function: {
+                    name: toolCall.tool,
+                    arguments: JSON.stringify(toolCall.params ?? {}),
+                  },
+                },
+              ],
+            },
+            {
+              role: 'tool' as const,
+              tool_call_id: toolCallId,
+              content: toolResult,
+            },
+          ];
+        });
+      }
+
+      return [{
+        role: msg.from === 'human' ? ('user' as const) : ('assistant' as const),
+        content: msg.content,
+      }];
+    });
+}
+
+function formatAgentName(agentId: string): string {
+  return agentId
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => part[0]!.toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 export class DefaultContextBuilder implements IContextBuilder {
@@ -164,6 +221,23 @@ export class DefaultToolResolver implements IToolResolver {
       resolved.push(handoff);
     }
 
+    // A return is meaningful only when the active workflow either defines
+    // custom parent restoration or has a completed tool result to return.
+    // Keep the tool out of ordinary chats before either condition is true.
+    const workflowReturn = this.toolManager.get?.('session_return');
+    const hasParentWorkflow =
+      (ctx.workflowStack?.length ?? 0) > 0 || (ctx.navStack?.length ?? 0) > 0;
+    if (
+      ((ctx.workflowReturn?.command && hasParentWorkflow)
+        || ctx.workflowLastResult !== undefined)
+      && workflowReturn
+      && !resolved.some((tool) => ToolIdentity.key(tool.metadata) === 'session_return')
+      && (!workflowPolicy
+        || this.isToolAllowedByWorkflowPolicy(workflowPolicy, workflowReturn.metadata))
+    ) {
+      resolved.push(workflowReturn);
+    }
+
     return resolved;
   }
 
@@ -248,30 +322,7 @@ export class DefaultOutputHandler implements IOutputHandler {
   }
 }
 
-function resolveAgentManagerFromContext(agentManager: IAgentManager): IAgentManager | undefined {
-  return agentManager;
-}
-
-function resolveNonSelfAgent(
-  targetId: string,
-  ctx: ExecutionContext,
-  agentManager: IAgentManager
-): Agent | undefined {
-  const getAgent = (agentManager as { getAgent?: (query: string) => Agent | undefined }).getAgent;
-  const resolveAgent = (agentManager as { resolveAgent?: (query: string) => Agent[] }).resolveAgent;
-
-  const exact = typeof getAgent === 'function' ? getAgent.call(agentManager, targetId) : undefined;
-
-  if (exact && exact.id !== ctx.agent!.id) return exact;
-
-  return typeof resolveAgent === 'function'
-    ? resolveAgent.call(agentManager, targetId).find((a) => a.id !== ctx.agent!.id)
-    : undefined;
-}
-
 export class HandoffToolResultParser implements ITurnResultParser {
-  constructor(private readonly agentManager: IAgentManager) {}
-
   parse(
     structuredResults: StructuredToolResult[],
     _fullResponse: string,
@@ -281,12 +332,10 @@ export class HandoffToolResultParser implements ITurnResultParser {
     const handoffReq = structuredResults.find(isHandoffRequest);
     if (!handoffReq || !isHandoffRequest(handoffReq)) return null;
 
-    const manager = resolveAgentManagerFromContext(this.agentManager);
-    if (!manager) return null;
-
-    const target = resolveNonSelfAgent(handoffReq.targetAgentId, ctx, manager);
-
-    if (!target) {
+    // com_handoff resolves and authorizes this ID before returning its structured result.
+    // Do not re-resolve it through the old synchronous AgentManager API: production
+    // managers are asynchronous, which used to silently discard otherwise valid handoffs.
+    if (handoffReq.targetAgentId === ctx.agent?.id) {
       return { text: persistedContent, done: false };
     }
 
@@ -294,15 +343,17 @@ export class HandoffToolResultParser implements ITurnResultParser {
       text: persistedContent,
       done: false,
       handedOff: true,
-      handoffTargetId: target.id,
+      handoffTargetId: handoffReq.targetAgentId,
       handoffTargetSessionId: handoffReq.targetSessionId,
       handoffNote: handoffReq.briefingNote,
       handoffTargetWorkflowId: handoffReq.targetWorkflowId,
       handoffWorkflowToolPolicy: handoffReq.workflowToolPolicy,
+      sourceToolCallId: handoffReq.sourceToolCallId,
+      sourceSessionId: handoffReq.sourceSessionId,
     };
   }
 }
 
-export function buildDefaultTurnResultParsers(agentManager: IAgentManager): ITurnResultParser[] {
-  return [new HandoffToolResultParser(agentManager)];
+export function buildDefaultTurnResultParsers(): ITurnResultParser[] {
+  return [new HandoffToolResultParser()];
 }

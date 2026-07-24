@@ -59,6 +59,19 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 - Tool names derive from required command metadata as `group_key`; for example `group: cli`, `key: run` becomes `cli_run`.
 - Deep reference: `docs/implementation/command-dispatch-and-parameters.md`.
 
+## Workflow return invariant
+
+- `WorkflowDefinition.return` optionally declares `{ command, args? }`.
+- The workflow runner resolves that contract against current state and carries
+  it in `ExecutionContext.workflowReturn`; outer workflow identities are carried
+  in `ExecutionContext.workflowStack`.
+- `/return` dispatches the active workflow return command when configured;
+  otherwise it returns the previous command step's response. Never add
+  workflow-specific return logic to the slash command.
+- Chat uses `session-handoff-return`, which resolves the persisted parent frame
+  and invokes `com_handoff` with `navigationIntent: back`. The handoff path owns
+  summary generation, persistence, cursor restoration, and stack pop.
+
 ## Permission model essentials
 
 - File rights are enforced through `packages/core/src/context/index.ts`, backed by `fs-context` (`ContextRuntime` + parsers/matchers).

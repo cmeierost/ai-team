@@ -49,7 +49,13 @@ type RuntimeLlmService = ILlmService & {
       toolCallId: string;
       toolName: string;
       args: unknown;
-    }) => Promise<{ toolCallId: string; toolName: string; result: unknown; isError?: boolean }>,
+    }) => Promise<{
+      toolCallId: string;
+      toolName: string;
+      result: unknown;
+      isError?: boolean;
+      terminal?: boolean;
+    }>,
     options?: LlmChatOptions,
     skills?: Skill[],
     teamRoster?: Agent[],
@@ -143,6 +149,7 @@ export class LlmInvokeService implements ILlmInvokeService {
                 toolName: response.toolName,
                 result: response.result,
                 isError: response.isError,
+                terminal: response.terminal,
               };
             },
             undefined,

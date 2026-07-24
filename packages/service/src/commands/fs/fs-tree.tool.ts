@@ -12,8 +12,10 @@ import { annotateFsTreeWithRights, matchesFsTreePreLlmIntent } from './fs-tree-h
 export const FsTreeToolMetadata = {
   key: 'tree',
   group: 'fs',
-  availableIn: { tool: true },
-  description: 'Build directory tree with access-filtered nodes.',
+  availableIn: { tool: true, chat: true },
+  usage: '[path] [maxDepth]',
+  examples: ['/fs tree', '/fs tree packages/service 2'],
+  description: 'Build a permission-aware file tree. Use maxDepth=1 for an fs_list-style directory listing; increase maxDepth for recursive traversal.',
   parameters: z.object({
     path: z.string().optional().describe('Relative root path (defaults to workspace root)'),
     maxDepth: z

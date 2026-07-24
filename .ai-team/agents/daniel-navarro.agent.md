@@ -30,7 +30,8 @@ description: >-
 tools:
   - com_ask
   - com_handoff
-  - search_*
+  - fs_read
+  - fs_search
   - open_browser_page
   - mcp_microsoft_pla_browser_run_code
   - mcp_microsoft_pla_browser_console_messages

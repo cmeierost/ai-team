@@ -64,6 +64,40 @@ Input Params → prepare() → Initial State → Steps → Final State → toRes
 - **`steps`**: Execute workflow logic, transforming state at each step
 - **`toResult(state)`**: Extract final output data from state
 
+### 4. Workflow Return Commands
+
+Interactive workflows may define the command that `/return` executes:
+
+```typescript
+const delegatedReview: WorkflowDefinition<ReviewState> = {
+  id: 'delegated-review',
+  description: 'Review delegated work',
+  availableIn: { tool: true },
+  return: {
+    command: 'review-return-to-parent',
+    args: {
+      includeOpenQuestions: true,
+    },
+  },
+  steps: [
+    // ...
+  ],
+};
+```
+
+The runner resolves `return.args` against current workflow state and exposes
+the contract as `ExecutionContext.workflowReturn`. `/return` dispatches the
+configured command through the normal command pipeline. The return command is
+responsible for producing the return payload and restoring its parent context.
+When no custom return command is defined, `/return` uses the response from the
+last completed command step. It reports an error only when neither source
+exists.
+
+Chat uses this same mechanism with `session-handoff-return`; that command
+resolves the persisted parent handoff frame and invokes `com_handoff` in
+`back` mode so summary generation and session restoration stay in the handoff
+tool.
+
 ## Complete Example
 
 ### Step 1: Define a Reusable Workflow

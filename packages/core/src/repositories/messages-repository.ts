@@ -24,4 +24,16 @@ export interface IMessagesRepository {
   setSessionSkillPaused(sessionId: string, skillPath: string, paused: boolean): Promise<void>;
   removeSessionSkill(sessionId: string, skillPath: string): Promise<void>;
   updateToolCallLlmResult(toolCallId: number, newText: string): Promise<void>;
+  insertToolCallRequest(
+    sessionId: string,
+    message: ChatMessage
+  ): Promise<MessageInsertResult>;
+  insertToolCallResult(
+    sessionId: string,
+    callId: string,
+    result: unknown,
+    resultLlm: string | undefined,
+    phase: 'result' | 'error' | 'denied',
+    timestamp: string
+  ): Promise<void>;
 }

@@ -35,6 +35,24 @@ describe('LlmStreamDeltaExtractor', () => {
     expect(delta.reasoning).toBe('The user is asking for X, I should do Y');
   });
 
+  it('extracts the reasoning alias used by OpenAI-compatible providers', () => {
+    const extractor = new LlmStreamDeltaExtractor();
+    const delta = extractor.extractSegments({
+      choices: [
+        {
+          delta: {
+            reasoning: 'Planning the receiving-agent response',
+          },
+        },
+      ],
+    });
+
+    expect(delta).toEqual({
+      content: '',
+      reasoning: 'Planning the receiving-agent response',
+    });
+  });
+
   it('keeps extractText content-only for persistence-safe assistant text', () => {
     const extractor = new LlmStreamDeltaExtractor();
     const delta = extractor.extractText({

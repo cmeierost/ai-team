@@ -9,6 +9,7 @@ export function buildToolPolicyContent(toolNames: readonly string[]): string {
   const available = new Set(toolNames);
   const hasAskTool = available.has('com_ask');
   const hasHandoffTool = available.has('com_handoff');
+  const hasReturnTool = available.has('session_return');
 
   return (
     `Tool-calling is available. The callable tool names for this turn are: ${toolNames.join(', ')}. ` +
@@ -18,6 +19,9 @@ export function buildToolPolicyContent(toolNames: readonly string[]): string {
       : '') +
     (hasHandoffTool
       ? 'com_handoff is available for this turn. If you propose routing, forwarding, transferring, or switching the developer to another agent, you must call com_handoff in this turn. Do not tell the developer to run /agent, chat <agent>, or similar as a substitute for handoff. If the developer explicitly asks to talk, switch, or hand off to a specific agent, call com_handoff directly and do not gate it behind a confirm-style com_ask question. '
+      : '') +
+    (hasReturnTool
+      ? 'session_return finishes the current workflow. It runs the workflow-specific return command when configured; otherwise it yields the last completed tool response. Call it only when the developer clearly asks to return or report back, or confirms that the delegated work is complete and they want to continue with the parent. Pass developerSignal as an exact quote from that latest developer message. Do not call it merely because you answered the current question, reached your own stopping point, or saw that a return path exists. If the developer has not indicated they want to leave this workflow, continue the conversation here; if their intent is ambiguous, ask one concise question. Do not use com_handoff as a substitute for session_return. '
       : '') +
     (available.has('tool_list') || available.has('tool_can_i') || available.has('fs_who_can')
       ? 'For questions about available tools, access, or permissions, use an available introspection tool when it can answer accurately. '

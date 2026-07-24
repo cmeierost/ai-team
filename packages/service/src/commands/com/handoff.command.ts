@@ -21,12 +21,19 @@ const _handoffCommandSchema = z.object({
     .optional()
     .default('chat')
     .describe('Workflow to run after handoff. Defaults to "chat".'),
+  navigationIntent: z
+    .enum(['handoff', 'back'])
+    .optional()
+    .default('handoff')
+    .describe('Runtime navigation mode for this handoff.'),
   briefingNote: z
     .string()
     .optional()
     .describe(
-      'Optional final instruction for the target agent. If omitted, handoff proceeds with an auto-generated briefing from conversation context.'
+      'Your useful briefing for the target agent. Include the developer objective, your answer or conclusions, relevant decisions or constraints, and the target agent next action. If omitted, handoff proceeds with an auto-generated briefing from conversation context.'
     ),
+  sourceToolCallId: z.string().optional(),
+  sourceSessionId: z.string().optional(),
   workflowToolPolicy: z
     .object({
       allow: z.array(z.string()).optional(),
@@ -41,16 +48,21 @@ const _handoffCommandSchema = z.object({
 export const HandoffCommandMetadata = {
   key: 'handoff',
   usage: 'handoff <targetAgentId> [briefingNote]',
-  aliases: ['ho'],
+  aliases: ['ho', 'handoff'],
   description:
     'Transfer the current conversation to another agent who is better suited ' +
-    'to handle the request. Use when a task is outside your area of responsibility. ' +
+    'to handle the request. Also use this when the developer asks you to tell, report back to, or return to another agent; addressing that agent in ordinary response text does not transfer the conversation. ' +
+    'Use when a task is outside your area of responsibility or when completing an established return path. ' +
     'Unconfigured agent targets require developer approval.',
   availableIn: { tool: true, chat: true },
   group: 'com',
   parameters: _handoffCommandSchema,
+  llm: {
+    hiddenParameters: ['navigationIntent'],
+  },
   permissionCheck: { type: 'none' as const },
   tags: ['orchestration'],
+  longRunning: true,
 } satisfies ICommandDescriptor;
 
 export class HandoffCommand implements ICommand<Params, HandoffCommandResult> {
@@ -71,7 +83,15 @@ export class HandoffCommand implements ICommand<Params, HandoffCommandResult> {
     params: Params,
     context: ExecutionContext
   ): Promise<CommandResponse<HandoffCommandResult>> {
-    const { targetAgentId, targetWorkflowId, briefingNote, workflowToolPolicy } = params;
+    const {
+      targetAgentId,
+      targetWorkflowId,
+      navigationIntent,
+      briefingNote,
+      workflowToolPolicy,
+      sourceToolCallId,
+      sourceSessionId,
+    } = params;
     const composedBriefing = briefingNote?.trim();
     const resolvedTarget = await this.agentManager.resolveAgentForOperationAsync(
       targetAgentId,
@@ -94,12 +114,35 @@ export class HandoffCommand implements ICommand<Params, HandoffCommandResult> {
       };
     }
 
+    // A model tool call describes a desired transition. The chat runtime owns
+    // applying that transition after it has parsed the typed result; executing
+    // it here as well would persist the same handoff twice.
+    if (context.invocationSurface === 'tool') {
+      return {
+        status: 'ok',
+        message: 'Handoff requested.',
+        data: {
+          type: 'handoff',
+          targetAgentId: targetAgent.id,
+          briefingNote: composedBriefing ?? '',
+          targetWorkflowId: targetWorkflowId ?? 'chat',
+          workflowToolPolicy,
+          sourceToolCallId: sourceToolCallId ?? context.commandInvocation?.callId,
+          sourceSessionId: sourceSessionId ?? context.sessionId,
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
+
     const isTrustedHumanSlash = isSlashInvocation && context.calledByHuman === true;
     const isConfiguredTarget = (sourceAgent?.handoffs ?? []).some(
       (handoff) => handoff.agent === targetAgent.id
     );
 
-    if (!isTrustedHumanSlash && !isConfiguredTarget) {
+    // The model-facing invocation was already resolved and accepted as a tool
+    // call. Its subsequent runtime transition must not ask the developer a
+    // second time (or wait indefinitely for an answer that the UI cannot give).
+    if (!context.handoffAlreadyAuthorized && !isTrustedHumanSlash && !isConfiguredTarget) {
       const approvalContext =
         sourceAgent && !context.agent ? { ...context, agent: sourceAgent } : context;
       const approval = await this.commandDispatcher.dispatch(
@@ -151,6 +194,9 @@ export class HandoffCommand implements ICommand<Params, HandoffCommandResult> {
       ctx: transitionContext,
       targetAgentQuery: targetAgent.id,
       handoffNote: composedBriefing && composedBriefing.length > 0 ? composedBriefing : undefined,
+      navigationIntent,
+      sourceToolCallId,
+      sourceSessionId,
     });
 
     context.agent = transition.targetAgent;
@@ -177,6 +223,8 @@ export class HandoffCommand implements ICommand<Params, HandoffCommandResult> {
       targetSessionId: transition.toSessionId,
       targetWorkflowId: targetWorkflowId ?? 'chat',
       workflowToolPolicy,
+      sourceToolCallId,
+      sourceSessionId,
       timestamp: new Date().toISOString(),
     };
 

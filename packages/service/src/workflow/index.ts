@@ -24,6 +24,7 @@ export {
   type WorkflowDefinition,
   type WorkflowExecuteStep,
   type WorkflowLoopStep,
+  type WorkflowReturnDefinition,
   type WorkflowResult,
   type WorkflowStep,
 } from './workflow-types.js';

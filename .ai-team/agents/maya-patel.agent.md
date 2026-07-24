@@ -23,7 +23,8 @@ description: >-
 tools:
   - com_ask
   - com_handoff
-  - search_*
+  - fs_read
+  - fs_search
 availableFor:
   - backend-storage
   - session-persistence

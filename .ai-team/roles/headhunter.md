@@ -10,9 +10,8 @@ responsibilities:
   - Keep the skills catalog up to date
   - Analyze team skill gaps
 tools:
-  - read_file
-  - file_search
-  - semantic_search
+  - fs_read
+  - fs_search
 permissions:
   read:
     - ".ai-team/skills-catalog/**/*"

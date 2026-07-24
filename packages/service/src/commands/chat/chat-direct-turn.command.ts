@@ -21,6 +21,11 @@ import {
   resolveSlashInvocation,
 } from '../../command-dispatcher/slash-invocation.js';
 
+// These commands intentionally detach from the active workflow. A newly
+// created session has no delegated context and must not receive an automatic
+// continuation turn from the workflow that happened to launch it.
+const DETACHED_SESSION_COMMAND_KEYS = new Set(['session-new']);
+
 const chatDirectTurnParamsSchema = z.object({
   agentId: z.string().optional(),
   options: z.object({
@@ -48,6 +53,8 @@ interface ChatDirectTurnResult {
     add?: string[];
     remove?: string[];
   };
+  sourceToolCallId?: string;
+  sourceSessionId?: string;
 }
 
 export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, ChatDirectTurnResult> {
@@ -92,19 +99,22 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
 
     const turnContext = this.toExecutionContext(ctx, bootstrap.sessionId, bootstrap.agent);
     turnContext.history.push(...bootstrap.sessionHistory);
-    const sessionBeforeSlash = turnContext.sessionId;
-
     const isInternal = payload.options.messageOrigin === 'internal';
     const slashHandled = isInternal
       ? null
       : await this.tryHandleSlashCommandAsync(payload.options.message, turnContext);
     if (slashHandled) {
-      this.bootstrapResolver.updateCachedRuntimeState(ctx, {
-        agentId: turnContext.agent?.id ?? bootstrap.agent.id,
-        sessionId: turnContext.sessionId ?? bootstrap.sessionId,
-        history: turnContext.history,
-        navStack: turnContext.navStack,
-      });
+      // Detached navigation must not rewrite the workflow's cached chat
+      // cursor. The session_switched event and returned session ID update the
+      // interactive surface independently.
+      if (!DETACHED_SESSION_COMMAND_KEYS.has(slashHandled.commandKey)) {
+        this.bootstrapResolver.updateCachedRuntimeState(ctx, {
+          agentId: turnContext.agent?.id ?? bootstrap.agent.id,
+          sessionId: turnContext.sessionId ?? bootstrap.sessionId,
+          history: turnContext.history,
+          navStack: turnContext.navStack,
+        });
+      }
 
       return {
         status: 'ok',
@@ -112,8 +122,8 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
           text: slashHandled.responseText,
           agentId: turnContext.agent?.id ?? bootstrap.agent.id,
           sessionId: turnContext.sessionId ?? bootstrap.sessionId,
-          ...(turnContext.sessionId !== sessionBeforeSlash
-            ? { followUpMessage: HANDOFF_AUTO_REACT_MESSAGE }
+          ...(slashHandled.followUpMessage
+            ? { followUpMessage: slashHandled.followUpMessage }
             : {}),
         },
         message: 'completed',
@@ -128,8 +138,7 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     const messages = await this.stepService.prepareMessagesAsync(
       payload.options.message,
       this.plugins,
-      turnContext,
-      isInternal ? { internalInstruction: payload.options.message } : undefined
+      turnContext
     );
     const resolved = await this.stepService.resolveSkillsAndToolsAsync(
       payload.options.message,
@@ -139,7 +148,18 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
 
     try {
       const sessionBeforeLlm = turnContext.sessionId;
-      const invocation = await this.stepService.invokeTurnLlmAsync(messages, resolved, turnContext);
+      let invocation;
+      try {
+        invocation = await this.stepService.invokeTurnLlmAsync(messages, resolved, turnContext);
+      } catch (error) {
+        // A handoff's receiving turn is automatic. Retry one empty provider
+        // response so a transient failure does not leave the developer with a
+        // handoff card but no response from the receiving agent.
+        if (!isInternal || !this.isEmptyLlmResponse(error)) {
+          throw error;
+        }
+        invocation = await this.stepService.invokeTurnLlmAsync(messages, resolved, turnContext);
+      }
       if (turnContext.sessionId !== sessionBeforeLlm) {
         this.bootstrapResolver.updateCachedRuntimeState(ctx, {
           agentId: turnContext.agent?.id ?? bootstrap.agent.id,
@@ -158,6 +178,47 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
           message: 'completed',
         };
       }
+
+      // A model handoff is a transition request, not a visible source-agent
+      // reply. Parse it before persisting streamed text so phrases such as
+      // "I'll transfer you" never appear as if the target agent wrote them.
+      const handoff = await this.stepService.parseTurnResultAsync(
+        invocation.structuredResults,
+        invocation.fullResponse,
+        '',
+        this.plugins,
+        turnContext
+      );
+      if (handoff?.handedOff) {
+        const finalResult = await this.stepService.finalizeTurnResultAsync(
+          handoff,
+          this.plugins,
+          turnContext
+        );
+        this.bootstrapResolver.updateCachedRuntimeState(ctx, {
+          agentId: turnContext.agent?.id ?? bootstrap.agent.id,
+          sessionId: turnContext.sessionId ?? bootstrap.sessionId,
+          history: turnContext.history,
+          navStack: turnContext.navStack,
+        });
+        return {
+          status: 'ok',
+          data: {
+            text: finalResult.text,
+            agentId: turnContext.agent?.id ?? bootstrap.agent.id,
+            sessionId: turnContext.sessionId ?? bootstrap.sessionId,
+            handoffTargetId: finalResult.handoffTargetId,
+            handoffTargetSessionId: finalResult.handoffTargetSessionId,
+            handoffNote: finalResult.handoffNote,
+            handoffTargetWorkflowId: finalResult.handoffTargetWorkflowId,
+            handoffWorkflowToolPolicy: finalResult.handoffWorkflowToolPolicy,
+            sourceToolCallId: finalResult.sourceToolCallId,
+            sourceSessionId: finalResult.sourceSessionId,
+          },
+          message: 'completed',
+        };
+      }
+
       const persisted = await this.stepService.persistAssistantMessageAsync(
         invocation.fullResponse,
         turnContext
@@ -193,6 +254,8 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
           handoffNote: finalResult.handoffNote,
           handoffTargetWorkflowId: finalResult.handoffTargetWorkflowId,
           handoffWorkflowToolPolicy: finalResult.handoffWorkflowToolPolicy,
+          sourceToolCallId: finalResult.sourceToolCallId,
+          sourceSessionId: finalResult.sourceSessionId,
         },
         message: 'completed',
       };
@@ -203,7 +266,12 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
       ) {
         throw error;
       }
-      const failed = await this.stepService.handleLlmFailureAsync(error, this.plugins, turnContext);
+      const failed = await this.stepService.handleLlmFailureAsync(
+        error,
+        this.plugins,
+        turnContext,
+        isInternal ? { archiveFailure: false } : undefined
+      );
       this.bootstrapResolver.updateCachedRuntimeState(ctx, {
         agentId: turnContext.agent?.id ?? bootstrap.agent.id,
         sessionId: turnContext.sessionId ?? bootstrap.sessionId,
@@ -221,6 +289,8 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
           handoffNote: failed.handoffNote,
           handoffTargetWorkflowId: failed.handoffTargetWorkflowId,
           handoffWorkflowToolPolicy: failed.handoffWorkflowToolPolicy,
+          sourceToolCallId: failed.sourceToolCallId,
+          sourceSessionId: failed.sourceSessionId,
         },
         message: 'completed',
       };
@@ -242,19 +312,33 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
       ...(base.workflowId ? { workflowId: base.workflowId } : {}),
       ...(base.workflowInstanceId ? { workflowInstanceId: base.workflowInstanceId } : {}),
       ...(base.stepId ? { stepId: base.stepId } : {}),
+      ...(base.workflowReturn ? { workflowReturn: base.workflowReturn } : {}),
+      ...(base.workflowStack ? { workflowStack: [...base.workflowStack] } : {}),
+      ...(base.workflowLastResult !== undefined
+        ? { workflowLastResult: base.workflowLastResult }
+        : {}),
       ...(base.workflowState ? { workflowState: base.workflowState } : {}),
       ...(base.navStack ? { navStack: [...base.navStack] } : {}),
     };
   }
 
+  private isEmptyLlmResponse(error: unknown): boolean {
+    return error instanceof Error && /LLM returned an empty response/i.test(error.message);
+  }
+
   private async tryHandleSlashCommandAsync(
     userMessage: string,
     ctx: ExecutionContext
-  ): Promise<{ responseText: string } | null> {
+  ): Promise<{ responseText: string; commandKey: string; followUpMessage?: string } | null> {
     const rawInvocation = parseSlashInvocation(userMessage);
     if (!rawInvocation) {
       return null;
     }
+    const sessionBeforeSlash = ctx.sessionId;
+    // Navigation commands may mutate ctx.sessionId while executing. The tool
+    // request and completion still belong to the session where the command
+    // was entered, so retain this correlation key for split persistence.
+    const toolHistorySessionId = sessionBeforeSlash;
     const parsed = resolveSlashInvocation(
       userMessage,
       this.plugins.commandDispatcher.getCommands({ chat: true })
@@ -263,7 +347,34 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     const commandKey = parsed?.commandKey ?? rawInvocation.commandToken;
     const slashToolName = `slash:${parsed?.descriptor.key ?? rawInvocation.commandToken}`;
     const slashCallId = randomUUID();
+    const invocationRequest = {
+      commandKey,
+      commandToken: parsed?.commandToken ?? rawInvocation.commandToken,
+      rawArgs: parsed?.rawArgs ?? rawInvocation.rawArgs,
+      rawInput: parsed?.rawInput ?? rawInvocation.rawInput,
+      invokedBy: 'user',
+    };
+    const requestedAt = new Date().toISOString();
+    const splitToolHistory =
+      typeof this.sessionManager.appendToolCallRequest === 'function'
+      && typeof this.sessionManager.appendToolCallResult === 'function';
 
+    if (splitToolHistory) {
+      await this.sessionManager.appendToolCallRequest!(toolHistorySessionId!, {
+        timestamp: requestedAt,
+        from: 'human',
+        to: ctx.agent!.id,
+        isHuman: true,
+        hiddenFromLlm: true,
+        content: rawInvocation.rawInput,
+        tool_calls: [{
+          callId: slashCallId,
+          tool: slashToolName,
+          params: invocationRequest,
+          requestedAt,
+        }],
+      });
+    }
     let commandResponse: CommandResponse<unknown>;
     if (!parsed) {
       commandResponse = {
@@ -296,15 +407,8 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
 
     const responseText = this.toSlashResponseText(commandResponse);
 
-    const invocationRequest = {
-      commandKey,
-      commandToken: parsed?.commandToken ?? rawInvocation.commandToken,
-      rawArgs: parsed?.rawArgs ?? rawInvocation.rawArgs,
-      rawInput: parsed?.rawInput ?? rawInvocation.rawInput,
-      invokedBy: 'user',
-    };
     const slashMessage: ChatMessage = {
-      timestamp: new Date().toISOString(),
+      timestamp: requestedAt,
       from: 'human',
       to: ctx.agent!.id,
       isHuman: true,
@@ -312,15 +416,29 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
       content: rawInvocation.rawInput,
       tool_calls: [
         {
+          callId: slashCallId,
           tool: slashToolName,
           params: invocationRequest,
+          requestedAt,
           result: commandResponse,
           resultLlm: responseText,
         },
       ],
     };
 
-    await this.sessionManager.appendMessage(ctx.sessionId!, slashMessage);
+    if (splitToolHistory) {
+      const resultPhase = commandResponse.status === 'ok' ? 'result' : 'error';
+      await this.sessionManager.appendToolCallResult!(
+        toolHistorySessionId!,
+        slashCallId,
+        commandResponse,
+        responseText,
+        resultPhase,
+        new Date().toISOString()
+      );
+    } else {
+      await this.sessionManager.appendMessage(ctx.sessionId!, slashMessage);
+    }
     ctx.history.push(slashMessage);
 
     this.emitService.toolEvent(
@@ -338,7 +456,14 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
       }
     );
 
-    return { responseText };
+    const sessionChanged = ctx.sessionId !== sessionBeforeSlash;
+    return {
+      responseText,
+      commandKey,
+      ...(sessionChanged && !DETACHED_SESSION_COMMAND_KEYS.has(commandKey)
+        ? { followUpMessage: HANDOFF_AUTO_REACT_MESSAGE }
+        : {}),
+    };
   }
 
   private toSlashResponseText(response: CommandResponse<unknown>): string {

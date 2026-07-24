@@ -87,6 +87,7 @@ export function ToolCallBlock({
   const request = event.toolResult?.request;
 
   if (phase === 'request' || phase === 'start') {
+    const longRunning = event.toolResult?.longRunning === true;
     const hasRequest = request !== undefined;
     const preview = requestPreview(request);
     const previewLabel = preview ? `params: ${preview}` : null;
@@ -99,7 +100,7 @@ export function ToolCallBlock({
       <div className={`tool-call-entry${detailsOpen ? ' tool-call-entry--open' : ''}`}>
         <button
           type="button"
-          className={`tool-call-block tool-call-block--running${detailsOpen ? ' tool-call-block--details-open' : ''}${hasRequest ? ' tool-call-block--clickable' : ''}`}
+          className={`tool-call-block${longRunning ? ' tool-call-block--workflow' : ' tool-call-block--running'}${detailsOpen ? ' tool-call-block--details-open' : ''}${hasRequest ? ' tool-call-block--clickable' : ''}`}
           data-tool-phase={phase}
           onClick={toggleDetailsOpen}
           disabled={!hasRequest}

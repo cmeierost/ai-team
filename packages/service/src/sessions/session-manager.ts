@@ -287,6 +287,28 @@ export class SessionManager implements ISessionManager {
     }
   }
 
+  async appendToolCallRequest(sessionId: string, message: ChatMessage): Promise<void> {
+    await this.messages.insertToolCallRequest(sessionId, message);
+  }
+
+  async appendToolCallResult(
+    sessionId: string,
+    callId: string,
+    result: unknown,
+    resultLlm: string | undefined,
+    phase: 'result' | 'error' | 'denied',
+    timestamp: string
+  ): Promise<void> {
+    await this.messages.insertToolCallResult(
+      sessionId,
+      callId,
+      result,
+      resultLlm,
+      phase,
+      timestamp
+    );
+  }
+
   async deleteSessionMessage(sessionId: string, messageTimestamp: string): Promise<boolean> {
     return this.messages.deleteMessage(sessionId, messageTimestamp);
   }

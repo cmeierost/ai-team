@@ -10,6 +10,7 @@ import { ToolEvent } from '../tui/tool-event.js';
 import { HandoffTransition } from '../tui/handoff-transition.js';
 import { CodeEditProposal } from '../tui/code-edit-proposal.js';
 import { PreviousLog } from '../tui/previous-log.js';
+import { ChatCommandHint } from '../tui/chat-command-hint.js';
 import { UserMessage } from '../tui/user-message.js';
 import { ThinkingBlock } from '../tui/thinking-block.js';
 import {
@@ -40,6 +41,7 @@ export interface WorkflowEventState {
   currentHandoff?: HandoffTransition | null;
   currentHandoffId?: string;
   currentUserMessage?: UserMessage | null;
+  lastErrorMessage?: string;
   developerName?: string;
   workflowName?: string;
   toolComponents?: Map<string, ToolEvent>;
@@ -157,7 +159,8 @@ function handleAgentInfo(
   }
   state.currentResponse?.setIdentity(state.currentAgent, state.developerName);
 
-  return null;
+  const message = typeof payload.message === 'string' ? payload.message.trim() : '';
+  return message ? new ChatCommandHint(message) : null;
 }
 
 function handleTool(
@@ -206,27 +209,23 @@ function handleTool(
   const custom = registry.renderTool(normalized);
   if (custom.handled) return custom;
 
-  if (historical) {
-    return transcriptPlacement(
-      new ToolEvent(toolName, input, output, phase, {
-        maxInputLines: 4,
-        maxOutputLines: 8,
-      })
-    );
-  }
-
-  const toolKey = payload.toolCallId ?? toolName;
-  const toolComponents = state.toolComponents ?? new Map<string, ToolEvent>();
-  state.toolComponents = toolComponents;
-  const existing = toolComponents.get(toolKey);
-  if (existing) {
-    existing.update(input, output, phase);
+  // Start is execution-state noise. The durable request and terminal outcome
+  // are immutable transcript entries and must never rewrite one another.
+  if (phase === 'start') {
     return { handled: true, placements: [] };
   }
 
-  const component = new ToolEvent(toolName, input, output, phase);
-  toolComponents.set(toolKey, component);
-  return transcriptPlacement(component);
+  return transcriptPlacement(
+    new ToolEvent(
+      toolName,
+      phase === 'request' ? input : undefined,
+      phase === 'request' ? undefined : output,
+      phase,
+      historical
+        ? { maxInputLines: 4, maxOutputLines: 8 }
+        : undefined
+    )
+  );
 }
 
 function normalizeToolPhase(
@@ -406,13 +405,18 @@ function handleLog(
 
 function handleError(
   event: StreamEvent<'chat'>,
-  _state: WorkflowEventState,
+  state: WorkflowEventState,
   _registry: ExtensionRegistry
 ): Component | null {
   const payload = event as any;
-  const message = payload.message ?? payload.error ?? 'Unknown error';
+  const message = String(payload.message ?? payload.error ?? 'Unknown error');
+  if (message === state.lastErrorMessage) return null;
+  state.lastErrorMessage = message;
 
-  const log = new PreviousLog();
-  log.addMessage('error', message);
-  return log;
+  const error = new AgentResponse({
+    name: 'Error',
+    color: { r: 220, g: 38, b: 38 },
+  });
+  error.setText(message);
+  return error;
 }

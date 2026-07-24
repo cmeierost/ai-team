@@ -78,17 +78,17 @@ remove(): void {
     result.push(header);
 
     if (!this.collapsed) {
-      // Input
-      const inputStr = this.formatValue(this.input);
-      const inputLines = this.wrapBlock(
-        'Input:',
-        inputStr,
-        width,
-        this.options.maxInputLines
-      );
-      result.push(...inputLines);
+      if (this.input !== undefined) {
+        const inputStr = this.formatValue(this.input);
+        const inputLines = this.wrapBlock(
+          'Input:',
+          inputStr,
+          width,
+          this.options.maxInputLines
+        );
+        result.push(...inputLines);
+      }
 
-      // Output
       if (this.output !== undefined) {
         const outputStr = this.formatValue(this.output);
         const outputLines = this.wrapBlock(

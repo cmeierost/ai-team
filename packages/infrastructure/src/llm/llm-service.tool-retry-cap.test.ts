@@ -92,6 +92,107 @@ function createAssistantTextStream(text: string): AsyncIterable<unknown> {
 }
 
 describe('LlmService tool retry cap', () => {
+  it('streams provider reasoning aliases while a tool-capable turn is still running', async () => {
+    const service = createService({
+      provider: 'openai-compatible',
+      model: 'gpt-4.1',
+      baseUrl: 'http://localhost:9999/v1',
+      apiKey: 'test-key',
+    });
+    let releaseContent!: () => void;
+    let releaseCompletion!: () => void;
+    let markReasoningYielded!: () => void;
+    let markContentYielded!: () => void;
+    const contentGate = new Promise<void>((resolve) => {
+      releaseContent = resolve;
+    });
+    const completionGate = new Promise<void>((resolve) => {
+      releaseCompletion = resolve;
+    });
+    const reasoningYielded = new Promise<void>((resolve) => {
+      markReasoningYielded = resolve;
+    });
+    const contentYielded = new Promise<void>((resolve) => {
+      markContentYielded = resolve;
+    });
+    const create = vi.fn(async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield {
+          choices: [{ delta: { reasoning: 'Planning the receiving-agent response' } }],
+        };
+        markReasoningYielded();
+        await contentGate;
+        yield {
+          choices: [{ delta: { content: 'Ready to discuss ' } }],
+        };
+        markContentYielded();
+        await completionGate;
+        yield {
+          choices: [{ delta: { content: 'the team needs.' } }],
+        };
+      },
+    }));
+    (service as unknown as { client: unknown }).client = {
+      chat: { completions: { create } },
+    };
+    const onToken = vi.fn();
+
+    const responsePromise = service.chatWithTools(
+      createAgent(),
+      [{ role: 'user', content: 'Discuss the team needs' }],
+      [{ name: 'com_handoff', description: 'Handoff', parameters: { type: 'object' } }],
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      8,
+      onToken
+    );
+
+    await reasoningYielded;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(onToken).toHaveBeenCalledWith('💭 Planning the receiving-agent response');
+
+    releaseContent();
+    await contentYielded;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(onToken).toHaveBeenCalledWith('Ready to discuss ');
+
+    releaseCompletion();
+    await expect(responsePromise).resolves.toMatchObject({
+      text: 'Ready to discuss the team needs.',
+    });
+  });
+
+  it('stops the tool loop immediately after a terminal orchestration tool', async () => {
+    const service = createService({
+      provider: 'openai-compatible',
+      model: 'gpt-4.1',
+      baseUrl: 'http://localhost:9999/v1',
+      apiKey: 'test-key',
+    });
+    const create = vi.fn(async () => createToolStream(0));
+    (service as unknown as { client: unknown }).client = {
+      chat: { completions: { create } },
+    };
+
+    const result = await service.chatWithTools(
+      createAgent(),
+      [{ role: 'user', content: 'Hand me off' }],
+      [{ name: 'com_handoff', description: 'Handoff', parameters: { type: 'object' } }],
+      async ({ toolCallId, toolName }) => ({
+        toolCallId,
+        toolName,
+        result: { status: 'ok' },
+        terminal: true,
+      })
+    );
+
+    expect(result).toMatchObject({ text: '' });
+    expect(result.toolResults).toHaveLength(1);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
   it('logs the exact Chat Completions tool payload sent for a tool loop', async () => {
     const resolver: ILlmSettingsResolver = {
       resolveEffectiveLlmSettings: vi.fn(),

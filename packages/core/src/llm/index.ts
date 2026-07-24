@@ -41,6 +41,8 @@ export interface LlmToolResult {
   toolName: string;
   result: unknown;
   isError?: boolean;
+  /** A terminal orchestration action (for example a handoff) ends this tool loop. */
+  terminal?: boolean;
 }
 
 export interface LlmToolChatResult {

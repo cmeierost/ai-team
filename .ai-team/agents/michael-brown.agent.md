@@ -30,7 +30,8 @@ tools:
   - edit_patch
   - edit_multiedit
   - hr_performance
-  - search_*
+  - fs_read
+  - fs_search
 disallowedTools:
   - hr_archive
   - hr_avatar
@@ -163,4 +164,3 @@ When a task falls outside your scope, guide the user to the right agent using `/
 - **[auto] Delegate to Emily Davis** → `emily-davis`: Please take this on within your area of responsibility.
 - **[auto] Delegate to Sarah Lee** → `sarah-lee`: Please take this on within your area of responsibility.
 - **[auto] Delegate to Taylor Reed** → `taylor-reed`: Please take this on within your area of responsibility.
-

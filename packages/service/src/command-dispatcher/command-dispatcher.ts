@@ -210,7 +210,7 @@ export class CommandDispatcher implements ICommandDispatcher {
       const resolvedParams = resolveCommandArgs(cmd, completed, executionContext);
       const result = await cmd.execute(resolvedParams, executionContext);
       if (isCommandResponse(result)) {
-        return { ...result, message: result.message ?? '' };
+        return this.formatHumanCommandResponse(result, cmd, executionContext);
       }
       return { status: 'ok', message: '', data: result };
     } catch (error) {
@@ -365,6 +365,34 @@ export class CommandDispatcher implements ICommandDispatcher {
     }
   }
 
+  private formatHumanCommandResponse(
+    response: CommandResponse<unknown>,
+    command: ICommand<unknown, unknown>,
+    context: ExecutionContext
+  ): CommandResponse<unknown> {
+    if (response.status !== 'ok' || context.invocationSurface !== 'slash') {
+      return { ...response, message: response.message ?? '' };
+    }
+
+    const formatter = command.formatForLlm;
+    if (!formatter || response.data === undefined) {
+      return { ...response, message: response.message ?? '' };
+    }
+
+    try {
+      const formatted = formatter.call(command, response.data);
+      const message = typeof formatted === 'string'
+        ? formatted
+        : formatted === undefined
+          ? response.message ?? ''
+          : JSON.stringify(formatted, null, 2);
+      return { ...response, message };
+    } catch {
+      // Formatting must never turn a successful command into a failed one.
+      return { ...response, message: response.message ?? '' };
+    }
+  }
+
   private unknownCommandResponse(key: string): CommandResponse<unknown> {
     return {
       status: 'error',
@@ -443,6 +471,21 @@ export function createCommandDispatcher(
 
   const registry = new CommandRegistry();
   registerBuiltInCommands(registry, scopedResolver);
+
+  // Filesystem tools live in the service-layer registry because they require
+  // workspace-scoped dependencies. Mirror the human-readable filesystem
+  // commands into the dispatcher registry so their `chat` availability also
+  // makes them resolvable as slash commands.
+  const serviceRegistry = scopedResolver.resolve(CORE_SERVICE_TOKENS.CommandRegistry);
+  for (const key of ['fs-read', 'fs-search', 'fs-tree', 'fs-write']) {
+    const descriptor = serviceRegistry.get(key);
+    if (!descriptor?.availableIn?.chat) continue;
+    registry.register(descriptor, (resolver) => {
+      const command = serviceRegistry.resolve(key, resolver);
+      if (!command) throw new Error(`Unable to resolve filesystem command '${key}'.`);
+      return command;
+    });
+  }
 
   const dispatcher = new CommandDispatcher(registry, scopedResolver);
   registerHelpCommand(registry);

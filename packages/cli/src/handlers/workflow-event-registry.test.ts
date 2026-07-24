@@ -38,6 +38,39 @@ function transcriptComponent(projection: EventProjection | null) {
 }
 
 describe('WorkflowEventRegistry', () => {
+  it('renders startup command guidance as a quiet chat hint', () => {
+    const harness = createHarness();
+
+    const component = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'agent_info',
+        timestamp,
+        agentName: 'Michael Brown',
+        message: 'exit · /help · /handoff <name>',
+      },
+      harness.state,
+      harness.extensions
+    );
+
+    const rendered = component?.render(80).join('\n') ?? '';
+    expect(rendered).toContain('exit · /help · /handoff <name>');
+    expect(rendered).not.toContain('[INFO');
+  });
+
+  it('does not render the same live error twice in one turn', () => {
+    const harness = createHarness();
+    const error = {
+      command: 'chat',
+      kind: 'error',
+      timestamp,
+      message: 'Target agent LLM request timed out.',
+    } as any;
+
+    expect(harness.registry.handle(error, harness.state, harness.extensions)).not.toBeNull();
+    expect(harness.registry.handle(error, harness.state, harness.extensions)).toBeNull();
+  });
+
   it('renders streamed token chunks as one agent response', () => {
     const harness = createHarness();
     harness.registry.handle(
@@ -103,7 +136,7 @@ describe('WorkflowEventRegistry', () => {
     expect(rendered).not.toContain('[INFO');
   });
 
-  it('renders nested tool request and result payloads from the shared event contract', () => {
+  it('renders a nested tool result without duplicating its separately logged request', () => {
     const harness = createHarness();
     const event: StreamEvent<'chat'> = {
       command: 'chat',
@@ -126,23 +159,23 @@ describe('WorkflowEventRegistry', () => {
     const component = harness.registry.handle(event, harness.state, harness.extensions);
     const rendered = renderedProjection(component);
 
-    expect(rendered).toContain('README.md');
+    expect(rendered).not.toContain('README.md');
     expect(rendered).toContain('file contents');
   });
 
-  it('updates one tool component across lifecycle phases', () => {
+  it('keeps tool request and result as separate immutable transcript entries', () => {
     const harness = createHarness();
-    const started = harness.registry.handle(
+    const requested = harness.registry.handle(
       {
         command: 'chat',
         kind: 'tool',
         timestamp,
         toolName: 'fs_read',
         toolCallId: 'call-1',
-        toolPhase: 'start',
+        toolPhase: 'request',
         toolResult: {
           toolName: 'fs_read',
-          outcome: 'start',
+          outcome: 'request',
           request: { path: 'README.md' },
         },
       },
@@ -168,10 +201,14 @@ describe('WorkflowEventRegistry', () => {
       harness.extensions
     );
 
-    expect(started).not.toBeNull();
-    expect(completed).toMatchObject({ handled: true, placements: [] });
-    expect(transcriptComponent(started)?.render(80).join('\n')).toContain('[result]');
-    expect(transcriptComponent(started)?.render(80).join('\n')).toContain('done');
+    const requestText = transcriptComponent(requested)?.render(80).join('\n') ?? '';
+    const resultText = transcriptComponent(completed)?.render(80).join('\n') ?? '';
+    expect(requestText).toContain('[request]');
+    expect(requestText).toContain('README.md');
+    expect(requestText).not.toContain('done');
+    expect(resultText).toContain('[result]');
+    expect(resultText).toContain('done');
+    expect(resultText).not.toContain('README.md');
   });
 
   it('renders each historical tool result without merging replayed calls', () => {
@@ -246,6 +283,8 @@ describe('WorkflowEventRegistry', () => {
         fromAgentName: 'Michael Brown',
         toAgentId: 'sarah-lee',
         toAgentName: 'Sarah Lee',
+        toAvatarColor: 'hsl(120, 60%, 50%)',
+        toLlmModel: 'best-chat',
         briefingContent: 'Preserve the event-driven service boundary.',
       },
       harness.state,
@@ -258,7 +297,7 @@ describe('WorkflowEventRegistry', () => {
       'Preserve the event-driven service boundary.'
     );
     expect(rendered).toContain('Michael Brown');
-    expect(rendered).toContain('→ Sarah Lee:');
+    expect(rendered).toContain('→ Sarah Lee \x1b[2m(best-chat)');
     expect(rendered).toContain('\x1b[48;2;');
     expect(renderedLines.every((line) => visibleWidth(line) === 80)).toBe(true);
     expect(harness.state.currentAgent?.name).toBe('Sarah Lee');

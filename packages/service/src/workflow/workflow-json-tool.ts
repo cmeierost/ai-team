@@ -53,6 +53,12 @@ export const JsonWorkflowSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
+  return: z
+    .object({
+      command: z.string().min(1),
+      args: z.record(z.string(), z.json()).optional(),
+    })
+    .optional(),
   steps: z.array(JsonWorkflowStepSchema),
 });
 
@@ -102,6 +108,7 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
         format: 'workflow/v1',
         id: this.definition.id,
         initial: this.definition.steps[0]?.id ?? 'done',
+        ...(this.definition.return ? { return: this.definition.return } : {}),
         states,
       },
       definitionYaml: `format: workflow/v1\nid: ${this.definition.id}\n# ${this.definition.description}\nsteps: ${this.definition.steps.length}`,
@@ -197,6 +204,7 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
       id: def.id,
       description: def.description,
       availableIn: {},
+      return: def.return,
       steps: runtimeSteps,
     };
 

@@ -35,6 +35,7 @@ type PersistedToolCall = {
   params?: unknown;
   result?: unknown;
   resultLlm?: unknown;
+  longRunning?: boolean;
 };
 
 function toRuntimeCommandResponse(
@@ -89,6 +90,21 @@ function resolveToolEvent(
   }
 
   if (persistedCall) {
+    if (persistedCall.longRunning) {
+      return {
+        toolName: extractedToolName,
+        toolPhase: 'request',
+        message: 'Workflow in progress; waiting for return.',
+        timestamp: message.timestamp,
+        toolResult: {
+          id: persistedCall.id,
+          toolName: extractedToolName,
+          outcome: 'request',
+          request: persistedCall.params,
+          longRunning: true,
+        },
+      };
+    }
     const status = getPersistedToolStatus(persistedCall);
     return {
       toolName: extractedToolName,

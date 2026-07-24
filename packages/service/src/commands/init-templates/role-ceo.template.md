@@ -10,9 +10,8 @@ responsibilities:
   - Make executive staffing and ownership decisions
   - Delegate team-building and hiring to the HR Director (merged HR+headhunter role)
 tools:
-  - read_file
-  - file_search
-  - semantic_search
+  - fs_read
+  - fs_search
   - create_agent
   - archive_agent
   - assess_performance

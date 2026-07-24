@@ -28,6 +28,20 @@ describe('resolveSlashInvocation', () => {
       availableIn: { chat: true },
     },
     {
+      key: 'return',
+      group: 'session',
+      aliases: ['return'],
+      description: 'Return to the parent workflow',
+      availableIn: { chat: true },
+    },
+    {
+      key: 'handoff',
+      group: 'com',
+      aliases: ['ho', 'handoff'],
+      description: 'Hand off the conversation',
+      availableIn: { chat: true },
+    },
+    {
       key: 'review',
       group: 'chat',
       path: ['dynamic', 'skill'],
@@ -54,7 +68,21 @@ describe('resolveSlashInvocation', () => {
       commandKey: 'session-switch',
       rawArgs: 'michael',
     });
+    expect(resolveSlashInvocation('/return', commands)).toMatchObject({
+      commandKey: 'session-return',
+      rawArgs: '',
+    });
+    expect(resolveSlashInvocation('/back', commands)).toBeUndefined();
     expect(resolveSlashInvocation('/helpful', commands)).toBeUndefined();
+  });
+
+  it('resolves the advertised /handoff alias', () => {
+    expect(resolveSlashInvocation('/handoff alex-morgan Please take over the CLI discussion', commands)).toMatchObject({
+      commandKey: 'com-handoff',
+      commandToken: 'handoff',
+      rawArgs: 'alex-morgan Please take over the CLI discussion',
+      canonicalInvocation: '/com handoff',
+    });
   });
 
   it('keeps dynamic commands as bare invocations', () => {

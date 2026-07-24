@@ -11,7 +11,7 @@ import { formatSlashInvocation } from '../../command-dispatcher/slash-invocation
 type RegistryEntry = Pick<
   ICommandDescriptor,
   'usage' | 'description' | 'key' | 'group' | 'availableIn' | 'path' | 'aliases'
-> & { parameters?: unknown };
+> & { parameters?: unknown; examples?: string[] };
 
 interface HelpPayload {
   extra?: RegistryEntry[];
@@ -112,6 +112,10 @@ function renderDetailView(entry: RegistryEntry, isCliInvocation: boolean): strin
     for (const p of params) {
       lines.push(`  ${p.name.padEnd(20)} ${p.description}${buildParamSuffix(p)}`);
     }
+  }
+  if (entry.examples?.length) {
+    lines.push('', 'Examples:');
+    for (const example of entry.examples) lines.push(`  ${example}`);
   }
   return lines.join('\n');
 }

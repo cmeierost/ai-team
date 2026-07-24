@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { HandoffCommand } from './handoff.command.js';
+import { HandoffCommand, HandoffCommandMetadata } from './handoff.command.js';
 
 const SOURCE = {
   id: 'michael',
@@ -51,11 +51,16 @@ function createCommand(askAnswer = false, source = SOURCE) {
 }
 
 describe('HandoffCommand delegation approval', () => {
-  it.each([
-    ['slash', true],
-    ['tool', false],
-    ['workflow', false],
-  ] as const)(
+  it('advertises report-back requests as real handoffs with a useful briefing', () => {
+    expect(HandoffCommandMetadata.description).toContain(
+      'tell, report back to, or return to another agent'
+    );
+    expect(HandoffCommand.schema.shape.briefingNote.description).toContain(
+      'answer or conclusions'
+    );
+  });
+
+  it.each([['slash', true], ['workflow', false]] as const)(
     'returns the same typed transition result for the %s invocation surface',
     async (invocationSurface, calledByHuman) => {
       const source = {
@@ -89,6 +94,37 @@ describe('HandoffCommand delegation approval', () => {
     }
   );
 
+  it('returns a declarative request for a model tool call without applying the transition', async () => {
+    const source = {
+      ...SOURCE,
+      handoffs: [{ label: 'HR', agent: 'emily' }],
+    };
+    const { command, handoffSubWorkflow, commandDispatcher } = createCommand(false, source);
+
+    const result = await command.execute(
+      { targetAgentId: 'emily', targetWorkflowId: 'chat', briefingNote: 'Please take over.' },
+      {
+        history: [],
+        agent: source as any,
+        agentId: source.id,
+        sessionId: 'session-michael',
+        invocationSurface: 'tool',
+        calledByHuman: false,
+      }
+    );
+
+    expect(result).toMatchObject({
+      status: 'ok',
+      data: {
+        type: 'handoff',
+        targetAgentId: 'emily',
+        briefingNote: 'Please take over.',
+      },
+    });
+    expect(handoffSubWorkflow.executeAsync).not.toHaveBeenCalled();
+    expect(commandDispatcher.dispatch).not.toHaveBeenCalled();
+  });
+
   it('allows a trusted human slash handoff to any valid agent without asking', async () => {
     const { command, handoffSubWorkflow, commandDispatcher } = createCommand();
 
@@ -108,7 +144,34 @@ describe('HandoffCommand delegation approval', () => {
     expect(handoffSubWorkflow.executeAsync).toHaveBeenCalledOnce();
   });
 
-  it('asks through com_ask before an agent hands off to an unconfigured target', async () => {
+  it('passes workflow return navigation through to the handoff subworkflow', async () => {
+    const { command, handoffSubWorkflow } = createCommand();
+
+    const result = await command.execute(
+      {
+        targetAgentId: 'emily',
+        targetWorkflowId: 'chat',
+        navigationIntent: 'back',
+      },
+      {
+        history: [],
+        agent: SOURCE as any,
+        sessionId: 'session-michael',
+        invocationSurface: 'slash',
+        calledByHuman: true,
+      }
+    );
+
+    expect(result.status).toBe('ok');
+    expect(handoffSubWorkflow.executeAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetAgentQuery: 'emily',
+        navigationIntent: 'back',
+      })
+    );
+  });
+
+  it('defers confirmation for an unconfigured model handoff to the runtime transition', async () => {
     const { command, handoffSubWorkflow, commandDispatcher } = createCommand(false);
 
     const result = await command.execute(
@@ -122,22 +185,16 @@ describe('HandoffCommand delegation approval', () => {
       }
     );
 
-    expect(result.status).toBe('cancelled');
+    expect(result.status).toBe('ok');
     expect(result.data).toMatchObject({
-      type: 'handoff_cancelled',
-      outcome: 'cancelled',
+      type: 'handoff',
       targetAgentId: 'emily',
-      reasonCode: 'approval-denied',
     });
-    expect(commandDispatcher.dispatch).toHaveBeenCalledWith(
-      'com-ask',
-      expect.objectContaining({ kind: 'confirm', defaultBoolean: false }),
-      expect.anything()
-    );
+    expect(commandDispatcher.dispatch).not.toHaveBeenCalled();
     expect(handoffSubWorkflow.executeAsync).not.toHaveBeenCalled();
   });
 
-  it.each(['tool', 'workflow'] as const)(
+  it.each(['workflow'] as const)(
     'does not trust calledByHuman on the %s invocation surface',
     async (invocationSurface) => {
       const { command, handoffSubWorkflow, commandDispatcher } = createCommand(false);
@@ -181,7 +238,7 @@ describe('HandoffCommand delegation approval', () => {
         agent: SOURCE as any,
         agentId: SOURCE.id,
         sessionId: 'session-michael',
-        invocationSurface: 'tool' as const,
+        invocationSurface: 'workflow' as const,
         calledByHuman: false,
       };
 
@@ -206,7 +263,7 @@ describe('HandoffCommand delegation approval', () => {
     }
   );
 
-  it('allows a configured agent handoff target without asking', async () => {
+  it('does not apply a configured model handoff before the runtime transition', async () => {
     const { command, handoffSubWorkflow, commandDispatcher } = createCommand();
     const source = {
       ...SOURCE,
@@ -226,7 +283,7 @@ describe('HandoffCommand delegation approval', () => {
 
     expect(result.status).toBe('ok');
     expect(commandDispatcher.dispatch).not.toHaveBeenCalled();
-    expect(handoffSubWorkflow.executeAsync).toHaveBeenCalledOnce();
+    expect(handoffSubWorkflow.executeAsync).not.toHaveBeenCalled();
   });
 
   it('resolves the source agent from agentId before applying configured handoffs', async () => {
@@ -261,13 +318,33 @@ describe('HandoffCommand delegation approval', () => {
         history: [],
         agent: SOURCE as any,
         sessionId: 'session-michael',
-        invocationSurface: 'tool',
+        invocationSurface: 'workflow',
         calledByHuman: false,
       }
     );
 
     expect(result.status).toBe('ok');
     expect(commandDispatcher.dispatch).toHaveBeenCalledOnce();
+    expect(handoffSubWorkflow.executeAsync).toHaveBeenCalledOnce();
+  });
+
+  it('does not request a second approval when applying an already accepted tool handoff', async () => {
+    const { command, handoffSubWorkflow, commandDispatcher } = createCommand(false);
+
+    const result = await command.execute(
+      { targetAgentId: 'emily', targetWorkflowId: 'chat' },
+      {
+        history: [],
+        agent: SOURCE as any,
+        sessionId: 'session-michael',
+        invocationSurface: 'cli',
+        calledByHuman: false,
+        handoffAlreadyAuthorized: true,
+      }
+    );
+
+    expect(result.status).toBe('ok');
+    expect(commandDispatcher.dispatch).not.toHaveBeenCalled();
     expect(handoffSubWorkflow.executeAsync).toHaveBeenCalledOnce();
   });
 
@@ -328,7 +405,7 @@ describe('HandoffCommand delegation approval', () => {
       agentId: source.id,
       sessionId: 'session-michael',
       navStack: [],
-      invocationSurface: 'tool' as const,
+        invocationSurface: 'workflow' as const,
     };
 
     await expect(

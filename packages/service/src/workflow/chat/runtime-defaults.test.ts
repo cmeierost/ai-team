@@ -53,7 +53,7 @@ function runChain(
   ctx: ExecutionContext
 ) {
   const agentManager = makeAgentManager(ctx.agent?.id);
-  for (const parser of buildDefaultTurnResultParsers(agentManager as any)) {
+  for (const parser of buildDefaultTurnResultParsers()) {
     const override = parser.parse(structuredResults, fullResponse, persistedContent, ctx);
     if (override !== null) return override;
   }
@@ -118,12 +118,16 @@ describe('HandoffToolResultParser', () => {
     expect(result).toMatchObject({ handoffTargetSessionId: 'sess-999' });
   });
 
-  it('returns { done:false } (no handoff) when target agent is not found', () => {
+  it('accepts the canonical target ID returned by the handoff tool', () => {
     const ctx = makeCtx('current-agent');
     const result = parser.parse([handoffResult('unknown-agent')], '', 'persisted', ctx);
 
-    expect(result).toEqual({ text: 'persisted', done: false });
-    expect(result).not.toHaveProperty('handedOff');
+    expect(result).toMatchObject({
+      text: 'persisted',
+      done: false,
+      handedOff: true,
+      handoffTargetId: 'unknown-agent',
+    });
   });
 
   it('returns { done:false } (no handoff) when target resolves to the current agent (self-handoff)', () => {
@@ -137,12 +141,12 @@ describe('HandoffToolResultParser', () => {
 
 describe('buildDefaultTurnResultParsers', () => {
   it('returns an array of one parser', () => {
-    const parsers = buildDefaultTurnResultParsers(makeAgentManager() as any);
+    const parsers = buildDefaultTurnResultParsers();
     expect(parsers).toHaveLength(1);
   });
 
   it('first parser is HandoffToolResultParser', () => {
-    const [first] = buildDefaultTurnResultParsers(makeAgentManager() as any);
+    const [first] = buildDefaultTurnResultParsers();
     expect(first).toBeInstanceOf(HandoffToolResultParser);
   });
 });
@@ -169,6 +173,96 @@ describe('Parser chain priority', () => {
 });
 
 describe('DefaultContextBuilder', () => {
+  it('replays persisted tool calls and results with a linked Chat Completions tool sequence', async () => {
+    const builder = new DefaultContextBuilder();
+
+    const messages = await builder.build(
+      [
+        {
+          id: 42,
+          from: 'emily-davis',
+          isHuman: false,
+          content: '',
+          timestamp: '2026-07-24T09:00:00.000Z',
+          tool_calls: [
+            {
+              id: 7,
+              tool: 'com_handoff',
+              params: { targetAgentId: 'sarah-lee' },
+              result: { status: 'ok', message: 'Handoff requested.' },
+            },
+          ],
+        },
+      ],
+      { history: [] } as any
+    );
+
+    expect(messages).toEqual([
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'persisted-tool-42-7',
+            type: 'function',
+            function: {
+              name: 'com_handoff',
+              arguments: JSON.stringify({ targetAgentId: 'sarah-lee' }),
+            },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'persisted-tool-42-7',
+        content: JSON.stringify({ status: 'ok', message: 'Handoff requested.' }),
+      },
+    ]);
+  });
+
+  it('sends a mirrored handoff briefing once as an attributed input that prompts a reply', async () => {
+    const builder = new DefaultContextBuilder();
+
+    const messages = await builder.build(
+      [
+        {
+          from: 'emily-davis',
+          to: 'michael-brown',
+          isHuman: false,
+          handoffType: 'agent-briefing',
+          handoffId: 'handoff-1',
+          content: 'Clemens wants to discuss what the team needs.',
+          timestamp: new Date().toISOString(),
+        },
+      ],
+      { history: [] } as any
+    );
+
+    expect(messages).toEqual([
+      {
+        role: 'user',
+        content: expect.stringContaining('[Internal handoff — Emily Davis → Michael Brown]'),
+      },
+    ]);
+    expect(messages[0]?.content).toContain('Emily Davis wrote:');
+    expect(messages[0]?.content).toContain(
+      'The human developer is now your conversational counterpart.'
+    );
+    expect(messages[0]?.content).toContain('Respond to the developer, not Emily Davis.');
+    expect(messages[0]?.content).toContain(
+      'A return path to Emily Davis is available through session_return'
+    );
+    expect(messages[0]?.content).toContain(
+      'Call it only after the developer clearly asks to return/report back'
+    );
+    expect(messages[0]?.content).toContain('Do not return merely because you have produced an answer');
+    expect(messages[0]?.content).toContain(
+      'Do not ask the developer to repeat information already included here.'
+    );
+    expect(messages[0]?.content).toContain('Clemens wants to discuss what the team needs.');
+    expect(messages[0]?.content).not.toContain('Handoff received');
+  });
+
   it('excludes legacy persisted handoff continuations from model context', async () => {
     const builder = new DefaultContextBuilder();
 
@@ -253,6 +347,43 @@ describe('DefaultToolResolver', () => {
     } as any);
 
     await expect(resolver.resolve(makeCtx())).resolves.toEqual([comHandoffTool]);
+  });
+
+  it('exposes session_return only when the workflow has a custom return or completed result', async () => {
+    const sessionReturnTool = {
+      metadata: {
+        key: 'return',
+        group: 'session',
+        availableIn: { tool: true },
+        description: 'return',
+      },
+    } as any;
+    const toolManager = {
+      getForAgent: vi.fn(() => []),
+      get: vi.fn((name: string) => name === 'session_return' ? sessionReturnTool : undefined),
+    } as any;
+    const resolver = new DefaultToolResolver(toolManager);
+
+    await expect(resolver.resolve(makeCtx())).resolves.toEqual([]);
+    await expect(
+      resolver.resolve({
+        ...makeCtx(),
+        workflowReturn: { command: 'session-handoff-return' },
+      })
+    ).resolves.toEqual([]);
+    await expect(
+      resolver.resolve({
+        ...makeCtx(),
+        workflowReturn: { command: 'session-handoff-return' },
+        workflowStack: [{ workflowId: 'parent-workflow' }],
+      })
+    ).resolves.toEqual([sessionReturnTool]);
+    await expect(
+      resolver.resolve({
+        ...makeCtx(),
+        workflowLastResult: { status: 'ok', data: 'done' },
+      })
+    ).resolves.toEqual([sessionReturnTool]);
   });
 
   it('hides com_handoff when workflow policy deny explicitly blocks it', async () => {

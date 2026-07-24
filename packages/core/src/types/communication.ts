@@ -44,10 +44,18 @@ export interface ChatMessage {
 
 export interface ToolCall {
   id?: number;
+  /** Provider/runtime correlation ID shared by the request and its completion. */
+  callId?: string;
   tool: string;
   params: Record<string, unknown>;
+  /** Time at which the invocation was durably recorded. */
+  requestedAt?: string;
+  longRunning?: boolean;
   result?: unknown;
   resultLlm?: string;
+  /** Time at which the independently stored completion was recorded. */
+  completedAt?: string;
+  resultPhase?: 'result' | 'error' | 'denied';
 }
 
 export interface CodeSuggestion {

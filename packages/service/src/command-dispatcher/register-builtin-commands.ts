@@ -165,7 +165,12 @@ import {
   NewSessionChatCommand,
   NewSessionChatCommandMetadata,
 } from '../commands/session/new-session-chat.command.js';
-import { BackChatCommand, BackChatCommandMetadata } from '../commands/session/back.command.js';
+import {
+  ReturnChatCommand,
+  ReturnChatCommandMetadata,
+  HandoffWorkflowReturnCommand,
+  HandoffWorkflowReturnCommandMetadata,
+} from '../commands/session/return.command.js';
 import {
   HistoryChatCommand,
   HistoryChatCommandMetadata,
@@ -823,26 +828,18 @@ export function registerBuiltInCommands(
   );
 
   registry.register(
-    BackChatCommandMetadata,
-    (r) => {
-      const identityResolver = new AgentRuntimeIdentityResolver(
-        r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage),
-        r.resolve(CORE_SERVICE_TOKENS.LlmSettingsResolver)
-      );
-      const handoffSubWorkflow = new HandoffSubWorkflow(
+    ReturnChatCommandMetadata,
+    (r) => new ReturnChatCommand(r.resolve(CORE_SERVICE_TOKENS.CommandDispatcher))
+  );
+
+  registry.register(
+    HandoffWorkflowReturnCommandMetadata,
+    (r) =>
+      new HandoffWorkflowReturnCommand(
+        r.resolve(CORE_SERVICE_TOKENS.ThreadManager),
         r.resolve(CORE_SERVICE_TOKENS.AgentManager),
-        r.resolve(CORE_SERVICE_TOKENS.SessionManager),
-        r.resolve(CORE_SERVICE_TOKENS.ThreadManager),
-        r.resolve(CORE_SERVICE_TOKENS.LlmService),
-        r.resolve(CORE_SERVICE_TOKENS.EmitService),
-        identityResolver
-      );
-      return new BackChatCommand(
-        handoffSubWorkflow,
-        r.resolve(CORE_SERVICE_TOKENS.ThreadManager),
-        r.resolve(CORE_SERVICE_TOKENS.EmitService)
-      );
-    }
+        r.resolve(CORE_SERVICE_TOKENS.CommandDispatcher)
+      )
   );
 
   registry.register(HistoryChatCommandMetadata, (_r) => new HistoryChatCommand());
@@ -944,6 +941,7 @@ export function registerHelpCommand(registry: ICommandRegistry): void {
       availableIn: entry.availableIn,
       path: entry.path,
       parameters: entry.parameters,
+      examples: entry.examples,
     }))
   );
   registry.register(helpCmd.metadata, () => helpCmd);

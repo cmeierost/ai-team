@@ -129,6 +129,59 @@ describe('new chat TUI projection', () => {
     expect(terminal.writes.join('')).toContain('Michael Brown is thinking…');
   });
 
+  it('renders a streamed turn error before ending the chat turn', async () => {
+    const terminal = new FakeTerminal();
+    const client = clientWith([
+      { command: 'chat', kind: 'error', timestamp, message: 'Target agent is unavailable.' },
+    ]);
+
+    await renderChat(
+      client,
+      'michael-brown',
+      { oneShot: true, message: 'Please hand this off.' },
+      false,
+      undefined,
+      'chat',
+      { agentId: 'michael-brown' },
+      { terminal }
+    );
+
+    const output = terminal.writes.join('');
+    expect(output).toContain('Target agent is unavailable.');
+    expect(output).toContain('Error');
+    expect(output).toContain('\x1b[48;2;');
+  });
+
+  it('renders an LLM failure reported through a status event', async () => {
+    const terminal = new FakeTerminal();
+    const client = clientWith([
+      {
+        command: 'chat',
+        kind: 'status',
+        timestamp,
+        phase: 'error',
+        message: 'The target model timed out.',
+      },
+      { command: 'chat', kind: 'done', timestamp },
+    ]);
+
+    await renderChat(
+      client,
+      'michael-brown',
+      { oneShot: true, message: 'Please hand this off.' },
+      false,
+      undefined,
+      'chat',
+      { agentId: 'michael-brown' },
+      { terminal }
+    );
+
+    const output = terminal.writes.join('');
+    expect(output).toContain('The target model timed out.');
+    expect(output).toContain('Error');
+    expect(output).toContain('\x1b[48;2;');
+  });
+
   it('sends slash commands unchanged through the shared chat interaction', async () => {
     const terminal = new FakeTerminal();
     const requests: Array<{ command: string; payload?: unknown }> = [];
@@ -589,6 +642,77 @@ describe('new chat TUI projection', () => {
     const targetThinkingPosition = output.indexOf('Michael Brown is thinking…');
     expect(briefingPosition).toBeGreaterThanOrEqual(0);
     expect(targetThinkingPosition).toBeGreaterThan(briefingPosition);
+  });
+
+  it('paints a handoff delta before the handoff command completes', async () => {
+    const terminal = new FakeTerminal();
+    let releaseComplete!: () => void;
+    let markDeltaYielded!: () => void;
+    const completeGate = new Promise<void>((resolve) => {
+      releaseComplete = resolve;
+    });
+    const deltaYielded = new Promise<void>((resolve) => {
+      markDeltaYielded = resolve;
+    });
+    const client: ICliCommandClient = {
+      getCommands: () => [],
+      streamInteraction: async function* () {
+        yield {
+          command: 'chat',
+          kind: 'handoff',
+          timestamp,
+          handoffId: 'handoff-streaming-return',
+          handoffPhase: 'start',
+          fromAgentId: 'sarah-lee',
+          fromAgentName: 'Sarah Lee',
+          toAgentId: 'michael-brown',
+          toAgentName: 'Michael Brown',
+        } as any;
+        yield {
+          command: 'chat',
+          kind: 'handoff',
+          timestamp,
+          handoffId: 'handoff-streaming-return',
+          handoffPhase: 'delta',
+          fromAgentId: 'sarah-lee',
+          toAgentId: 'michael-brown',
+          delta: 'The architectural priorities are now clear.',
+        } as any;
+        markDeltaYielded();
+        await completeGate;
+        yield {
+          command: 'chat',
+          kind: 'handoff',
+          timestamp,
+          handoffId: 'handoff-streaming-return',
+          handoffPhase: 'complete',
+          fromAgentId: 'sarah-lee',
+          fromAgentName: 'Sarah Lee',
+          toAgentId: 'michael-brown',
+          toAgentName: 'Michael Brown',
+          briefingContent: 'The architectural priorities are now clear.',
+        } as any;
+        yield { command: 'chat', kind: 'done', timestamp } as any;
+      },
+    };
+
+    const renderPromise = renderChat(
+      client,
+      'sarah-lee',
+      { oneShot: true, message: '/return' },
+      false,
+      undefined,
+      'chat',
+      undefined,
+      { terminal }
+    );
+
+    await deltaYielded;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.writes.join('')).toContain('The architectural priorities are now clear.');
+
+    releaseComplete();
+    await renderPromise;
   });
 
   it('sends the next turn to the service-emitted handoff agent and session', async () => {

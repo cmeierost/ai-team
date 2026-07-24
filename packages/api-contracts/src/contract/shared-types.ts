@@ -336,6 +336,10 @@ export interface WorkflowDefinitionDocument {
   format: 'workflow/v1';
   id: string;
   initial: string;
+  return?: {
+    command: string;
+    args?: Record<string, unknown>;
+  };
   states: Record<string, WorkflowDefinitionState>;
 }
 

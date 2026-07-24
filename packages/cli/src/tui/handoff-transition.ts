@@ -50,7 +50,8 @@ export class HandoffTransition implements Component {
   }
 
   render(width: number): string[] {
-    const response = new AgentResponse(this.fromAgent, this.toAgent.name);
+    const response = new AgentResponse(this.fromAgent);
+    response.setRecipientIdentity(this.toAgent);
     response.setText(this.text);
     return response.render(width);
   }

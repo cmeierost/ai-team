@@ -76,13 +76,10 @@ const SILENT_TOOL_NAMES = new Set([
   'tool_list',
   'team_list',
   'fs_read',
-  'fs_read_lines',
-  'fs_exists',
+  'fs_write',
   'fs_info',
-  'fs_list',
   'fs_tree',
-  'fs_search_content',
-  'fs_search_metadata',
+  'fs_search',
   'lsp',
 ]);
 
@@ -163,7 +160,8 @@ export class ToolDispatchSupportService implements IToolDispatchSupportService {
   buildPendingToolRuntimePayload(
     toolName: string,
     phase: 'request' | 'start',
-    request: unknown
+    request: unknown,
+    longRunning = false
   ): ToolRuntimePayloadEvent {
     return {
       toolName,
@@ -172,6 +170,7 @@ export class ToolDispatchSupportService implements IToolDispatchSupportService {
       commandResponse: undefined,
       resultLlm: undefined,
       denial: undefined,
+      longRunning,
     };
   }
 

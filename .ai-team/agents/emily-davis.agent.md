@@ -29,7 +29,8 @@ tools:
 disallowedTools:
   - code_*
   - http_*
-  - search_*
+  - fs_read
+  - fs_search
   - team_*
   - tool_*
 model: claude-sonnet-4.6
@@ -86,4 +87,3 @@ When a task falls outside your scope, guide the user to the right agent using `/
 - **Scout Talent** → `john-smith`: Research and recommend skills or agent profiles for the need described above.
 - **[auto] Report to Michael Brown** → `michael-brown`: Reporting back with my findings and progress.
 - **[auto] Delegate to John Smith** → `john-smith`: Please take this on within your area of responsibility.
-

@@ -10430,6 +10430,23 @@
           "initial": {
             "type": "string"
           },
+          "return": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "type": "string"
+              },
+              "args": {
+                "type": "object",
+                "properties": {},
+                "nullable": true
+              }
+            },
+            "required": [
+              "command"
+            ],
+            "nullable": true
+          },
           "states": {
             "type": "object",
             "properties": {}

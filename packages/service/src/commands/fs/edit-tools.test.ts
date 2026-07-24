@@ -8,7 +8,6 @@ import { COMMAND_FACTORY_TOKENS } from '../../types.js';
 import { ToolManager } from '../../tooling/manager/tool-manager.js';
 import {
   FsReadFileTool,
-  FsReadLinesTool,
   FsWriteFileTool,
   FsCreateFileTool,
   FsDeletePathTool,
@@ -17,8 +16,6 @@ import {
   FsInfoTool,
   FsListTool,
   FsTreeTool,
-  FsSearchContentTool,
-  FsSearchMetadataTool,
 } from './fs-tools.js';
 import { FindSymbolTool, FindReferencesTool, LspTool, GrepCodeTool } from '../edit/code-tools.js';
 import { HttpFetchCommand } from '../http/http-fetch.command.js';
@@ -75,11 +72,9 @@ function getBuiltInTools(workspaceRoot: string): ICommand[] {
     }),
   } as any;
   const readFileTool = new FsReadFileTool(workspaceRoot, workspaceFsFactory as any);
-  const readLinesTool = new FsReadLinesTool(readFileTool);
   const fsEditTool = new FsEditTool(workspaceRoot, accessChecker as any, ideAdapterFactory);
   return [
     readFileTool,
-    readLinesTool,
     new FsWriteFileTool(workspaceFsFactory as any),
     new FsCreateFileTool(workspaceFsFactory as any),
     new FsDeletePathTool(workspaceFsFactory as any),
@@ -88,8 +83,6 @@ function getBuiltInTools(workspaceRoot: string): ICommand[] {
     new FsInfoTool(workspaceFsFactory as any),
     new FsListTool(workspaceFsFactory as any),
     new FsTreeTool(workspaceFsFactory as any),
-    new FsSearchContentTool(workspaceRoot, workspaceFsFactory as any),
-    new FsSearchMetadataTool(workspaceRoot, workspaceFsFactory as any),
     whoHasAccessTool,
     doIHaveAccessTool,
     analyzePermissionOverlapTool,

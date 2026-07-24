@@ -450,6 +450,7 @@ export interface SessionActivatedTool {
         contexts: Array<{ contextId: string; allowedPaths: string[] }>;
       };
     };
+    longRunning?: boolean;
   };
   toolDenial?: {
     kind: 'user-denied' | 'policy-denied' | 'execution-failed';

@@ -385,7 +385,9 @@ const allMessages = await chatManager.loadChatHistory('agent-id', true);
 - `messages` - Chat messages (content, timestamps, handoff info, archived flag)
 - `session_agents` - Multi-agent session tracking
 - `session_artifacts`, `session_files` - Session context
-- `message_files`, `message_tool_calls`, `message_suggestions` - Message metadata
+- `message_files`, `message_suggestions` - Message metadata
+- `message_tool_calls` - Tool invocation identity, input, and request timestamp
+- `message_tool_results` - Correlated terminal output, phase, and completion timestamp
 
 **Access**: Via `SessionManager` and `SqliteMessageStorage` (see `packages/service/src/storage/`)
 
@@ -437,6 +439,13 @@ interface ChatMessage {
   archived?: boolean; // If true, not sent to LLM
 }
 ```
+
+`ChatMessage.tool_calls` is the read-model projection used by LLM context and
+older callers. Storage does not collapse the lifecycle into that projection:
+the invocation and completion are separate rows joined by the internal tool
+call record and exposed with a stable runtime `callId`. This preserves the
+actual request/result timestamps while keeping existing context construction
+compatible.
 
 ### MessageAnnotation
 

@@ -22,6 +22,7 @@ export class AgentResponse implements Component {
   _parent: import("@ai-team/tui").Container | null = null;
   private agent: AgentDisplayInfo;
   private developerName?: string;
+  private recipientAgent?: AgentDisplayInfo;
   private readonly prefix: string;
   private text = '';
   private invalidated = true;
@@ -36,6 +37,13 @@ export class AgentResponse implements Component {
   setIdentity(agent: AgentDisplayInfo, developerName?: string): void {
     this.agent = agent;
     this.developerName = developerName?.trim() || undefined;
+    this.invalidate();
+  }
+
+  /** Use an agent identity for a handoff recipient instead of the developer label. */
+  setRecipientIdentity(agent: AgentDisplayInfo): void {
+    this.recipientAgent = agent;
+    this.developerName = undefined;
     this.invalidate();
   }
 
@@ -80,8 +88,12 @@ remove(): void {
   }
 
   private buildLines(width: number): string[] {
-    const modelSuffix = this.agent.model ? ` \x1b[2m(${this.agent.model})\x1b[22m` : '';
-    const recipient = this.developerName ? ` → ${this.developerName}:` : ':';
+    const modelSuffix = this.formatModelSuffix(this.agent);
+    const recipient = this.recipientAgent
+      ? `${this.buildStyle(agentTextOptions(this.recipientAgent))}\x1b[1m → ${this.recipientAgent.name}${this.formatModelSuffix(this.recipientAgent)}:\x1b[22m`
+      : this.developerName
+        ? ` → ${this.developerName}:`
+        : ':';
     const opts = agentTextOptions(this.agent);
     const colorStyle = this.buildStyle(opts);
     const headerStyle = `${colorStyle}\x1b[1m`;
@@ -115,6 +127,10 @@ remove(): void {
     }
 
     return style;
+  }
+
+  private formatModelSuffix(agent: AgentDisplayInfo): string {
+    return agent.model ? ` \x1b[2m(${agent.model})\x1b[22m` : '';
   }
 
   private applyMessageBackground(lines: string[], width: number): string[] {

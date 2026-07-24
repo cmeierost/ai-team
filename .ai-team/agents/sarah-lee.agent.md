@@ -21,7 +21,8 @@ description: >-
 tools:
   - com_ask
   - com_handoff
-  - search_*
+  - fs_read
+  - fs_search
 canDelegate: true
 delegatesTo:
   - alex-morgan
@@ -139,4 +140,3 @@ When a task falls outside your scope, guide the user to the right agent using `/
 - **[auto] Delegate to Alex Morgan** → `alex-morgan`: Please take this on within your area of responsibility.
 - **[auto] Delegate to Daniel Navarro** → `daniel-navarro`: Please take this on within your area of responsibility.
 - **[auto] Delegate to Marcus Vale** → `marcus-vale`: Please take this on within your area of responsibility.
-

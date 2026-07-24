@@ -105,6 +105,62 @@ describe('dispatchToolCall denial metadata', () => {
     );
   });
 
+  it('persists the request before execution and the result as a separate completion', async () => {
+    const order: string[] = [];
+    const toolManager = {
+      get: vi.fn(() => undefined),
+      execute: vi.fn(async () => {
+        order.push('execute');
+        return { ok: true, result: { status: 'ok' } };
+      }),
+    } as any;
+    const sessionManager = {
+      appendToolCallRequest: vi.fn(async () => {
+        order.push('request');
+      }),
+      appendToolCallResult: vi.fn(async () => {
+        order.push('result');
+      }),
+      appendMessage: vi.fn(async () => {
+        order.push('legacy');
+      }),
+    } as any;
+    createEmitService(vi.fn());
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
+
+    await dispatcher.dispatch(
+      {
+        toolCallId: 'tc-split-1',
+        toolName: 'tool_list',
+        args: { includeHidden: false },
+      },
+      makeContext()
+    );
+
+    expect(order).toEqual(['request', 'execute', 'result']);
+    expect(sessionManager.appendToolCallRequest).toHaveBeenCalledWith(
+      'sess-1',
+      expect.objectContaining({
+        tool_calls: [
+          expect.objectContaining({
+            callId: 'tc-split-1',
+            tool: 'tool_list',
+            params: { includeHidden: false },
+          }),
+        ],
+      })
+    );
+    expect(sessionManager.appendToolCallResult).toHaveBeenCalledWith(
+      'sess-1',
+      'tc-split-1',
+      { status: 'ok' },
+      undefined,
+      'result',
+      expect.any(String)
+    );
+    expect(sessionManager.appendMessage).not.toHaveBeenCalled();
+  });
+
   it('uses extended timeout for com_ask interactive tool calls', async () => {
     const execute = vi.fn(async () => ({ ok: true, result: { ok: true } }));
     const toolManager = {
@@ -222,64 +278,68 @@ describe('dispatchToolCall denial metadata', () => {
     expect(parentCtx.history).toEqual([]);
   });
 
-  it('persists a handoff tool result in the source session before adopting the target context', async () => {
-    const toolManager = {
-      get: vi.fn(() => undefined),
-      execute: vi.fn(async (_agent: unknown, _name: string, _args: unknown, toolCtx: any) => {
-        toolCtx.agent = {
-          id: 'agent-b',
-          name: 'Agent B',
-          role: 'dev',
-          systemPrompt: '',
-        };
-        toolCtx.agentId = 'agent-b';
-        toolCtx.sessionId = 'sess-2';
-        toolCtx.history = [];
-        return {
-          ok: true,
-          result: {
-            type: 'handoff',
-            targetAgentId: 'agent-b',
-            targetSessionId: 'sess-2',
-            timestamp: new Date().toISOString(),
-          },
-        };
-      }),
-    } as any;
-    const appendMessage = vi.fn(async () => undefined);
-    const ctx = makeContext();
-    createEmitService(vi.fn());
-    const dispatcher = createDispatcher(
-      toolManager,
-      { appendMessage } as any,
-      {} as any
-    );
+  it.each(['com_handoff', 'session_return'])(
+    'persists a %s transition result in the source session before adopting the target context',
+    async (transitionTool) => {
+      const toolManager = {
+        get: vi.fn(() => undefined),
+        execute: vi.fn(async (_agent: unknown, _name: string, _args: unknown, toolCtx: any) => {
+          toolCtx.agent = {
+            id: 'agent-b',
+            name: 'Agent B',
+            role: 'dev',
+            systemPrompt: '',
+          };
+          toolCtx.agentId = 'agent-b';
+          toolCtx.sessionId = 'sess-2';
+          toolCtx.history = [];
+          return {
+            ok: true,
+            result: {
+              type: 'handoff',
+              targetAgentId: 'agent-b',
+              targetSessionId: 'sess-2',
+              timestamp: new Date().toISOString(),
+            },
+          };
+        }),
+      } as any;
+      const appendMessage = vi.fn(async () => undefined);
+      const ctx = makeContext();
+      createEmitService(vi.fn());
+      const dispatcher = createDispatcher(
+        toolManager,
+        { appendMessage } as any,
+        {} as any
+      );
 
-    await dispatcher.dispatch(
-      {
-        toolCallId: 'tc-handoff',
-        toolName: 'com_handoff',
-        args: { targetAgentId: 'agent-b' },
-      },
-      ctx
-    );
+      const response = await dispatcher.dispatch(
+        {
+          toolCallId: 'tc-handoff',
+          toolName: transitionTool,
+          args: { targetAgentId: 'agent-b' },
+        },
+        ctx
+      );
 
-    expect(appendMessage).toHaveBeenCalledWith(
-      'sess-1',
-      expect.objectContaining({
-        from: 'agent-a',
-        tool_calls: [
-          expect.objectContaining({
-            tool: 'com_handoff',
-          }),
-        ],
-      })
-    );
-    expect(ctx).toMatchObject({
-      agentId: 'agent-b',
-      sessionId: 'sess-2',
-    });
-  });
+      expect(appendMessage).toHaveBeenCalledWith(
+        'sess-1',
+        expect.objectContaining({
+          from: 'agent-a',
+          tool_calls: [
+            expect.objectContaining({
+              tool: transitionTool,
+            }),
+          ],
+        })
+      );
+      expect(ctx).toMatchObject({
+        agentId: 'agent-b',
+        sessionId: 'sess-2',
+      });
+      expect(response.terminal).toBe(true);
+    }
+  );
 
   it('emits tool result event with a preview of successful output', async () => {
     const toolManager = {

@@ -6,14 +6,18 @@ interface SearchMatch {
   path?: string;
   name?: string;
   line?: number;
+  lines?: number[];
   content?: string;
   snippet?: string;
+  snippets?: Array<{ line: number; content: string }>;
 }
 
 function renderSearch(result: unknown, _resultLlm: unknown, _event: SessionActivatedTool): ReactNode {
   if (!result || typeof result !== 'object') return null;
   const r = result as Record<string, unknown>;
-  const matches: SearchMatch[] = Array.isArray(r.matches)
+  const matches: SearchMatch[] = Array.isArray(r.results)
+    ? (r.results as SearchMatch[])
+    : Array.isArray(r.matches)
     ? (r.matches as SearchMatch[])
     : Array.isArray(result)
       ? (result as SearchMatch[])
@@ -27,6 +31,12 @@ function renderSearch(result: unknown, _resultLlm: unknown, _event: SessionActiv
         <div key={i} className="tc-search-match">
           <span className="tc-search-path">{match.path ?? match.name ?? '?'}</span>
           {match.line !== undefined && <span className="tc-meta">:{match.line}</span>}
+          {match.lines?.map((line) => <span key={line} className="tc-meta">:{line}</span>)}
+          {match.snippets?.map((snippet) => (
+            <div key={snippet.line} className="tc-search-content">
+              <span className="tc-meta">:{snippet.line} </span>{snippet.content}
+            </div>
+          ))}
           {(match.content ?? match.snippet) && (
             <div className="tc-search-content">{match.content ?? match.snippet}</div>
           )}
@@ -39,6 +49,4 @@ function renderSearch(result: unknown, _resultLlm: unknown, _event: SessionActiv
   );
 }
 
-for (const toolName of ['fs_search_metadata', 'fs_search_content', 'fs_search']) {
-  registerRenderer({ toolName, render: renderSearch });
-}
+registerRenderer({ toolName: 'fs_search', render: renderSearch });

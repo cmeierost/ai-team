@@ -73,6 +73,11 @@ describe('CommandChatRuntime', () => {
         sessionId: 'session-emily',
       },
     });
+    expect(dispatch.mock.calls[0]?.[2]).toMatchObject({
+      workflowReturn: {
+        command: 'session-handoff-return',
+      },
+    });
   });
 
   it('uses the same com-handoff transition for a requested workflow handoff', async () => {
@@ -129,6 +134,7 @@ describe('CommandChatRuntime', () => {
         agentId: 'michael-brown',
         sessionId: 'session-michael',
         invocationSurface: 'workflow',
+        handoffAlreadyAuthorized: true,
       })
     );
   });

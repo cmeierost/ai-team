@@ -24,7 +24,8 @@ description: >-
 tools:
   - com_ask
   - com_handoff
-  - search_*
+  - fs_read
+  - fs_search
   - open_browser_page
   - mcp_microsoft_pla_browser_*
   - mcp_io_github_chr_*
@@ -118,4 +119,3 @@ When a task falls outside your scope, guide the user to the right agent using `/
 
 ## Scope of Responsibility
 **Skills:** frontend-quality-storybook · zustand-presenter-split
-

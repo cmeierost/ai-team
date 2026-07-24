@@ -68,7 +68,7 @@ describe('ChatInfoService', () => {
     );
   });
 
-  it('guides people to the normal handoff command', () => {
+  it('announces the active agent without emitting redundant startup logs', () => {
     const emitService = { emit: vi.fn(), log: vi.fn() };
     const service = new ChatInfoService(emitService as any);
 
@@ -77,9 +77,14 @@ describe('ChatInfoService', () => {
       developerName: 'Clemens Meier',
     });
 
-    expect(emitService.log).toHaveBeenCalledWith(
-      'info',
-      'Ask to be forwarded or type "/handoff <name>" to switch agents'
+    expect(emitService.log).not.toHaveBeenCalled();
+    expect(emitService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'agent_info',
+        agentId: 'michael-brown',
+        agentName: 'Michael Brown',
+        message: 'exit · /help · /handoff <name>',
+      })
     );
   });
 
@@ -226,18 +231,76 @@ describe('ChatInfoService', () => {
       'Clemens Meier'
     );
 
-    expect(emitService.emit).toHaveBeenCalledOnce();
-    expect(emitService.emit).toHaveBeenCalledWith(
+    expect(emitService.emit).toHaveBeenCalledTimes(2);
+    expect(emitService.emit).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        kind: 'tool',
+        historical: true,
+        toolCallId: '42',
+        toolName: 'fs_read',
+        toolPhase: 'request',
+        input: { path: 'README.md' },
+      })
+    );
+    expect(emitService.emit).toHaveBeenNthCalledWith(
+      2,
       expect.objectContaining({
         kind: 'tool',
         historical: true,
         toolCallId: '42',
         toolName: 'fs_read',
         toolPhase: 'result',
-        input: { path: 'README.md' },
         output: 'Project documentation',
       })
     );
+  });
+
+  it('replays events persisted between a tool request and its completion in timestamp order', () => {
+    const emitService = { emit: vi.fn(), log: vi.fn() };
+    const service = new ChatInfoService(emitService as any);
+    const agent = { id: 'sarah-lee', name: 'Sarah Lee', role: 'Architect' };
+
+    service.showThreadResume(
+      [
+        {
+          kind: 'message',
+          message: {
+            timestamp: '2026-07-24T12:00:00.000Z',
+            content: '',
+            from: agent.id,
+            tool_calls: [{
+              callId: 'call-1',
+              tool: 'com_ask',
+              params: { message: 'Which priority?' },
+              requestedAt: '2026-07-24T12:00:00.000Z',
+              result: { answer: 'Platform' },
+              completedAt: '2026-07-24T12:00:10.000Z',
+            }],
+          },
+          agent,
+        },
+        {
+          kind: 'message',
+          message: {
+            timestamp: '2026-07-24T12:00:05.000Z',
+            content: 'Platform',
+            from: 'human',
+            isHuman: true,
+          },
+        },
+      ] as any,
+      'Clemens Meier'
+    );
+
+    expect(emitService.emit.mock.calls.map(([event]) => [
+      event.kind,
+      event.toolPhase ?? event.content,
+    ])).toEqual([
+      ['tool', 'request'],
+      ['history_message', 'Platform'],
+      ['tool', 'result'],
+    ]);
   });
 
   it('does not replay legacy internal handoff continuations as developer messages', () => {

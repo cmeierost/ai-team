@@ -22,6 +22,7 @@ import type {
   WorkflowStep,
   WorkflowLoopStep,
   WorkflowExecuteStep,
+  WorkflowReturnDefinition,
 } from './workflow-types.js';
 import { WorkflowAbortError } from './workflow-types.js';
 import type { ToolManager } from '../tooling/manager/tool-manager.js';
@@ -62,6 +63,8 @@ interface WorkflowMachineContext<TState> {
   aborted: boolean;
   abortedError: string | undefined;
   loopIterations: Record<string, number>;
+  workflowReturn?: WorkflowReturnDefinition;
+  workflowLastResult?: ExecutionContext['workflowLastResult'];
 }
 
 interface CommandExecutionInput {
@@ -176,7 +179,7 @@ export class WorkflowRunner implements IWorkflowRunner {
         }
 
         actor.stop();
-        reject(new WorkflowAbortError());
+        reject(new WorkflowAbortError(options.signal?.reason));
       };
 
       if (options.signal.aborted) {
@@ -191,7 +194,7 @@ export class WorkflowRunner implements IWorkflowRunner {
       // Wait for the actor to complete and get the final snapshot
       await Promise.race([toPromise(actor), abortPromise]);
       if (abortRequested || options?.signal?.aborted) {
-        throw new WorkflowAbortError();
+        throw new WorkflowAbortError(options?.signal?.reason);
       }
       const snapshot = actor.getSnapshot();
 
@@ -225,10 +228,12 @@ export class WorkflowRunner implements IWorkflowRunner {
           workflowId: definition.id,
           workflowInstanceId,
           recoveredStateAvailable: lastState !== initialState,
+          abortedError: error.reasonMessage,
         });
         return {
           state: lastState,
           aborted: true,
+          abortedError: error.reasonMessage,
         };
       }
 
@@ -290,6 +295,8 @@ export class WorkflowRunner implements IWorkflowRunner {
         aborted: false,
         abortedError: undefined,
         loopIterations: {},
+        workflowReturn: definition.return,
+        workflowLastResult: undefined,
       }),
       initial: definition.steps[0]?.id ?? 'completed',
       states,
@@ -529,7 +536,11 @@ export class WorkflowRunner implements IWorkflowRunner {
           target: nextStepId,
           actions: assign(({ context, event }: any) => {
             const newState = this.applyStepResult(step, context.state, event.output);
-            return { ...context, state: newState };
+            return {
+              ...context,
+              state: newState,
+              workflowLastResult: event.output,
+            };
           }),
         },
         onError: {
@@ -676,7 +687,11 @@ export class WorkflowRunner implements IWorkflowRunner {
           target: nextStepId,
           actions: assign(({ context, event }: any) => {
             const newState = this.applyStepResult(step, context.state, event.output);
-            return { ...context, state: newState };
+            return {
+              ...context,
+              state: newState,
+              workflowLastResult: event.output,
+            };
           }),
         },
         onError: {
@@ -860,12 +875,46 @@ export class WorkflowRunner implements IWorkflowRunner {
     context: WorkflowMachineContext<TState>,
     stepId: string
   ): ExecutionContext {
+    const base = context.options?.executionContext ?? { history: [] };
+    const parentFrame = base.workflowId
+      ? {
+          workflowId: base.workflowId,
+          ...(base.workflowInstanceId
+            ? { workflowInstanceId: base.workflowInstanceId }
+            : {}),
+          ...(base.agentId ? { agentId: base.agentId } : {}),
+          ...(base.sessionId ? { sessionId: base.sessionId } : {}),
+        }
+      : undefined;
+    const workflowStack = [
+      ...(base.workflowStack ?? []),
+      ...(parentFrame ? [parentFrame] : []),
+    ];
+    const workflowReturn = context.workflowReturn
+      ? {
+          command: context.workflowReturn.command,
+          ...(context.workflowReturn.args
+            ? {
+                args: resolveTemplateData(
+                  context.workflowReturn.args,
+                  context.state as Record<string, unknown>
+                ) as NonNullable<ExecutionContext['workflowReturn']>['args'],
+              }
+            : {}),
+        }
+      : undefined;
+
     return {
-      ...(context.options?.executionContext ?? { history: [] }),
+      ...base,
       ...(context.options?.signal !== undefined ? { signal: context.options.signal } : {}),
       workflowId: context.workflowId,
       workflowInstanceId: context.workflowInstanceId,
       stepId,
+      ...(workflowReturn ? { workflowReturn } : {}),
+      ...(context.workflowLastResult !== undefined
+        ? { workflowLastResult: context.workflowLastResult }
+        : {}),
+      ...(workflowStack.length > 0 ? { workflowStack } : {}),
     };
   }
 
@@ -982,7 +1031,13 @@ export function workflowDescriptor<TState>(
   const tags = new Set<string>(definition.tags ?? []);
   tags.add('workflow-definition');
 
-  const { id, aliases: _aliases, tags: _tags, ...descriptorFields } = definition;
+  const {
+    id,
+    aliases: _aliases,
+    tags: _tags,
+    return: _return,
+    ...descriptorFields
+  } = definition;
 
   return {
     ...descriptorFields,
@@ -1007,6 +1062,7 @@ export class WorkflowRunnerFactory implements IWorkflowRunnerFactory {
       prepare: _prepare,
       toResult: _toResult,
       result: _result,
+      return: _return,
       ...descriptorFields
     } = definition;
 
@@ -1098,6 +1154,16 @@ function workflowDefinitionToDocument<TState>(
     format: 'workflow/v1',
     id: definition.id,
     initial,
+    ...(definition.return
+      ? {
+          return: {
+            command: definition.return.command,
+            ...(definition.return.args
+              ? { args: definition.return.args as Record<string, unknown> }
+              : {}),
+          },
+        }
+      : {}),
     states,
   };
 }

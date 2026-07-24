@@ -8,7 +8,7 @@
 
 export interface LlmStreamChunk {
   choices?: Array<{
-    delta?: { content?: unknown; reasoning_content?: unknown };
+    delta?: { content?: unknown; reasoning?: unknown; reasoning_content?: unknown };
   }>;
 }
 
@@ -26,7 +26,9 @@ export class LlmStreamDeltaExtractor {
 
     return {
       content: this.extractDeltaSegmentText(delta.content),
-      reasoning: this.extractDeltaSegmentText(delta.reasoning_content),
+      reasoning:
+        this.extractDeltaSegmentText(delta.reasoning_content)
+        || this.extractDeltaSegmentText(delta.reasoning),
     };
   }
 

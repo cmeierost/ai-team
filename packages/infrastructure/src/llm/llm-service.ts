@@ -70,6 +70,7 @@ export interface LlmToolResult {
   toolName: string;
   result: unknown;
   isError?: boolean;
+  terminal?: boolean;
 }
 
 export interface RuntimeToolEvidence {
@@ -462,9 +463,12 @@ export class LlmService implements ILlmService {
           const chunk = nextChunk.value;
           const delta = chunk.choices?.[0]?.delta;
           const contentText = this.utils.extractDeltaText(delta?.content);
-          const reasoningText = this.utils.extractDeltaText(
-            (delta as { reasoning_content?: unknown } | undefined)?.reasoning_content
-          );
+          const reasoningDelta = delta as
+            | { reasoning?: unknown; reasoning_content?: unknown }
+            | undefined;
+          const reasoningText =
+            this.utils.extractDeltaText(reasoningDelta?.reasoning_content)
+            || this.utils.extractDeltaText(reasoningDelta?.reasoning);
           if (reasoningText) {
             onToken?.(`💭 ${reasoningText}`);
           }
@@ -611,6 +615,10 @@ export class LlmService implements ILlmService {
             tool_call_id: toolCall.id,
             content: JSON.stringify(payload),
           } as ChatCompletionMessageParam);
+
+          if (toolResult.terminal) {
+            return { text: '', toolResults: collectedResults };
+          }
         }
       }
 
@@ -743,6 +751,10 @@ export class LlmService implements ILlmService {
           call_id: call.callId,
           output: JSON.stringify(payload),
         });
+
+        if (toolResult.terminal) {
+          return { text: '', toolResults: collectedResults };
+        }
       }
 
       if (previousResponseId) {
@@ -1104,11 +1116,13 @@ ${excerpts}`;
           const chunk = nextChunk.value;
           snapshots.push(self.utils.safeJsonClone(chunk));
           const delta = chunk.choices?.[0]?.delta;
+          const reasoningDelta = delta as
+            | { reasoning?: unknown; reasoning_content?: unknown }
+            | undefined;
           text +=
-            self.utils.extractDeltaText(delta?.content) ||
-            self.utils.extractDeltaText(
-              (delta as { reasoning_content?: unknown } | undefined)?.reasoning_content
-            );
+            self.utils.extractDeltaText(delta?.content)
+            || self.utils.extractDeltaText(reasoningDelta?.reasoning_content)
+            || self.utils.extractDeltaText(reasoningDelta?.reasoning);
           yield chunk;
         }
 

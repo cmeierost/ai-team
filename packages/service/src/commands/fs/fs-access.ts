@@ -100,7 +100,6 @@ export function toFsPathAccessEnvelope(
   agent: Agent | undefined,
   toolName:
     | 'read'
-    | 'read_lines'
     | 'write_file'
     | 'create'
     | 'delete_path'
@@ -109,8 +108,7 @@ export function toFsPathAccessEnvelope(
     | 'info'
     | 'list'
     | 'tree'
-    | 'search_content'
-    | 'search_metadata'
+    | 'search'
     | 'edit'
     | 'patch'
     | 'multiedit',
@@ -138,8 +136,7 @@ export function toFsPathAccessEnvelope(
     'info',
     'list',
     'tree',
-    'search_content',
-    'search_metadata',
+    'search',
   ]);
 
   let allowed: boolean;

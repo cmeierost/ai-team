@@ -86,6 +86,20 @@ export interface CommandInvocationContext {
   toolName: string;
 }
 
+export interface WorkflowReturnContext {
+  /** Command selected by the active workflow when /return is requested. */
+  command: string;
+  /** State-resolved command arguments supplied by the workflow definition. */
+  args?: JsonValue;
+}
+
+export interface WorkflowExecutionFrame {
+  workflowId: string;
+  workflowInstanceId?: string;
+  agentId?: string;
+  sessionId?: string;
+}
+
 // ── ExecutionContext ─────────────────────────────────────────────────────────
 
 /**
@@ -105,6 +119,8 @@ export interface ExecutionContext {
   callerType?: 'human' | 'agent' | 'system';
   /** Convenience flag for callerType === 'human'. */
   calledByHuman?: boolean;
+  /** A previously validated tool request is being applied by the chat runtime. */
+  handoffAlreadyAuthorized?: boolean;
   /** ID of the agent executing this command, if called by an agent. */
   agentId?: string;
 
@@ -117,6 +133,10 @@ export interface ExecutionContext {
   workflowInstanceId?: string;
   /** Current workflow step being executed. */
   stepId?: string;
+  /** Return behavior declared by the active workflow. */
+  workflowReturn?: WorkflowReturnContext;
+  /** Outer workflow frames, nearest parent last. */
+  workflowStack?: WorkflowExecutionFrame[];
   /** Active command invocation correlation, when the calling surface provides one. */
   commandInvocation?: CommandInvocationContext;
   /** Result payload from the last completed workflow step — used by workflowInputBindings. */
@@ -132,7 +152,7 @@ export interface ExecutionContext {
   /** Loaded workspace instructions for the active session. */
   instructions?: JsonValue;
 
-  /** Back-navigation stack for agent handoff chains. Mutated by /back. */
+  /** Return-navigation stack for agent handoff chains. Mutated by /return. */
   navStack?: SessionNavEntry[];
 
   /** Back-navigation stack for handoff chains. */
@@ -155,7 +175,7 @@ type _ExecutionContextMustNotExposeFunctionProperties = AssertTrue<
 
 /**
  * Mutable session state that persists across command executions within a
- * single chat session. Commands that mutate this (e.g. /chat, /back, /new)
+ * single chat session. Commands that mutate this (e.g. /chat, /return, /new)
  * should declare it as TContext.
  */
 
@@ -163,6 +183,8 @@ export interface SessionNavEntry {
   agentId: string;
   sessionId: string;
   agentName: string;
+  handoffToolCallId?: string;
+  handoffSourceSessionId?: string;
 }
 
 export type ToolIntentMatcher = (input: string) => boolean;
@@ -243,6 +265,8 @@ export interface ICommandDescriptor<TParams = unknown> {
   readonly permissionCheck?: PermissionDescriptor;
   readonly examples?: string[];
   readonly tags?: string[];
+  /** Marks a command as a workflow transition whose completion is delivered later. */
+  readonly longRunning?: boolean;
   /** Optional lexical intent anchors for routing/intent detection. */
   readonly intents?: string[];
   /** Optional lexical intent examples for routing/intent detection. */

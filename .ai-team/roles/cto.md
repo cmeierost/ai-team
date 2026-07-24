@@ -11,9 +11,8 @@ responsibilities:
   - Delegate team-building to the HR Director
   - Delegate talent scouting to the Headhunter (via HR)
 tools:
-  - read_file
-  - file_search
-  - semantic_search
+  - fs_read
+  - fs_search
   - create_agent
   - archive_agent
   - assess_performance

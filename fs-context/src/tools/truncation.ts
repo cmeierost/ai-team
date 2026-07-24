@@ -66,7 +66,7 @@ export namespace Truncate {
       '',
       `[Output truncated: showing ${selectedLines} of ${total} lines]`,
       `[${omitted} lines written to: ${tmpFile}]`,
-      '[Use fs_read_lines to retrieve specific line ranges from that file]',
+      '[Use fs_read with offset and limit to retrieve a specific line range from that file]',
     ].join('\n');
 
     return kept + notice;

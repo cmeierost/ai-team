@@ -12,6 +12,22 @@ import * as dbSchema from '../storage/sqlite/schema.js';
 
 type EnsureReadyAsync = () => Promise<void>;
 type GetDb = () => SqliteDrizzleDatabase;
+type ToolCallRow = {
+  id: number;
+  tool_call_id: string | null;
+  tool_name: string;
+  params_json: string;
+  requested_at: string | null;
+  result_json: string | null;
+  result_llm: string | null;
+};
+type ToolResultRow = {
+  message_tool_call_id: number;
+  phase: string;
+  result_json: string | null;
+  result_llm: string | null;
+  completed_at: string;
+};
 
 export class MessagesRepository implements IMessagesRepository {
   constructor(
@@ -61,8 +77,10 @@ export class MessagesRepository implements IMessagesRepository {
           tx.insert(dbSchema.messageToolCalls)
             .values({
               messageId,
+              toolCallId: toolCall.callId ?? null,
               toolName: toolCall.tool,
               paramsJson: JSON.stringify(toolCall.params),
+              requestedAt: toolCall.requestedAt ?? timestamp,
               resultJson: toolCall.result === undefined ? null : JSON.stringify(toolCall.result),
               resultLlm: toolCall.resultLlm ?? null,
             })
@@ -96,6 +114,54 @@ export class MessagesRepository implements IMessagesRepository {
 
       return { messageId, timestamp };
     });
+  }
+
+  async insertToolCallRequest(
+    sessionId: string,
+    message: ChatMessage
+  ): Promise<MessageInsertResult> {
+    return this.insertMessage(sessionId, message);
+  }
+
+  async insertToolCallResult(
+    sessionId: string,
+    callId: string,
+    result: unknown,
+    resultLlm: string | undefined,
+    phase: 'result' | 'error' | 'denied',
+    timestamp: string
+  ): Promise<void> {
+    await this.ensureReadyAsync();
+    const invocation = this.db()
+      .select({ id: dbSchema.messageToolCalls.id })
+      .from(dbSchema.messageToolCalls)
+      .innerJoin(
+        dbSchema.messages,
+        eq(dbSchema.messages.id, dbSchema.messageToolCalls.messageId)
+      )
+      .where(
+        and(
+          eq(dbSchema.messages.sessionId, sessionId),
+          eq(dbSchema.messageToolCalls.toolCallId, callId)
+        )
+      )
+      .orderBy(desc(dbSchema.messageToolCalls.id))
+      .get();
+
+    if (!invocation) {
+      throw new Error(`Tool invocation ${callId} was not found in session ${sessionId}.`);
+    }
+
+    this.db()
+      .insert(dbSchema.messageToolResults)
+      .values({
+        messageToolCallId: invocation.id,
+        phase,
+        resultJson: result === undefined ? null : JSON.stringify(result),
+        resultLlm: resultLlm ?? null,
+        completedAt: timestamp,
+      })
+      .run();
   }
 
   async getSessionMessages(
@@ -443,10 +509,60 @@ export class MessagesRepository implements IMessagesRepository {
 
   async updateToolCallLlmResult(toolCallId: number, newText: string): Promise<void> {
     await this.ensureReadyAsync();
-    await this.db()
-      .update(dbSchema.messageToolCalls)
-      .set({ resultLlm: newText })
-      .where(eq(dbSchema.messageToolCalls.id, toolCallId));
+    this.db().transaction((tx) => {
+      tx.update(dbSchema.messageToolResults)
+        .set({ resultLlm: newText })
+        .where(eq(dbSchema.messageToolResults.messageToolCallId, toolCallId))
+        .run();
+      // Preserve editing support for pre-split alpha records.
+      tx.update(dbSchema.messageToolCalls)
+        .set({ resultLlm: newText })
+        .where(eq(dbSchema.messageToolCalls.id, toolCallId))
+        .run();
+    });
+  }
+
+  private async loadLatestToolResults(
+    toolCallIds: number[]
+  ): Promise<Map<number, ToolResultRow>> {
+    if (toolCallIds.length === 0) return new Map();
+
+    const rows = await this.db()
+      .select({
+        message_tool_call_id: dbSchema.messageToolResults.messageToolCallId,
+        phase: dbSchema.messageToolResults.phase,
+        result_json: dbSchema.messageToolResults.resultJson,
+        result_llm: dbSchema.messageToolResults.resultLlm,
+        completed_at: dbSchema.messageToolResults.completedAt,
+      })
+      .from(dbSchema.messageToolResults)
+      .where(inArray(dbSchema.messageToolResults.messageToolCallId, toolCallIds))
+      .orderBy(asc(dbSchema.messageToolResults.completedAt));
+
+    return new Map(rows.map((row) => [row.message_tool_call_id, row]));
+  }
+
+  private toToolCall(
+    row: ToolCallRow,
+    completion: ToolResultRow | undefined,
+    messageTimestamp?: string
+  ): NonNullable<ChatMessage['tool_calls']>[number] {
+    return {
+      id: row.id,
+      callId: row.tool_call_id ?? `legacy-${row.id}`,
+      tool: row.tool_name,
+      params: JSON.parse(row.params_json),
+      requestedAt: row.requested_at ?? messageTimestamp,
+      result: completion?.result_json
+        ? JSON.parse(completion.result_json)
+        : row.result_json
+          ? JSON.parse(row.result_json)
+          : undefined,
+      resultLlm: completion?.result_llm ?? row.result_llm ?? undefined,
+      completedAt: completion?.completed_at
+        ?? (row.result_json !== null || row.result_llm !== null ? messageTimestamp : undefined),
+      resultPhase: completion?.phase as 'result' | 'error' | 'denied' | undefined,
+    };
   }
 
   private async rowToMessage(row: any): Promise<ChatMessage> {
@@ -461,21 +577,22 @@ export class MessagesRepository implements IMessagesRepository {
     const toolCallRows = await this.db()
       .select({
         id: dbSchema.messageToolCalls.id,
+        tool_call_id: dbSchema.messageToolCalls.toolCallId,
         tool_name: dbSchema.messageToolCalls.toolName,
         params_json: dbSchema.messageToolCalls.paramsJson,
+        requested_at: dbSchema.messageToolCalls.requestedAt,
         result_json: dbSchema.messageToolCalls.resultJson,
         result_llm: dbSchema.messageToolCalls.resultLlm,
       })
       .from(dbSchema.messageToolCalls)
       .where(eq(dbSchema.messageToolCalls.messageId, messageId));
 
-    const toolCalls = toolCallRows.map((record) => ({
-      id: record.id,
-      tool: record.tool_name,
-      params: JSON.parse(record.params_json),
-      result: record.result_json ? JSON.parse(record.result_json) : undefined,
-      resultLlm: record.result_llm ?? undefined,
-    }));
+    const latestResultByCall = await this.loadLatestToolResults(
+      toolCallRows.map((toolCall) => toolCall.id)
+    );
+    const toolCalls = toolCallRows.map((toolCall) =>
+      this.toToolCall(toolCall, latestResultByCall.get(toolCall.id), row.timestamp)
+    );
 
     const suggestionRows = await this.db()
       .select({
@@ -535,8 +652,10 @@ export class MessagesRepository implements IMessagesRepository {
         .select({
           id: dbSchema.messageToolCalls.id,
           message_id: dbSchema.messageToolCalls.messageId,
+          tool_call_id: dbSchema.messageToolCalls.toolCallId,
           tool_name: dbSchema.messageToolCalls.toolName,
           params_json: dbSchema.messageToolCalls.paramsJson,
+          requested_at: dbSchema.messageToolCalls.requestedAt,
           result_json: dbSchema.messageToolCalls.resultJson,
           result_llm: dbSchema.messageToolCalls.resultLlm,
         })
@@ -555,6 +674,13 @@ export class MessagesRepository implements IMessagesRepository {
         .where(inArray(dbSchema.messageSuggestions.messageId, messageIds)),
     ]);
 
+    const latestResultByCall = await this.loadLatestToolResults(
+      toolCallRows.map((toolCall) => toolCall.id)
+    );
+    const messageTimestampById = new Map<number, string>(
+      rows.map((message) => [message.id as number, message.timestamp as string])
+    );
+
     const contextByMessage = new Map<number, string[]>();
     for (const row of contextRows) {
       const existing = contextByMessage.get(row.message_id);
@@ -567,16 +693,14 @@ export class MessagesRepository implements IMessagesRepository {
 
     const toolCallsByMessage = new Map<
       number,
-      Array<{ id: number; tool: string; params: unknown; result?: unknown; resultLlm?: string }>
+      NonNullable<ChatMessage['tool_calls']>
     >();
     for (const row of toolCallRows) {
-      const parsed = {
-        id: row.id,
-        tool: row.tool_name,
-        params: JSON.parse(row.params_json),
-        result: row.result_json ? JSON.parse(row.result_json) : undefined,
-        resultLlm: row.result_llm ?? undefined,
-      };
+      const parsed = this.toToolCall(
+        row,
+        latestResultByCall.get(row.id),
+        messageTimestampById.get(row.message_id)
+      );
       const existing = toolCallsByMessage.get(row.message_id);
       if (existing) {
         existing.push(parsed);

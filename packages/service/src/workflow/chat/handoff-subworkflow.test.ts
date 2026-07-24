@@ -156,6 +156,12 @@ describe('HandoffSubWorkflow', () => {
     expect(result.briefingContent).toBe('Briefing for Michael.');
     expect(llmService.streamChat).toHaveBeenCalledOnce();
     expect(llmService.chat).not.toHaveBeenCalled();
+    const prompt = llmService.streamChat.mock.calls[0][1][0].content;
+    expect(prompt).toContain("the developer's objective");
+    expect(prompt).toContain("the receiving agent's responsibility");
+    expect(prompt).toContain('what the receiving agent should do first');
+    expect(prompt).toContain('requested return or follow-up path');
+    expect(prompt).toContain('must continue the conversation with the developer');
 
     const handoffEvents = emitService.emit.mock.calls
       .map(([event]: [Record<string, unknown>]) => event)
@@ -236,10 +242,13 @@ describe('HandoffSubWorkflow', () => {
     expect(prompt).toContain('decisions made');
     expect(prompt).toContain('unresolved questions');
     expect(prompt).toContain('recommended next action');
+    expect(prompt).toContain('stand alone as the useful response to the handoff');
+    expect(prompt).toContain('For this executive recipient');
+    expect(prompt).toContain('Omit implementation mechanics, code details');
     expect(prompt).toContain('do not copy the full private conversation');
   });
 
-  it('uses conversational history for /back independently of delegation ancestry', async () => {
+  it('uses conversational history for /return independently of delegation ancestry', async () => {
     const { agentManager, sessionManager, threadManager, llmService, emitService } = makeDeps();
     threadManager.resolveActiveSession.mockResolvedValue({
       session: { id: 'sess-emily' },
@@ -279,6 +288,133 @@ describe('HandoffSubWorkflow', () => {
     const prompt = llmService.streamChat.mock.calls[0][1][0].content;
     expect(prompt).toContain('important discoveries');
     expect(prompt).toContain('recommended next action');
+    expect(prompt).toContain('Tailor the detail to Michael Brown\'s responsibilities');
+    expect(prompt).toContain('Answer the original incoming handoff');
+    expect(prompt).not.toContain('dev-1 said: "Returning to the delegating agent via /return."');
+    expect(llmService.streamChat.mock.calls[0][2]).toMatchObject({ maxTokens: 1600 });
+  });
+
+  it('falls back to the latest substantive agent answer when /return summary output is empty', async () => {
+    const { agentManager, sessionManager, threadManager, llmService, emitService } = makeDeps();
+    threadManager.resolveActiveSession.mockResolvedValue({
+      session: { id: 'sess-emily' },
+      state: {
+        rootSessionId: 'sess-michael',
+        activeSessionId: 'sess-emily',
+        navigationStack: [
+          { agentId: 'michael-brown', agentName: 'Michael Brown', sessionId: 'sess-michael' },
+        ],
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    const substantiveAnswer =
+      'I identified three gaps: platform ownership, test strategy, and technical writing.';
+    const history = [
+      {
+        from: 'michael-brown',
+        to: 'emily-davis',
+        isHuman: false,
+        handoffType: 'agent-briefing' as const,
+        content: 'Find the team capabilities we need next.',
+        timestamp: '2026-07-24T10:00:00.000Z',
+      },
+      {
+        from: 'human',
+        to: 'emily-davis',
+        isHuman: true,
+        content: 'What gaps did you find?',
+        timestamp: '2026-07-24T10:01:00.000Z',
+      },
+      {
+        from: 'emily-davis',
+        to: 'human',
+        isHuman: false,
+        content: substantiveAnswer,
+        timestamp: '2026-07-24T10:02:00.000Z',
+      },
+    ];
+    llmService.streamChat.mockResolvedValueOnce(
+      (async function* () {
+        yield { choices: [{ delta: { reasoning: 'internal reasoning only' } }] };
+      })()
+    );
+    const workflow = new HandoffSubWorkflow(
+      agentManager,
+      sessionManager,
+      threadManager,
+      llmService,
+      emitService
+    );
+
+    const result = await workflow.executeAsync({
+      ctx: { agent: EMILY, sessionId: 'sess-emily', history } as any,
+      targetAgentQuery: 'michael',
+      handoffNote: 'Returning to the delegating agent via /return.',
+      navigationIntent: 'back',
+    });
+
+    expect(result.briefingContent).toBe(substantiveAnswer);
+    expect(sessionManager.appendMessage).toHaveBeenNthCalledWith(
+      1,
+      'sess-michael',
+      expect.objectContaining({ content: substantiveAnswer })
+    );
+    const handoffEvents = emitService.emit.mock.calls
+      .map(([event]: [any]) => event)
+      .filter((event: any) => event.kind === 'handoff');
+    const fallbackDeltas = handoffEvents
+      .filter((event: any) => event.handoffPhase === 'delta')
+      .map((event: any) => event.delta);
+    expect(fallbackDeltas.length).toBeGreaterThan(1);
+    expect(fallbackDeltas.join('')).toBe(substantiveAnswer);
+    expect(handoffEvents.at(-1)).toMatchObject({
+      handoffPhase: 'complete',
+      briefingContent: substantiveAnswer,
+    });
+  });
+
+  it('retains the original incoming briefing when a long delegated conversation returns', async () => {
+    const { agentManager, sessionManager, threadManager, llmService, emitService } = makeDeps();
+    threadManager.resolveActiveSession.mockResolvedValue({
+      session: { id: 'sess-emily' },
+      state: {
+        rootSessionId: 'sess-michael',
+        activeSessionId: 'sess-emily',
+        navigationStack: [
+          { agentId: 'michael-brown', agentName: 'Michael Brown', sessionId: 'sess-michael' },
+        ],
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    const workflow = new HandoffSubWorkflow(
+      agentManager,
+      sessionManager,
+      threadManager,
+      llmService,
+      emitService
+    );
+    const originalBriefing = {
+      from: 'michael-brown',
+      to: 'emily-davis',
+      isHuman: false,
+      handoffType: 'agent-briefing' as const,
+      content: 'Original goal: decide which team capability to add.',
+      timestamp: new Date().toISOString(),
+    };
+    const laterMessages = Array.from({ length: 13 }, (_, index) => ({
+      from: index % 2 === 0 ? 'human' : 'emily-davis',
+      isHuman: index % 2 === 0,
+      content: `Later delegated discussion ${index}`,
+      timestamp: new Date().toISOString(),
+    }));
+
+    await workflow.executeAsync({
+      ctx: { agent: EMILY, sessionId: 'sess-emily', history: [originalBriefing, ...laterMessages] } as any,
+      targetAgentQuery: 'michael',
+      navigationIntent: 'back',
+    });
+
+    expect(llmService.streamChat.mock.calls[0][1][0].content).toContain(originalBriefing.content);
   });
 
   it('does not classify a handoff to a non-parent existing agent as a delegation return', async () => {

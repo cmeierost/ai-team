@@ -159,6 +159,154 @@ export class FileTreeResult implements Component {
   }
 }
 
+/** Compact tree renderer for ranked, access-aware fs_search results. */
+export class FsSearchResult implements Component {
+  _parent: import('@ai-team/tui').Container | null = null;
+
+  constructor(private readonly value: unknown) {}
+
+  render(width: number): string[] {
+    const payload = unwrapResultPayload(this.value);
+    const query = readString(payload?.['query']) ?? '';
+    const mode = readString(payload?.['mode']) ?? 'names';
+    const results = Array.isArray(payload?.['results'])
+      ? payload['results'].map(asRecord).filter((item): item is Record<string, unknown> => !!item)
+      : [];
+    const total = typeof payload?.['totalMatches'] === 'number' ? payload['totalMatches'] : results.length;
+    const returned = typeof payload?.['returnedMatches'] === 'number' ? payload['returnedMatches'] : results.length;
+    const contentHits = typeof payload?.['contentHitsKnown'] === 'number' ? payload['contentHitsKnown'] : 0;
+    const lines: string[] = [];
+
+    lines.push(truncateToWidth(
+      `\x1b[1m⌕ ${query}\x1b[0m \x1b[2m(${mode}, ${total} ${total === 1 ? 'match' : 'matches'})\x1b[0m`,
+      width
+    ));
+    if (results.length === 0) {
+      lines.push('\x1b[2m  No visible matches.\x1b[0m');
+      return lines;
+    }
+
+    const root: SearchTreeNode = { children: new Map() };
+    for (const result of results) {
+      const filePath = readString(result['path']) ?? '?';
+      const parts = filePath.split('/').filter(Boolean);
+      let node = root;
+      for (let index = 0; index < parts.length; index++) {
+        const part = parts[index];
+        let child = node.children.get(part);
+        if (!child) {
+          child = { children: new Map(), result: undefined };
+          node.children.set(part, child);
+        }
+        node = child;
+        if (index === parts.length - 1) node.result = result;
+      }
+    }
+
+    const entries = [...root.children.entries()];
+    for (let index = 0; index < entries.length; index++) {
+      renderSearchNode(entries[index][0], entries[index][1], '', index === entries.length - 1, lines, width);
+    }
+
+    const truncated = payload?.['truncated'] === true;
+    const summary = `\x1b[2mSummary: ${returned}/${total} files shown · ${contentHits} readable content hits${truncated ? ' · more matches available' : ''}\x1b[0m`;
+    lines.push(truncateToWidth(summary, width));
+    return lines;
+  }
+
+  invalidate(): void {}
+
+  remove(): void {
+    this._parent?.removeChild(this);
+  }
+}
+
+interface SearchTreeNode {
+  children: Map<string, SearchTreeNode>;
+  result?: Record<string, unknown>;
+}
+
+function renderSearchNode(
+  name: string,
+  node: SearchTreeNode,
+  prefix: string,
+  isLast: boolean,
+  lines: string[],
+  width: number
+): void {
+  const hasChildren = node.children.size > 0;
+  const connector = prefix ? `${prefix}${isLast ? '└── ' : '├── '}` : '';
+  const directory = hasChildren && !node.result;
+  const label = directory ? `\x1b[1m${name}/\x1b[0m` : formatSearchFile(name, node.result);
+  lines.push(truncateToWidth(`${connector}${label}`, width));
+
+  if (node.result) {
+    renderSearchDetails(node.result, `${prefix}${isLast ? '    ' : '│   '}`, lines, width);
+  }
+  if (!hasChildren) return;
+
+  const childEntries = [...node.children.entries()];
+  const childPrefix = prefix ? `${prefix}${isLast ? '    ' : '│   '}` : '';
+  for (let index = 0; index < childEntries.length; index++) {
+    renderSearchNode(childEntries[index][0], childEntries[index][1], childPrefix, index === childEntries.length - 1, lines, width);
+  }
+}
+
+function formatSearchFile(name: string, result?: Record<string, unknown>): string {
+  const readable = result?.['readable'] === true;
+  const writable = result?.['writable'] === true;
+  const icon = writable ? '\x1b[32m●\x1b[0m' : readable ? '\x1b[36m●\x1b[0m' : '\x1b[33m○\x1b[0m';
+  return `${icon} ${name}`;
+}
+
+function renderSearchDetails(
+  result: Record<string, unknown>,
+  prefix: string,
+  lines: string[],
+  width: number
+): void {
+  const details: string[] = [];
+  const matchedBy = Array.isArray(result['matchedBy']) ? result['matchedBy'].join(', ') : '';
+  const lineNumbers = Array.isArray(result['lines']) ? result['lines'].join(', ') : '';
+  const readable = result['readable'] === true;
+  const writable = result['writable'] === true;
+  details.push(`${matchedBy || 'match'}${lineNumbers ? ` · lines ${lineNumbers}` : ''} · ${writable ? 'read/write' : readable ? 'read-only' : 'name only'}`);
+
+  const readers = formatPeople(result['readers']);
+  const writers = formatPeople(result['writers']);
+  if (readers) details.push(`readers: ${readers}`);
+  if (writers) details.push(`writers: ${writers}`);
+  const nextAction = readString(result['nextAction']);
+  if (nextAction) details.push(`↳ ${nextAction}`);
+
+  const snippets = Array.isArray(result['snippets']) ? result['snippets'] : [];
+  for (const snippet of snippets.slice(0, 3)) {
+    const item = asRecord(snippet);
+    if (!item) continue;
+    const line = typeof item['line'] === 'number' ? item['line'] : '?';
+    const content = readString(item['content']) ?? '';
+    details.push(`:${line} ${content}`);
+  }
+  for (const detail of details) {
+    lines.push(truncateToWidth(`\x1b[2m${prefix}   ${detail}\x1b[0m`, width));
+  }
+}
+
+function formatPeople(value: unknown): string {
+  if (!Array.isArray(value)) return '';
+  return value
+    .map(asRecord)
+    .filter((item): item is Record<string, unknown> => !!item)
+    .map((item) => readString(item['label']) ?? readString(item['contextId']) ?? '?')
+    .join(', ');
+}
+
+function unwrapResultPayload(value: unknown): Record<string, unknown> | undefined {
+  const record = asRecord(value);
+  const data = asRecord(record?.['data']);
+  return data ?? record;
+}
+
 const TREE_MAX_DEPTH = 4;
 const TREE_MAX_ITEMS = 60;
 

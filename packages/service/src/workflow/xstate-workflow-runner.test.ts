@@ -87,6 +87,90 @@ function createLoopDefinition(): WorkflowDefinition<LoopState> {
 }
 
 describe('WorkflowRunner logging', () => {
+  it('exposes the workflow return command and parent frame to step commands', async () => {
+    const execute = vi.fn(async (_params: unknown, ctx: any) => {
+      expect(ctx.workflowReturn).toEqual({
+        command: 'session-handoff-return',
+        args: { reason: 'completed' },
+      });
+      expect(ctx.workflowStack).toEqual([
+        {
+          workflowId: 'parent-workflow',
+          workflowInstanceId: 'parent-1',
+          agentId: 'emily-davis',
+          sessionId: 'session-emily',
+        },
+      ]);
+      return { status: 'ok', data: 'done' };
+    });
+    const runner = new WorkflowRunner(createResolver(undefined), noOpBackendLogService);
+
+    const result = await runner.run(
+      {
+        id: 'child-workflow',
+        description: 'Workflow with a configurable return command',
+        availableIn: { cli: false, chat: false, tool: false },
+        return: {
+          command: 'session-handoff-return',
+          args: { reason: 'completed' },
+        },
+        steps: [{ id: 'work', command: 'work' }],
+      },
+      {},
+      {
+        executionContext: {
+          history: [],
+          workflowId: 'parent-workflow',
+          workflowInstanceId: 'parent-1',
+          agentId: 'emily-davis',
+          sessionId: 'session-emily',
+        },
+        commands: {
+          work: { execute },
+        },
+      }
+    );
+
+    expect(result.aborted).toBe(false);
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it('exposes the previous command response as the default workflow return value', async () => {
+    const firstResult = {
+      status: 'ok',
+      message: 'Analysis completed.',
+      data: { answer: 42 },
+    };
+    const inspect = vi.fn(async (_params: unknown, ctx: any) => {
+      expect(ctx.workflowReturn).toBeUndefined();
+      expect(ctx.workflowLastResult).toEqual(firstResult);
+      return { status: 'ok', data: 'inspected' };
+    });
+    const runner = new WorkflowRunner(createResolver(undefined), noOpBackendLogService);
+
+    const result = await runner.run(
+      {
+        id: 'default-return-workflow',
+        description: 'Workflow using its previous tool response as the return value',
+        availableIn: { cli: false, chat: false, tool: false },
+        steps: [
+          { id: 'analyze', command: 'analyze' },
+          { id: 'inspect', command: 'inspect' },
+        ],
+      },
+      {},
+      {
+        commands: {
+          analyze: { execute: vi.fn(async () => firstResult) },
+          inspect: { execute: inspect },
+        },
+      }
+    );
+
+    expect(result.aborted).toBe(false);
+    expect(inspect).toHaveBeenCalledOnce();
+  });
+
   it('writes debug logs for workflow steps and loop checks', async () => {
     const write = vi.fn();
     const backendLogService: IBackendLogService = { write };
@@ -239,7 +323,7 @@ describe('WorkflowRunner logging', () => {
       }
     );
 
-    setTimeout(() => controller.abort(), 20);
+    setTimeout(() => controller.abort(new Error('Target agent LLM request timed out.')), 20);
 
     const result = await Promise.race([
       runPromise,
@@ -250,5 +334,6 @@ describe('WorkflowRunner logging', () => {
 
     expect(result.aborted).toBe(true);
     expect(result.state.count).toBe(0);
+    expect(result.abortedError).toBe('Target agent LLM request timed out.');
   });
 });

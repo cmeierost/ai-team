@@ -45,6 +45,8 @@ export interface ChatRuntimeTurnResult {
     add?: string[];
     remove?: string[];
   };
+  sourceToolCallId?: string;
+  sourceSessionId?: string;
   agentId?: string;
   sessionId?: string;
 }
@@ -101,7 +103,7 @@ export type ChatRuntimeStepResolver = (
 
 export function createChatRuntimeStepCommand<TInput, TOutput>(
   step: ChatRuntimeStepName,
-  executeAsync: (input: TInput) => Promise<TOutput>
+  executeAsync: (input: TInput, ctx: ExecutionContext) => Promise<TOutput>
 ): IChatRuntimeStepCommand<TInput, TOutput> {
   const metadata: ICommandDescriptor<TInput> = {
     key: `chat-runtime-step:${step}`,
@@ -112,7 +114,7 @@ export function createChatRuntimeStepCommand<TInput, TOutput>(
   return {
     metadata,
     execute: async (params: TInput, _ctx: ExecutionContext): Promise<CommandResponse<TOutput>> => {
-      const data = await executeAsync(params);
+      const data = await executeAsync(params, _ctx);
       return { status: 'ok', data };
     },
   };
@@ -260,6 +262,9 @@ export class ChatRuntime implements IChatRuntime {
       id: 'chat-runtime-loop',
       description: 'Run chat turn orchestration with workflow runner loop semantics',
       availableIn: { cli: false, chat: false, tool: false },
+      return: {
+        command: 'session-handoff-return',
+      },
       steps: [
         {
           id: 'preturn',
@@ -454,6 +459,8 @@ export class ChatRuntime implements IChatRuntime {
                 handoffNote: state.sendTurn?.handoffNote,
                 handoffTargetWorkflowId: state.sendTurn?.handoffTargetWorkflowId,
                 handoffWorkflowToolPolicy: state.sendTurn?.handoffWorkflowToolPolicy,
+                sourceToolCallId: state.sendTurn?.sourceToolCallId,
+                sourceSessionId: state.sendTurn?.sourceSessionId,
               }),
               applyResult: (state, raw) => {
                 const postTurn = this.unwrapStepResponse<ChatLoopPostTurnResolutionResult>(

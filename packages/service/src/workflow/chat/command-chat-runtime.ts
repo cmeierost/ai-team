@@ -40,7 +40,7 @@ export class CommandChatRuntime {
         case 'sendTurn':
           return createChatRuntimeStepCommand(
             'sendTurn',
-            async (turnInput: ChatRuntimeTurnInput) => {
+            async (turnInput: ChatRuntimeTurnInput, workflowCtx: ExecutionContext) => {
               const response = await this.commandDispatcher.dispatch(
                 'chat-chat-direct-turn',
                 {
@@ -52,11 +52,15 @@ export class CommandChatRuntime {
                     createNewSession: turnInput.createNewSession,
                   },
                 },
-                this.createExecutionContext(input, {
-                  agentId: turnInput.agentId,
-                  sessionId: turnInput.sessionId,
-                  calledByHuman: turnInput.options.messageOrigin === 'developer',
-                })
+                this.createExecutionContext(
+                  input,
+                  {
+                    agentId: turnInput.agentId,
+                    sessionId: turnInput.sessionId,
+                    calledByHuman: turnInput.options.messageOrigin === 'developer',
+                  },
+                  workflowCtx
+                )
               );
 
               if (response.status !== 'ok') {
@@ -78,6 +82,8 @@ export class CommandChatRuntime {
                         add?: string[];
                         remove?: string[];
                       };
+                      sourceToolCallId?: string;
+                      sourceSessionId?: string;
                       agentId?: string;
                       sessionId?: string;
                     })
@@ -128,6 +134,8 @@ export class CommandChatRuntime {
                   add?: string[];
                   remove?: string[];
                 };
+                sourceToolCallId?: string;
+                sourceSessionId?: string;
               };
               fromAgentId?: string;
               fromSessionId?: string;
@@ -143,11 +151,14 @@ export class CommandChatRuntime {
                   targetAgentId,
                   targetWorkflowId: handoffInput.handoff.handoffTargetWorkflowId ?? 'chat',
                   briefingNote: handoffInput.handoff.handoffNote,
-                  workflowToolPolicy: handoffInput.handoff.handoffWorkflowToolPolicy,
-                },
+                workflowToolPolicy: handoffInput.handoff.handoffWorkflowToolPolicy,
+                sourceToolCallId: handoffInput.handoff.sourceToolCallId,
+                sourceSessionId: handoffInput.handoff.sourceSessionId,
+              },
                 this.createExecutionContext(input, {
                   agentId: handoffInput.fromAgentId,
                   sessionId: handoffInput.fromSessionId,
+                  handoffAlreadyAuthorized: true,
                 })
               );
               const transition = this.requireSuccessfulHandoffTransition(response);
@@ -173,7 +184,9 @@ export class CommandChatRuntime {
       agentId?: string;
       sessionId?: string;
       calledByHuman?: boolean;
-    }
+      handoffAlreadyAuthorized?: boolean;
+    },
+    workflowCtx?: ExecutionContext
   ): ExecutionContext {
     return {
       history: [],
@@ -181,7 +194,22 @@ export class CommandChatRuntime {
       sessionId: values.sessionId,
       invocationSurface: input.invocationSurface,
       calledByHuman: values.calledByHuman ?? input.calledByHuman,
+      handoffAlreadyAuthorized: values.handoffAlreadyAuthorized,
       callerType: (values.calledByHuman ?? input.calledByHuman) ? 'human' : input.callerType,
+      ...(workflowCtx?.workflowId ? { workflowId: workflowCtx.workflowId } : {}),
+      ...(workflowCtx?.workflowInstanceId
+        ? { workflowInstanceId: workflowCtx.workflowInstanceId }
+        : {}),
+      ...(workflowCtx?.stepId ? { stepId: workflowCtx.stepId } : {}),
+      ...(workflowCtx?.workflowReturn
+        ? { workflowReturn: workflowCtx.workflowReturn }
+        : {}),
+      ...(workflowCtx?.workflowStack
+        ? { workflowStack: [...workflowCtx.workflowStack] }
+        : {}),
+      ...(workflowCtx?.workflowLastResult !== undefined
+        ? { workflowLastResult: workflowCtx.workflowLastResult }
+        : {}),
       ...(input.signal ? { signal: input.signal } : {}),
       ...(input.subworkflowDepth !== undefined ? { subworkflowDepth: input.subworkflowDepth } : {}),
     };

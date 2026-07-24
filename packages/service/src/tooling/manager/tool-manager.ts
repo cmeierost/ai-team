@@ -117,7 +117,15 @@ export class ToolManager implements IToolManager {
    * Tools that are available to every agent by default.
    * Agents may still deny these via their `disallowedTools` list.
    */
-  private static readonly DEFAULT_TOOLS: ReadonlySet<string> = new Set(['com_ask', 'com_handoff']);
+  private static readonly DEFAULT_TOOLS: ReadonlySet<string> = new Set([
+    'com_ask',
+    'com_handoff',
+    // Reading is a baseline capability for every agent. Workflow policies
+    // and disallowedTools may still restrict it for a specific run.
+    'fs_read',
+    'fs_tree',
+    'fs_write',
+  ]);
 
   /** Directly-registered tool instances, keyed by canonical name. */
   private readonly directTools = new Map<string, ICommand>();

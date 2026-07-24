@@ -11,9 +11,8 @@ responsibilities:
   - Align requirement engineering and development execution
   - Break strategic goals into implementable technical workstreams
 tools:
-  - read_file
-  - file_search
-  - semantic_search
+  - fs_read
+  - fs_search
 permissions:
   read:
     - "**/*"

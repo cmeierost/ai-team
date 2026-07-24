@@ -153,12 +153,99 @@ You are {fromAgent.name} ({fromAgent.role}). Write a handoff briefing for {targe
 Recent conversation:
 {last 12 turns, formatted as "Name: content"}
 
-Write 2-4 sentences in first person as {fromAgent.name}: summarise what you and {developerName}
-discussed, what {developerName}'s goal is, and why you are forwarding them to {targetAgentName}.
-Do not repeat the request word-for-word. Do not add a subject line or greeting.
+Write 2-10 sentences in first person as {fromAgent.name}. Make the developer's objective,
+the receiving agent's responsibility, its expected first action, relevant decisions or constraints,
+and any requested return or follow-up path explicit. Tell the receiving agent to continue with the
+developer rather than replying to you. Do not invent missing decisions or a return path, repeat the
+request word-for-word, or add a subject line or greeting.
 ```
 
-`maxTokens: 250`. Falls back to the raw trigger message if the LLM is unavailable.
+Forward briefings use `maxTokens: 800`. A normal forward falls back to the raw trigger message if
+the LLM is unavailable.
+
+### `/return` briefings
+
+`/session return` is the generic shortcut for the active workflow's configured
+return command. Without a custom command it returns the last completed tool
+response. The chat workflow declares `session-handoff-return`; that
+command resolves the persisted parent frame and executes `com_handoff` with
+`navigationIntent: back`. `/return` itself does not generate summaries or mutate
+chat/thread state.
+
+The return capability is exposed to an agent only when the runtime has a known
+parent for a custom return, or a completed tool response for the default
+return. The agent may invoke it after the developer clearly asks to
+return/report back, or confirms that the delegated work is complete and they
+want to continue with the parent. Completing an answer, reaching an
+agent-selected stopping point, or merely having a return path is not
+sufficient. When the developer's intent is ambiguous, the agent stays in the
+current workflow and asks one concise question.
+
+Agent tool calls must also provide `developerSignal`, quoting the latest visible
+developer message that authorized the return. The command verifies that
+provenance before executing. Direct human `/return` invocations do not require
+this field.
+
+For chat, returning is semantic, not just navigation. Before switching
+sessions, the current agent must write a return briefing that answers the
+original incoming handoff and the questions or requests that caused it. The
+summary prompt:
+
+- retains the original incoming `agent-briefing`, even when it is outside the recent-history window;
+- includes the later delegated conversation and conclusions;
+- does not present the `/return` navigation string as something the developer said;
+- tells the model not to mention navigation or ask the delegating agent what was discovered; and
+- uses a 1600-token budget so reasoning-capable models still have room to emit visible content.
+
+If the model emits no visible summary or the call fails, the runtime uses the current agent's latest
+substantive response from the delegated session. That fallback is replayed through handoff `delta`
+events before the `complete` event, so reasoning-only or failed summary calls still render
+incrementally. It never persists “Returning to the delegating agent via /return” as the return
+briefing. If there is no substantive response, it explicitly reports that no result is available and
+preserves the original request for context.
+
+## Receiving-Agent Prompt Contract
+
+The mirrored `agent-briefing` is converted into a `user`-role message so the receiving model has a
+reply-prompting final turn. It is wrapped in a recognizable internal envelope:
+
+```text
+[Internal handoff — {fromAgentName} → {toAgentName}]
+
+The human developer is now your conversational counterpart. Respond to the developer,
+not {fromAgentName}.
+
+A return path to {fromAgentName} is available through session_return. Call it only
+after the developer clearly asks to return/report back or confirms this delegated
+work is finished. Do not return merely because you produced an answer.
+
+Use this colleague briefing as context and continue from it. Do not ask the developer
+to repeat information already included here.
+
+{fromAgentName} wrote:
+
+{briefing}
+```
+
+The conversation-participants system prompt defines this envelope as the sole exception to the
+normal rule that `user` messages are authored by the developer. On receipt, the target agent must:
+
+1. Address the developer directly, never the sending colleague.
+2. Translate third-person briefing language such as “Clemens wants” into natural second-person
+   language such as “you want.”
+3. Use the briefing without quoting it or asking the developer to repeat known context.
+4. Act on a clear next step; otherwise ask one focused question.
+5. Treat “tell Emily,” “report back,” “return,” and equivalent language as authorization to call
+   `session_return`, quoting that latest developer message in `developerSignal`.
+6. Stay in the delegated workflow when the developer has not clearly indicated that they want to
+   leave it; use `com_handoff` only for a new transfer to a different agent.
+
+The receiving turn stays on the normal streaming tool-loop path.
+OpenAI-compatible providers may send interim reasoning as either
+`delta.reasoning_content` or `delta.reasoning`; both forms are translated into
+thinking events immediately. Visible `delta.content` streams into the receiving
+agent response before the tool loop finishes, so a long reasoning or
+tool-capable turn does not look like a blocked application.
 
 ---
 

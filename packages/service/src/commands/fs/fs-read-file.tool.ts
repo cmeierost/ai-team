@@ -12,11 +12,17 @@ import type { FsReadParams, FsReadResult } from './fs-tool-types.js';
 export const FsReadFileToolMetadata = {
   key: 'read',
   group: 'fs',
-  availableIn: { tool: true },
+  availableIn: { tool: true, chat: true },
+  usage: '<filePath> [offset] [limit]',
+  examples: [
+    '/fs read packages/service/src/commands/fs/fs-tool-types.ts',
+    '/fs read packages/service/src/commands/fs/fs-tool-types.ts 105 55',
+  ],
   description: [
     'Read a file through access checks with structured access metadata.',
     'Reads line-by-line internally (never buffers the whole file into memory).',
     'Supports pagination via `offset` (1-based start line) and `limit` (max lines).',
+    'Slash/CLI positional form is `<filePath> [offset] [limit]`; omitted offset defaults to 1 and omitted limit to the standard read limit.',
     'Text content is returned without inline line-number prefixes.',
     'Structured results include `startLine`, `endLine`, and `isFullFile` so callers know which slice was returned.',
     'Lines longer than 2000 chars are truncated; output is capped at 50 KB.',
@@ -46,9 +52,14 @@ export class FsReadFileTool implements ICommand<FsReadParams, FsReadResult> {
     if (typeof result.content !== 'string') return result;
     const isFullFile = result.isFullFile === true;
     const pathLabel = typeof result.path === 'string' ? result.path : JSON.stringify(result.path);
+    const startLine = typeof result.startLine === 'number' ? result.startLine : undefined;
+    const endLine = typeof result.endLine === 'number' ? result.endLine : undefined;
+    const range = startLine !== undefined && endLine !== undefined
+      ? ` (${startLine}-${endLine})`
+      : '';
     return [
       `File: ${pathLabel}`,
-      `Scope: ${isFullFile ? 'full-file' : 'partial-slice'}`,
+      `Scope: ${isFullFile ? 'full-file' : 'partial-slice'}${range}`,
       '',
       result.content,
     ].join('\n');
@@ -60,9 +71,15 @@ export class FsReadFileTool implements ICommand<FsReadParams, FsReadResult> {
   ): Promise<CommandResponse<FsReadResult>> {
     const { filePath, offset = 1, limit = READ_DEFAULT_LIMIT } = params;
     try {
+      // Human slash commands are workspace-wide reads. Agent/tool calls keep
+      // the active context's normal fs-context permissions.
+      const basePermissions = context.agent?.permissions ?? { read: [], write: [], list: [] };
+      const permissions = context.invocationSurface === 'slash'
+        ? { ...basePermissions, read: ['**'], list: ['**'] }
+        : basePermissions;
       const fs = await this.workspaceFsFactory.create(
         context.agent?.id ?? '',
-        context.agent?.permissions ?? { read: [], write: [], list: [] }
+        permissions
       );
       const result = await fs.readFile(filePath, {
         offset,

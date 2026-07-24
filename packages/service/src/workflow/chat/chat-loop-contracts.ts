@@ -55,6 +55,8 @@ export const chatPostTurnResolutionResultSchema = z.object({
   handoffNote: z.string().optional(),
   handoffTargetWorkflowId: z.string().optional(),
   handoffWorkflowToolPolicy: workflowToolPolicySchema.optional(),
+  sourceToolCallId: z.string().optional(),
+  sourceSessionId: z.string().optional(),
 });
 
 export type ChatPostTurnResolutionResult = z.infer<typeof chatPostTurnResolutionResultSchema>;

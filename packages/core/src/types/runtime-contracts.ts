@@ -38,6 +38,7 @@ export interface IToolDispatchService {
     result: unknown;
     isError: boolean;
     structured?: StructuredToolResult;
+    terminal?: boolean;
   }>;
 }
 
@@ -101,7 +102,8 @@ export interface ISendTurnStepService<
   handleLlmFailureAsync(
     error: unknown,
     plugins: TPlugins,
-    ctx: ExecutionContext
+    ctx: ExecutionContext,
+    options?: { archiveFailure?: boolean }
   ): Promise<TTurnResult>;
 }
 
@@ -173,6 +175,20 @@ export interface ISessionManager {
   setMessageHiddenFromLlm(messageId: number, hidden: boolean): Promise<boolean>;
   updateMessageContent(messageId: number, newContent: string): Promise<boolean>;
   updateToolCallLlmResult(toolCallId: number, newText: string): Promise<void>;
+  /** Persist an invocation before execution. Implementations may omit this for legacy storage. */
+  appendToolCallRequest?(
+    sessionId: string,
+    message: ChatMessage
+  ): Promise<void>;
+  /** Persist a completion independently from its invocation. */
+  appendToolCallResult?(
+    sessionId: string,
+    callId: string,
+    result: unknown,
+    resultLlm: string | undefined,
+    phase: 'result' | 'error' | 'denied',
+    timestamp: string
+  ): Promise<void>;
 
   // ── Message ↔ Session Links ───────────────────────────────────────────────
   createMessageSessionLink(messageId: number, sessionId: string): Promise<MessageSessionLink>;
@@ -255,6 +271,8 @@ export interface ILlmToolResult {
   toolName: string;
   result: unknown;
   isError?: boolean;
+  /** A terminal orchestration action (for example a handoff) ends this tool loop. */
+  terminal?: boolean;
 }
 
 export interface ILlmToolChatResult {
@@ -267,6 +285,11 @@ export interface ILlmChatMessageParam {
   content: unknown;
   name?: string;
   tool_call_id?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
 }
 
 export interface ILlmService {
@@ -393,7 +416,8 @@ export interface IToolDispatchSupportService {
   buildPendingToolRuntimePayload(
     toolName: string,
     phase: 'request' | 'start',
-    request: unknown
+    request: unknown,
+    longRunning?: boolean
   ): ToolRuntimePayloadEvent;
   buildToolCommandResponse(
     toolName: string,
