@@ -397,6 +397,14 @@ export interface ChatMessage {
   to?: string; // Target agent ID (used for handoff messages)
   isHuman?: boolean; // True if message is from human developer
   content: string;
+  kind?: 'message' | 'error';
+  failureId?: string;
+  errorCode?: string;
+  errorDetails?: {
+    workflowId?: string;
+    workflowInstanceId?: string;
+    stepId?: string;
+  };
   timestamp: string;
   archived?: boolean;
   hiddenFromLlm?: boolean;

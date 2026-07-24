@@ -42,6 +42,19 @@ export class MessagesRepository implements IMessagesRepository {
   async insertMessage(sessionId: string, message: ChatMessage): Promise<MessageInsertResult> {
     await this.ensureReadyAsync();
     const timestamp = message.timestamp || new Date().toISOString();
+    if (message.failureId) {
+      const existing = this.db()
+        .select({
+          id: dbSchema.messages.id,
+          timestamp: dbSchema.messages.timestamp,
+        })
+        .from(dbSchema.messages)
+        .where(eq(dbSchema.messages.failureId, message.failureId))
+        .get();
+      if (existing) {
+        return { messageId: existing.id, timestamp: existing.timestamp };
+      }
+    }
 
     return this.db().transaction((tx) => {
       const msgResult = tx
@@ -53,6 +66,10 @@ export class MessagesRepository implements IMessagesRepository {
           toId: message.to || null,
           isHuman: message.isHuman ? 1 : 0,
           content: message.content,
+          kind: message.kind ?? 'message',
+          failureId: message.failureId ?? null,
+          errorCode: message.errorCode ?? null,
+          errorDetailsJson: message.errorDetails ? JSON.stringify(message.errorDetails) : null,
           archived: message.archived ? 1 : 0,
           hiddenFromLlm: message.hiddenFromLlm ? 1 : 0,
           handoffType: message.handoffType || null,
@@ -182,6 +199,10 @@ export class MessagesRepository implements IMessagesRepository {
         to_id: dbSchema.messages.toId,
         is_human: dbSchema.messages.isHuman,
         content: dbSchema.messages.content,
+        kind: dbSchema.messages.kind,
+        failure_id: dbSchema.messages.failureId,
+        error_code: dbSchema.messages.errorCode,
+        error_details_json: dbSchema.messages.errorDetailsJson,
         archived: dbSchema.messages.archived,
         hidden_from_llm: dbSchema.messages.hiddenFromLlm,
         handoff_type: dbSchema.messages.handoffType,
@@ -242,6 +263,10 @@ export class MessagesRepository implements IMessagesRepository {
         to_id: dbSchema.messages.toId,
         is_human: dbSchema.messages.isHuman,
         content: dbSchema.messages.content,
+        kind: dbSchema.messages.kind,
+        failure_id: dbSchema.messages.failureId,
+        error_code: dbSchema.messages.errorCode,
+        error_details_json: dbSchema.messages.errorDetailsJson,
         archived: dbSchema.messages.archived,
         hidden_from_llm: dbSchema.messages.hiddenFromLlm,
         handoff_type: dbSchema.messages.handoffType,
@@ -325,6 +350,10 @@ export class MessagesRepository implements IMessagesRepository {
         m.to_id,
         m.is_human,
         m.content,
+        m.kind,
+        m.failure_id,
+        m.error_code,
+        m.error_details_json,
         m.archived,
         m.hidden_from_llm,
         m.handoff_type,
@@ -354,6 +383,10 @@ export class MessagesRepository implements IMessagesRepository {
         to_id: dbSchema.messages.toId,
         is_human: dbSchema.messages.isHuman,
         content: dbSchema.messages.content,
+        kind: dbSchema.messages.kind,
+        failure_id: dbSchema.messages.failureId,
+        error_code: dbSchema.messages.errorCode,
+        error_details_json: dbSchema.messages.errorDetailsJson,
         archived: dbSchema.messages.archived,
         hidden_from_llm: dbSchema.messages.hiddenFromLlm,
         handoff_type: dbSchema.messages.handoffType,
@@ -620,6 +653,10 @@ export class MessagesRepository implements IMessagesRepository {
       to: row.to_id || undefined,
       isHuman: row.is_human === 1,
       content: row.content,
+      kind: row.kind === 'error' ? 'error' : 'message',
+      failureId: row.failure_id || undefined,
+      errorCode: row.error_code || undefined,
+      errorDetails: this.parseErrorDetails(row.error_details_json),
       context: context.length > 0 ? context : undefined,
       tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
       suggestions: suggestions.length > 0 ? suggestions : undefined,
@@ -742,6 +779,10 @@ export class MessagesRepository implements IMessagesRepository {
         to: row.to_id || undefined,
         isHuman: row.is_human === 1,
         content: row.content,
+        kind: row.kind === 'error' ? 'error' : 'message',
+        failureId: row.failure_id || undefined,
+        errorCode: row.error_code || undefined,
+        errorDetails: this.parseErrorDetails(row.error_details_json),
         context: context && context.length > 0 ? context : undefined,
         tool_calls: tool_calls && tool_calls.length > 0 ? tool_calls : undefined,
         suggestions: suggestions && suggestions.length > 0 ? suggestions : undefined,
@@ -755,5 +796,17 @@ export class MessagesRepository implements IMessagesRepository {
         importance: (row.importance as 'low' | 'normal' | 'high' | null) || undefined,
       } as ChatMessage;
     });
+  }
+
+  private parseErrorDetails(value: unknown): ChatMessage['errorDetails'] {
+    if (typeof value !== 'string' || !value.trim()) return undefined;
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object'
+        ? (parsed as ChatMessage['errorDetails'])
+        : undefined;
+    } catch {
+      return undefined;
+    }
   }
 }

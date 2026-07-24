@@ -92,6 +92,21 @@ export class ChatInfoService implements IChatInfoService {
     const timeline: HistoricalTimelineEntry[] = [];
     let order = 0;
     for (const msg of visible) {
+      if (msg.kind === 'error') {
+        timeline.push({
+          at: msg.timestamp ?? '',
+          order: order++,
+          event: {
+            kind: 'error',
+            historical: true,
+            message: msg.content,
+            failureId: msg.failureId,
+            errorCode: msg.errorCode,
+            errorDetails: msg.errorDetails,
+          },
+        });
+        continue;
+      }
       if (msg.content.trim().length > 0 || !msg.tool_calls?.length) {
         timeline.push({
           at: msg.timestamp ?? '',
@@ -134,6 +149,22 @@ export class ChatInfoService implements IChatInfoService {
         message.importance === 'low' ||
         (message.isHuman && isHandoffAutoReactMessage(message.content))
       ) {
+        continue;
+      }
+
+      if (message.kind === 'error') {
+        timeline.push({
+          at: message.timestamp ?? '',
+          order: order++,
+          event: {
+            kind: 'error',
+            historical: true,
+            message: message.content,
+            failureId: message.failureId,
+            errorCode: message.errorCode,
+            errorDetails: message.errorDetails,
+          },
+        });
         continue;
       }
 

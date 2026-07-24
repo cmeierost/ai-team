@@ -43,8 +43,13 @@ export interface NormalizedToolEvent {
   toolName: string;
   phase: 'request' | 'start' | 'result' | 'error' | 'denied';
   callId?: string;
+  /** Command descriptor identity used for renderer fallback on slash calls. */
+  commandGroup?: string;
+  commandKey?: string;
   request?: unknown;
   output?: unknown;
+  /** Raw command response data (structured object) — preferred by rich renderers. */
+  commandResponseData?: unknown;
   error?: unknown;
   denial?: unknown;
   historical: boolean;

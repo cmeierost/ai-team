@@ -114,3 +114,41 @@ export interface IFileAnnotationService {
     allFiles: string[]
   ): string[];
 }
+
+export interface FuzzyFileMatch {
+  /** Workspace-relative path. */
+  path: string;
+  /** Similarity score in [0, 1], where 1 is best match. */
+  score: number;
+}
+
+/**
+ * Finds the top N workspace files most similar to a requested path,
+ * scoped to only files the agent is allowed to read.
+ */
+export interface IFuzzyFileSearch {
+  /**
+   * @param requestedPath  - The path the user tried to read (workspace-relative or absolute).
+   * @param permissions    - The agent's permission config.
+   * @param allFiles       - Full workspace file list (workspace-relative paths).
+   * @param maxResults     - Maximum suggestions to return (default 10).
+   */
+  findSimilar(
+    requestedPath: string,
+    permissions: PermissionConfig | undefined,
+    allFiles: string[],
+    maxResults?: number
+  ): string[];
+
+  /**
+   * Returns ranked fuzzy matches (best first) with scores.
+   *
+   * Implementations must only return files the caller is allowed to read.
+   */
+  findSimilarRanked(
+    requestedPath: string,
+    permissions: PermissionConfig | undefined,
+    allFiles: string[],
+    options?: { minScore?: number }
+  ): FuzzyFileMatch[];
+}

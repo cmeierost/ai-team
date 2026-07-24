@@ -8793,6 +8793,14 @@
               }
             ]
           },
+          "commandGroup": {
+            "type": "string",
+            "nullable": true
+          },
+          "commandKey": {
+            "type": "string",
+            "nullable": true
+          },
           "request": {},
           "commandResponse": {
             "$ref": "#/components/schemas/CommandResponse",
@@ -8895,6 +8903,45 @@
           },
           "content": {
             "type": "string"
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "failureId": {
+            "type": "string",
+            "nullable": true
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "errorDetails": {
+            "type": "object",
+            "properties": {
+              "workflowId": {
+                "type": "string",
+                "nullable": true
+              },
+              "workflowInstanceId": {
+                "type": "string",
+                "nullable": true
+              },
+              "stepId": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "nullable": true
           },
           "timestamp": {
             "type": "string"

@@ -35,10 +35,12 @@ export {
 } from './llm/provider-configuration.service.js';
 export type {
   AnnotatedFile,
+  FuzzyFileMatch,
   FileTreeNode,
   GetFileTreeOptions,
   IFileTreeService,
   IFileAnnotationService,
+  IFuzzyFileSearch,
   IIdeAdapterFactory,
   IWorkspaceAccessRuntime,
   IWorkspaceFs,

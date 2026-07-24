@@ -3,6 +3,7 @@ import type { ISessionsService, StreamEvent, IInteractionService } from '@ai-tea
 import type { IAgentManager, IdeAdapter, ISessionManager } from '@ai-team/core';
 import { createIdeAdapter } from '@ai-team/infrastructure';
 import { WsQuestionService } from './ws-question-service.js';
+import { writeServerError } from '../server-log.js';
 
 /**
  * Messages sent from client to server over WebSocket.
@@ -433,6 +434,7 @@ export async function setupChatWebSocket(
   });
 
   ws.on('error', (error) => {
+    writeServerError(error, { phase: 'websocket' });
     console.error('WebSocket error:', error);
     if (currentAbortController) {
       currentAbortController.abort();

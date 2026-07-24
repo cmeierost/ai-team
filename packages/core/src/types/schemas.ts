@@ -248,6 +248,11 @@ export const LogOutputConfigSchema = z.object({
 
 export type LogOutputConfig = z.infer<typeof LogOutputConfigSchema>;
 
+const ErrorLogOutputConfigSchema = z.object({
+  file: LogDestinationLevelSchema.default('error'),
+  console: LogDestinationLevelSchema.default('off'),
+});
+
 export const ChatSessionStartupLoadLogConfigSchema = LogOutputConfigSchema.extend({
   enabled: z.boolean().default(false),
 });
@@ -275,7 +280,7 @@ export const BackendLogSourcesSchema = z.record(z.string(), LogDestinationLevelS
 
 export type BackendLogSources = z.infer<typeof BackendLogSourcesSchema>;
 
-export const BackendLogConfigSchema = LogOutputConfigSchema.extend({
+export const BackendLogConfigSchema = ErrorLogOutputConfigSchema.extend({
   targets: BackendLogTargetOverridesSchema.default({
     console: { file: 'off', console: 'debug' },
     api: { file: 'off', console: 'off' },
@@ -287,15 +292,17 @@ export type BackendLogConfig = z.infer<typeof BackendLogConfigSchema>;
 
 export const LogConfigSchema = z.object({
   backend: BackendLogConfigSchema.default({
-    file: 'off',
+    file: 'error',
     console: 'off',
     targets: {
-      console: { file: 'off', console: 'debug' },
-      api: { file: 'off', console: 'off' },
+      console: { console: 'off' },
+      api: { console: 'off' },
     },
     sources: {},
   }),
-  frontend: LogOutputConfigSchema.default({ file: 'off', console: 'off' }),
+  cli: ErrorLogOutputConfigSchema.default({ file: 'error', console: 'off' }),
+  frontend: ErrorLogOutputConfigSchema.default({ file: 'error', console: 'off' }),
+  server: ErrorLogOutputConfigSchema.default({ file: 'error', console: 'off' }),
   chat: ChatLogConfigSchema.default({
     sessionStartupLoad: { enabled: false, file: 'off', console: 'off' },
   }),
@@ -314,7 +321,9 @@ const PartialLogConfigSchema = z.object({
         .optional(),
     })
     .optional(),
-  frontend: LogOutputConfigSchema.partial().optional(),
+  cli: ErrorLogOutputConfigSchema.partial().optional(),
+  frontend: ErrorLogOutputConfigSchema.partial().optional(),
+  server: ErrorLogOutputConfigSchema.partial().optional(),
   chat: z
     .object({
       sessionStartupLoad: ChatSessionStartupLoadLogConfigSchema.partial().optional(),
@@ -343,15 +352,17 @@ export const TeamConfigSchema = z.object({
   version: z.string(),
   log: LogConfigSchema.default({
     backend: {
-      file: 'off',
+      file: 'error',
       console: 'off',
       targets: {
-        console: { file: 'off', console: 'debug' },
-        api: { file: 'off', console: 'off' },
+        console: { console: 'off' },
+        api: { console: 'off' },
       },
       sources: {},
     },
-    frontend: { file: 'off', console: 'off' },
+    cli: { file: 'error', console: 'off' },
+    frontend: { file: 'error', console: 'off' },
+    server: { file: 'error', console: 'off' },
     chat: { sessionStartupLoad: { enabled: false, file: 'off', console: 'off' } },
   }),
   developer: UserProfileSchema.optional(),

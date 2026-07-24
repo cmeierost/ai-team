@@ -36,6 +36,10 @@ describe('fs_search', () => {
       {
         canReadPath: (_permissions: unknown, filePath: string) => filePath.startsWith('docs/'),
         canWritePath: () => false,
+      } as any,
+      {
+        findSimilar: () => [],
+        findSimilarRanked: () => [],
       } as any
     );
 
@@ -87,7 +91,11 @@ describe('fs_search', () => {
         },
       } as any,
       { getAllAgentsAsync: async () => [] } as any,
-      { canReadPath: () => false, canWritePath: () => false } as any
+      { canReadPath: () => false, canWritePath: () => false } as any,
+      {
+        findSimilar: () => [],
+        findSimilarRanked: () => [],
+      } as any
     );
 
     const response = await tool.execute(
@@ -99,5 +107,124 @@ describe('fs_search', () => {
     expect(createdPermissions.list).toEqual(['**']);
     expect(response.data.scope).toBe('workspace');
     expect(response.data.results[0]?.path).toBe('private.txt');
+  });
+
+  it('fuzzy fallback respects glob-scoped candidates and labels fuzzy output', async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-search-fuzzy-glob-'));
+    workspaces.push(workspace);
+    await fs.mkdir(path.join(workspace, 'packages', 'service'), { recursive: true });
+    await fs.mkdir(path.join(workspace, 'packages', 'web'), { recursive: true });
+    await fs.writeFile(path.join(workspace, 'packages', 'service', 'workflow.ts'), 'export const serviceWorkflow = true;');
+    await fs.writeFile(path.join(workspace, 'packages', 'web', 'workflow.tsx'), 'export const webWorkflow = true;');
+
+    const tool = new FsSearchTool(
+      workspace,
+      {
+        create: async () => ({
+          canList: () => true,
+          canRead: () => true,
+          canWrite: () => false,
+        }),
+      } as any,
+      { getAllAgentsAsync: async () => [] } as any,
+      { canReadPath: () => true, canWritePath: () => false } as any,
+      {
+        findSimilar: () => [],
+        findSimilarRanked: (_query: string, _permissions: unknown, allFiles: string[]) =>
+          allFiles.map((filePath, index) => ({ path: filePath, score: 1 - index * 0.1 })),
+      } as any
+    );
+
+    const response = await tool.execute(
+      { query: 'wrkflw', mode: 'names', glob: 'packages/service/**', maxResults: 10 },
+      { agent: { id: 'alex', permissions: { read: ['**'], write: [], list: ['**'] } } } as any
+    );
+
+    expect(response.status).toBe('ok');
+    expect(response.data.totalMatches).toBe(1);
+    expect(response.data.truncated).toBe(false);
+    expect(response.data.results).toEqual([
+      expect.objectContaining({
+        path: 'packages/service/workflow.ts',
+        matchedBy: ['fuzzy'],
+      }),
+    ]);
+
+    const rendered = tool.formatForLlm(response.data);
+    expect(rendered).toContain('(includes fuzzy-matched results)');
+    expect(rendered).toContain('[fuzzy]');
+  });
+
+  it('does not trigger fuzzy fallback in content mode', async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-search-fuzzy-content-'));
+    workspaces.push(workspace);
+    await fs.writeFile(path.join(workspace, 'workflow.ts'), 'export const value = true;');
+
+    let fuzzyCalls = 0;
+    const tool = new FsSearchTool(
+      workspace,
+      {
+        create: async () => ({
+          canList: () => true,
+          canRead: () => true,
+          canWrite: () => false,
+        }),
+      } as any,
+      { getAllAgentsAsync: async () => [] } as any,
+      { canReadPath: () => true, canWritePath: () => false } as any,
+      {
+        findSimilar: () => [],
+        findSimilarRanked: () => {
+          fuzzyCalls += 1;
+          return [{ path: 'workflow.ts', score: 0.75 }];
+        },
+      } as any
+    );
+
+    const response = await tool.execute(
+      { query: 'wrkflw', mode: 'content', maxResults: 10 },
+      { agent: { id: 'alex', permissions: { read: ['**'], write: [], list: ['**'] } } } as any
+    );
+
+    expect(fuzzyCalls).toBe(0);
+    expect(response.status).toBe('ok');
+    expect(response.data.totalMatches).toBe(0);
+    expect(response.data.results).toEqual([]);
+  });
+
+  it('fuzzy fallback keeps listability boundaries even when readability is broad', async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-search-fuzzy-listable-'));
+    workspaces.push(workspace);
+    await fs.mkdir(path.join(workspace, 'listable'), { recursive: true });
+    await fs.mkdir(path.join(workspace, 'hidden'), { recursive: true });
+    await fs.writeFile(path.join(workspace, 'listable', 'workflow.ts'), 'export const a = 1;');
+    await fs.writeFile(path.join(workspace, 'hidden', 'workflow.ts'), 'export const b = 2;');
+
+    const tool = new FsSearchTool(
+      workspace,
+      {
+        create: async () => ({
+          canList: (filePath: string) => filePath.startsWith('listable/'),
+          canRead: () => true,
+          canWrite: () => false,
+        }),
+      } as any,
+      { getAllAgentsAsync: async () => [] } as any,
+      { canReadPath: () => true, canWritePath: () => false } as any,
+      {
+        findSimilar: () => [],
+        findSimilarRanked: (_query: string, _permissions: unknown, allFiles: string[]) =>
+          allFiles.map((filePath) => ({ path: filePath, score: 0.8 })),
+      } as any
+    );
+
+    const response = await tool.execute(
+      { query: 'wrkflw', mode: 'names', maxResults: 10 },
+      { agent: { id: 'alex', permissions: { read: ['**'], write: [], list: ['**'] } } } as any
+    );
+
+    expect(response.status).toBe('ok');
+    expect(response.data.results).toHaveLength(1);
+    expect(response.data.results[0]?.path).toBe('listable/workflow.ts');
   });
 });

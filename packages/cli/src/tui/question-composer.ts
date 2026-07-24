@@ -15,6 +15,7 @@ import {
   visibleWidth,
 } from '@ai-team/tui';
 import type { TUI } from '@ai-team/tui';
+import type { AgentDisplayInfo } from './agent-color.js';
 import type { ChatLayout } from './chat-layout.js';
 
 type QuestionSpec =
@@ -26,11 +27,15 @@ type QuestionSpec =
 
 export class TuiQuestionPresenter implements IQuestionService {
   private readonly pending = new Set<TuiQuestion>();
+  private readonly getAgentDisplay: () => AgentDisplayInfo | null;
 
   constructor(
     private readonly layout: ChatLayout,
-    private readonly tui: TUI
-  ) {}
+    private readonly tui: TUI,
+    getAgentDisplay: () => AgentDisplayInfo | null = () => null
+  ) {
+    this.getAgentDisplay = getAgentDisplay;
+  }
 
   input(request: QuestionInputRequest): Promise<string> {
     return this.ask({ kind: 'input', ...request }) as Promise<string>;
@@ -63,8 +68,9 @@ export class TuiQuestionPresenter implements IQuestionService {
   }
 
   private ask(spec: QuestionSpec): Promise<unknown> {
+    const agentDisplay = this.getAgentDisplay();
     let restore = () => {};
-    const question = new TuiQuestion(spec, () => {
+    const question = new TuiQuestion(spec, agentDisplay, () => {
       this.pending.delete(question);
       restore();
       this.tui.invalidate();
@@ -92,6 +98,7 @@ class TuiQuestion implements Component {
 
   constructor(
     private readonly spec: QuestionSpec,
+    private readonly agentDisplay: AgentDisplayInfo | null,
     private readonly onSettled: () => void
   ) {
     this.answer = new Promise((resolve, reject) => {
@@ -188,14 +195,18 @@ class TuiQuestion implements Component {
       (this.spec.kind === 'select' || this.spec.kind === 'checklist')
         ? this.spec.otherPrompt
         : undefined;
+    const questionText = this.enteringOther ? (otherPrompt ?? 'Other value:') : this.spec.message;
+    const questionIndicator = this.buildQuestionIndicator();
+    const inputLines = (this.enteringOther || this.spec.kind === 'input' || this.spec.kind === 'password')
+      ? [border(safeWidth), surface(`> ${this.renderEditorValue()}`, safeWidth)]
+      : [];
     const lines = [
       border(safeWidth),
-      surface(this.enteringOther ? (otherPrompt ?? 'Other value:') : this.spec.message, safeWidth),
+      surface(`${questionIndicator} ${questionText}`, safeWidth),
+      ...inputLines,
     ];
 
-    if (this.enteringOther || this.spec.kind === 'input' || this.spec.kind === 'password') {
-      lines.push(surface(`> ${this.renderEditorValue()}`, safeWidth));
-    } else if (this.spec.kind === 'confirm') {
+    if (this.spec.kind === 'confirm') {
       const yes = this.spec.style === 'allow' ? 'Allow' : 'Yes';
       const no = this.spec.style === 'allow' ? 'Deny' : 'No';
       lines.push(surface(
@@ -230,6 +241,14 @@ class TuiQuestion implements Component {
     this.settled = true;
     this.rejectAnswer(reason);
     this.onSettled();
+  }
+
+  private buildQuestionIndicator(): string {
+    if (this.agentDisplay) {
+      const { r, g, b } = this.agentDisplay.color;
+      return `\x1b[38;2;${r};${g};${b}m?\x1b[0m`;
+    }
+    return '\x1b[33m?\x1b[0m';
   }
 
   invalidate(): void {}

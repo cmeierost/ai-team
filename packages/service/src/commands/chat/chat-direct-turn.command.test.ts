@@ -660,9 +660,15 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     expect(persisted.content).toBe('/help chat');
     expect(persisted.tool_calls?.[0]?.tool).toBe('slash:help');
     expect(persisted.tool_calls?.[0]?.params?.invokedBy).toBe('user');
+    expect(persisted.tool_calls?.[0]?.params).toMatchObject({
+      group: 'system',
+      key: 'help',
+    });
     expect(emitService.toolEvent).toHaveBeenCalled();
     expect(emitService.toolEvent.mock.calls[0]?.[5]).toMatchObject({
       request: persisted.tool_calls[0].params,
+      commandGroup: 'system',
+      commandKey: 'help',
     });
     expect(commandDispatcher.dispatch).toHaveBeenCalledWith(
       'system-help',

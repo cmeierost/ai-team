@@ -282,7 +282,8 @@ export function registerServiceLayerServices(
       (r) =>
         new FsReadFileTool(
           r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
-          r.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory)
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory),
+          r.resolve(CORE_SERVICE_TOKENS.FuzzyFileSearch)
         )
     );
     registry.register(
@@ -308,7 +309,8 @@ export function registerServiceLayerServices(
           r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
           r.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory),
           r.resolve(CORE_SERVICE_TOKENS.AgentManager),
-          r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker)
+          r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker),
+          r.resolve(CORE_SERVICE_TOKENS.FuzzyFileSearch)
         )
     );
     registry.register(

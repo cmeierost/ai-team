@@ -1536,6 +1536,25 @@
   border-color: rgba(137, 180, 250, 0.95);
 }
 
+.message-error {
+  opacity: 1;
+}
+
+.message-error .message-bubble {
+  position: relative;
+  overflow: hidden;
+  background: rgba(127, 29, 29, 0.24);
+  border: 1px solid rgba(248, 113, 113, 0.9);
+  padding: 10px 14px;
+  border-radius: 8px;
+}
+
+.message-error .message-content,
+.message-error .message-header {
+  color: #fecaca;
+  opacity: 1;
+}
+
 .message-compression-note-block {
   margin-top: 10px;
 }

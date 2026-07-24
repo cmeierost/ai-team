@@ -1,5 +1,9 @@
 import { FileTime, PermissionError } from 'fs-context';
 import type { ReadFileResult } from 'fs-context';
+
+/** Callback that returns permission-scoped fuzzy file suggestions. */
+export type FuzzySuggestionsCallback = () => Promise<string[]>;
+
 /** Standard denial response when a PermissionError is caught. */
 export function denied(e: PermissionError, inputPath: string, resultKey: string) {
   return {
@@ -28,15 +32,24 @@ export function failed(e: unknown, inputPath: string, resultKey: string) {
 }
 
 /** Map a ReadFileResult to the tool response shape. */
-export function mapReadResult(
+export async function mapReadResult(
   result: ReadFileResult,
   filePath: string,
   agentId: string,
-  fs: { canRead: (path: string) => boolean; toAbsolutePath: (path: string) => string }
-): Record<string, unknown> {
+  fs: { canRead: (path: string) => boolean; toAbsolutePath: (path: string) => string },
+  fuzzySuggestions?: FuzzySuggestionsCallback
+): Promise<Record<string, unknown>> {
   switch (result.kind) {
     case 'not-found': {
-      const filtered = result.suggestions.filter((s) => fs.canRead(s)).slice(0, 3);
+      // Use fuzzy search across all allowed files (top 10) as primary suggestions.
+      // Fall back to sibling-only suggestions from fs-context if no callback provided.
+      let suggestions: string[];
+      if (fuzzySuggestions) {
+        suggestions = await fuzzySuggestions();
+      } else {
+        suggestions = result.suggestions.filter((s) => fs.canRead(s));
+      }
+      const filtered = suggestions.slice(0, 10);
       const msg =
         filtered.length > 0
           ? `File not found: ${filePath}\n\nDid you mean one of these?\n${filtered.join('\n')}`

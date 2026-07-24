@@ -13,6 +13,7 @@ import { PreviousLog } from '../tui/previous-log.js';
 import { ChatCommandHint } from '../tui/chat-command-hint.js';
 import { UserMessage } from '../tui/user-message.js';
 import { ThinkingBlock } from '../tui/thinking-block.js';
+import { writeCliLog } from './cli-log.js';
 import {
   ExtensionRegistry,
   type NormalizedToolEvent,
@@ -173,6 +174,11 @@ function handleTool(
   const toolResult = payload.toolResult;
   const input = toolResult?.request ?? payload.input;
   const commandResponse = toolResult?.commandResponse;
+  const legacyCommandIdentity = resolvePersistedCommandIdentity(input);
+  const commandGroup = toolResult?.commandGroup ?? input?.group ?? legacyCommandIdentity?.group;
+  const commandKey = toolResult?.commandKey ?? input?.key ?? legacyCommandIdentity?.key;
+  // Generic slash rendering always uses the backend-formatted LLM value.
+  // Exact renderers consume commandResponseData separately.
   const output = toolName.startsWith('slash:')
     ? (
         toolResult?.resultLlm
@@ -197,8 +203,11 @@ function handleTool(
     toolName,
     phase,
     callId: typeof payload.toolCallId === 'string' ? payload.toolCallId : undefined,
+    commandGroup,
+    commandKey,
     request: input,
     output,
+    commandResponseData: unwrapCommandResponseData(commandResponse?.data),
     error:
       phase === 'error'
         ? (commandResponse?.message ?? payload.message ?? output)
@@ -226,6 +235,43 @@ function handleTool(
         : undefined
     )
   );
+}
+
+function resolvePersistedCommandIdentity(
+  input: Record<string, unknown> | undefined
+): { group: string; key: string } | undefined {
+  const commandToken = typeof input?.['commandToken'] === 'string'
+    ? input['commandToken'].trim()
+    : '';
+  const tokenParts = commandToken.split(/\s+/).filter(Boolean);
+  if (tokenParts.length >= 2) {
+    return { group: tokenParts[0], key: tokenParts.slice(1).join('-') };
+  }
+
+  const commandKey = typeof input?.['commandKey'] === 'string'
+    ? input['commandKey'].trim()
+    : '';
+  const separator = commandKey.indexOf('-');
+  if (separator > 0 && separator < commandKey.length - 1) {
+    return {
+      group: commandKey.slice(0, separator),
+      key: commandKey.slice(separator + 1),
+    };
+  }
+  return undefined;
+}
+
+function unwrapCommandResponseData(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const candidate = value as Record<string, unknown>;
+  const status = candidate['status'];
+  if (
+    (status === 'ok' || status === 'error' || status === 'cancelled') &&
+    'data' in candidate
+  ) {
+    return candidate['data'];
+  }
+  return value;
 }
 
 function normalizeToolPhase(
@@ -391,12 +437,16 @@ function handleCodeEditProposal(
 
 function handleLog(
   event: StreamEvent<'chat'>,
-  _state: WorkflowEventState,
+  state: WorkflowEventState,
   _registry: ExtensionRegistry
 ): Component | null {
   const payload = event as any;
   const message = payload.message ?? payload.text ?? '';
   const level = (payload.level ?? 'info') as any;
+
+  if (level === 'error') {
+    return renderErrorOnce(String(message || 'Unknown error'), state);
+  }
 
   const log = new PreviousLog();
   log.addMessage(level, message);
@@ -410,8 +460,19 @@ function handleError(
 ): Component | null {
   const payload = event as any;
   const message = String(payload.message ?? payload.error ?? 'Unknown error');
+  return renderErrorOnce(message, state);
+}
+
+function renderErrorOnce(message: string, state: WorkflowEventState): Component | null {
   if (message === state.lastErrorMessage) return null;
   state.lastErrorMessage = message;
+  writeCliLog({
+    source: 'chat-tui',
+    level: 'error',
+    error: message,
+    agentId: state.currentAgentId,
+    workflowName: state.workflowName,
+  });
 
   const error = new AgentResponse({
     name: 'Error',

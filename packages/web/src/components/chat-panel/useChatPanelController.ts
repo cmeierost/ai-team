@@ -1186,6 +1186,24 @@ export function useChatPanelController(): UseChatPanelControllerResult {
       }
 
       if (event.kind === 'error') {
+        if (event.historical === true) {
+          await queueMessageRender((previous) => [
+            ...previous,
+            {
+              from: 'system',
+              to: 'human',
+              isHuman: false,
+              content: event.message || 'Unknown chat error',
+              timestamp: event.timestamp || new Date().toISOString(),
+              hiddenFromLlm: true,
+              kind: 'error',
+              failureId: event.failureId,
+              errorCode: event.errorCode,
+              errorDetails: event.errorDetails,
+            },
+          ]);
+          continue;
+        }
         throw new Error(event.message || 'Chat error');
       }
     }

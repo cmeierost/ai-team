@@ -272,6 +272,8 @@ export class SessionManager implements ISessionManager {
   ): Promise<string | null> {
     await this.messages.insertMessage(sessionId, message);
 
+    if (message.kind === 'error') return null;
+
     const effectiveLlmService = llmService ?? this.autoTitleLlmService;
     if (!effectiveLlmService) return null;
 

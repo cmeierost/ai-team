@@ -893,7 +893,7 @@ export function ChatMessagesView({
                 streaming &&
                 index === messages.length - 1 &&
                 message.content.length === 0;
-              const messageClassName = `message message-${human ? 'user' : 'assistant'}${message.archived || message.hiddenFromLlm ? ' message-archived' : ''}${isThisSpeaking ? ' message-speaking' : ''}`;
+              const messageClassName = `message message-${message.kind === 'error' ? 'error' : human ? 'user' : 'assistant'}${message.archived || message.hiddenFromLlm ? ' message-archived' : ''}${isThisSpeaking ? ' message-speaking' : ''}`;
               const messageColor = human
                 ? undefined
                 : senderAgent

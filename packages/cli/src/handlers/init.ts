@@ -1,7 +1,7 @@
 import type { InitOptions } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import chalk from 'chalk';
-import { isFrontendFileLogEnabled, writeFrontendDebugLog } from './debug-log.js';
+import { isCliFileLogEnabled, writeCliLog } from './cli-log.js';
 
 function setupAbortController() {
   const controller = new AbortController();
@@ -51,7 +51,7 @@ function isAbortLikeError(error: unknown): boolean {
 
 export async function renderInit(client: ICliCommandClient, options: InitOptions) {
   const abortControl = setupAbortController();
-  const frontendFileLogEnabled = isFrontendFileLogEnabled();
+  const cliFileLogEnabled = isCliFileLogEnabled();
 
   try {
     for await (const event of client.streamInteraction(
@@ -62,10 +62,10 @@ export async function renderInit(client: ICliCommandClient, options: InitOptions
       {
         signal: abortControl.signal,
         logger:
-          frontendFileLogEnabled
+          cliFileLogEnabled
             ? (entry: { channel: string; event: unknown }) => {
-                if (frontendFileLogEnabled) {
-                  writeFrontendDebugLog({
+                if (cliFileLogEnabled) {
+                  writeCliLog({
                     command: 'init',
                     channel: entry.channel,
                     event: entry.event,
@@ -81,8 +81,8 @@ export async function renderInit(client: ICliCommandClient, options: InitOptions
       }
 
       if (event.kind === 'question') {
-        if (frontendFileLogEnabled) {
-          writeFrontendDebugLog({ command: 'init', event });
+        if (cliFileLogEnabled) {
+          writeCliLog({ command: 'init', event });
         }
         continue;
       }

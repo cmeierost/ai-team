@@ -599,6 +599,14 @@ export type StreamEvent<TCommand extends string = string> =
       kind: 'error';
       timestamp: string;
       message: string;
+      historical?: boolean;
+      failureId?: string;
+      errorCode?: string;
+      errorDetails?: {
+        workflowId?: string;
+        workflowInstanceId?: string;
+        stepId?: string;
+      };
     }
   | {
       requestId?: string;

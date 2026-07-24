@@ -32,6 +32,11 @@ import {
 } from '@ai-team/api-contracts';
 
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
+import {
+  configureRuntimeLogWorkspace,
+  writeFrontendError,
+  writeServerError,
+} from './server-log.js';
 import { setupChatWebSocket } from './ws/chat-handler.js';
 import { WsQuestionService } from './ws/ws-question-service.js';
 import { asyncApiUi as serveApiDefinition } from './async-api-ui.js';
@@ -50,6 +55,7 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
   const port = options.port ?? Number.parseInt(process.env.PORT || '3002', 10);
   const workspaceRoot =
     options.workspaceRoot || process.env.AI_TEAM_WORKSPACE || findWorkspaceRoot();
+  configureRuntimeLogWorkspace(workspaceRoot);
 
   console.log(`Starting AI Team API Server...`);
   console.log(`Workspace: ${workspaceRoot}`);
@@ -91,6 +97,14 @@ export async function startServer(options: ServerOptions = {}): Promise<any> {
   // Middleware
   app.use(cors({ origin: true, credentials: true }));
   app.use(express.json());
+  app.post('/api/logs/frontend', (req, res) => {
+    const body =
+      req.body && typeof req.body === 'object'
+        ? (req.body as Record<string, unknown>)
+        : { message: String(req.body) };
+    writeFrontendError(body);
+    res.status(204).end();
+  });
 
   // Wire each namespace: description + service instance → Express router
   app.use(
@@ -253,6 +267,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     await startServer();
   } catch (error) {
+    writeServerError(error, { phase: 'startup' });
     console.error('Failed to start server:', error);
     process.exit(1);
   }

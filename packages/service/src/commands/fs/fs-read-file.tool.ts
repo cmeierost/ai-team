@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { READ_DEFAULT_LIMIT } from 'fs-context';
+import { READ_DEFAULT_LIMIT, listCachedWorkspaceFiles } from 'fs-context';
 import type {
   ExecutionContext,
   ICommand,
   CommandResponse,
+  IFuzzyFileSearch,
   IWorkspaceFsFactory,
   ICommandDescriptor,
 } from '@ai-team/core';
@@ -45,7 +46,8 @@ export class FsReadFileTool implements ICommand<FsReadParams, FsReadResult> {
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly workspaceFsFactory: IWorkspaceFsFactory
+    private readonly workspaceFsFactory: IWorkspaceFsFactory,
+    private readonly fuzzyFileSearch: IFuzzyFileSearch
   ) {}
 
   formatForLlm(result: FsReadResult): unknown {
@@ -88,7 +90,17 @@ export class FsReadFileTool implements ICommand<FsReadParams, FsReadResult> {
       });
       return {
         status: 'ok',
-        data: mapReadResult(result, filePath, context.agent?.id ?? '', fs),
+        data: await mapReadResult(
+          result,
+          filePath,
+          context.agent?.id ?? '',
+          fs,
+          async () => {
+            const entries = await listCachedWorkspaceFiles(this.workspaceRoot);
+            const allFiles = entries.map((e) => e.relativePath);
+            return this.fuzzyFileSearch.findSimilar(filePath, permissions, allFiles);
+          }
+        ),
       };
     } catch (e) {
       const data = failed(e, filePath, 'content');

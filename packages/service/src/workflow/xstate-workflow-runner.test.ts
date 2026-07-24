@@ -210,6 +210,45 @@ describe('WorkflowRunner logging', () => {
     expect(loopChecks.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('returns and logs the original step failure when XState reaches its aborted final state', async () => {
+    const write = vi.fn();
+    const backendLogService: IBackendLogService = { write };
+    const runner = new WorkflowRunner(createResolver(backendLogService), backendLogService);
+
+    const result = await runner.run(
+      {
+        id: 'failing-step-workflow',
+        description: 'Step failure diagnostics test',
+        availableIn: { cli: false, chat: false, tool: false },
+        steps: [{ id: 'explode', command: 'explode' }],
+      },
+      { count: 0 },
+      {
+        commands: {
+          explode: {
+            execute: async () => {
+              throw new Error('Database connection failed.');
+            },
+          },
+        },
+      }
+    );
+
+    expect(result.aborted).toBe(true);
+    expect(result.abortedError).toContain("step 'explode'");
+    expect(result.abortedError).toContain('Database connection failed.');
+    expect(write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'workflow-runner',
+        level: 'error',
+        phase: 'workflow-aborted',
+        workflowId: 'failing-step-workflow',
+        stepId: 'explode',
+        error: expect.stringContaining('Database connection failed.'),
+      })
+    );
+  });
+
   it('runs successfully when no backend logger is registered', async () => {
     const runner = new WorkflowRunner(createResolver(undefined), noOpBackendLogService);
 
@@ -297,7 +336,9 @@ describe('WorkflowRunner logging', () => {
   });
 
   it('aborts a hanging workflow when signal is aborted', async () => {
-    const runner = new WorkflowRunner(createResolver(undefined), noOpBackendLogService);
+    const write = vi.fn();
+    const backendLogService: IBackendLogService = { write };
+    const runner = new WorkflowRunner(createResolver(backendLogService), backendLogService);
     const controller = new AbortController();
 
     const runPromise = runner.run(
@@ -334,6 +375,44 @@ describe('WorkflowRunner logging', () => {
 
     expect(result.aborted).toBe(true);
     expect(result.state.count).toBe(0);
-    expect(result.abortedError).toBe('Target agent LLM request timed out.');
+    expect(result.abortedError).toMatch(
+      /^Execution of workflow 'workflow-abort-hanging-command' \(run .+\) was interrupted: Target agent LLM request timed out\.$/
+    );
+    expect(write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'workflow-runner',
+        level: 'error',
+        phase: 'workflow-aborted',
+        workflowId: 'workflow-abort-hanging-command',
+        error: expect.stringContaining('Target agent LLM request timed out.'),
+      })
+    );
+  });
+
+  it('explains when a workflow receives an already-aborted request signal', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const runner = new WorkflowRunner(createResolver(undefined), noOpBackendLogService);
+
+    const result = await runner.run(
+      {
+        id: 'already-aborted-workflow',
+        description: 'Already aborted signal test',
+        availableIn: { cli: false, chat: false, tool: false },
+        steps: [{ id: 'noop', command: 'noop' }],
+      },
+      { count: 0 },
+      {
+        signal: controller.signal,
+        commands: {
+          noop: { execute: vi.fn(async () => undefined) },
+        },
+      }
+    );
+
+    expect(result.aborted).toBe(true);
+    expect(result.abortedError).toMatch(
+      /^Could not start workflow 'already-aborted-workflow' \(run .+\): the request signal was already aborted\.$/
+    );
   });
 });

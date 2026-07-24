@@ -12,7 +12,6 @@ import type {
   CommandResponse,
   ICommandDispatcher,
 } from '@ai-team/api-contracts';
-import { isCommandResponse } from '@ai-team/api-contracts';
 import type {
   ICommandRegistry,
   IServiceContainer,
@@ -209,7 +208,7 @@ export class CommandDispatcher implements ICommandDispatcher {
 
       const resolvedParams = resolveCommandArgs(cmd, completed, executionContext);
       const result = await cmd.execute(resolvedParams, executionContext);
-      if (isCommandResponse(result)) {
+      if (isCommandExecutionResponse(result)) {
         return this.formatHumanCommandResponse(result, cmd, executionContext);
       }
       return { status: 'ok', message: '', data: result };
@@ -356,7 +355,7 @@ export class CommandDispatcher implements ICommandDispatcher {
 
       const resolvedParams = resolveCommandArgs(cmd, completed, executionContext);
       const result = await cmd.execute(resolvedParams, executionContext);
-      if (isCommandResponse(result)) {
+      if (isCommandExecutionResponse(result)) {
         return { ...result, message: result.message ?? '' };
       }
       return { status: 'ok', message: '', data: result };
@@ -451,6 +450,12 @@ export class CommandDispatcher implements ICommandDispatcher {
       }
     }
   }
+}
+
+function isCommandExecutionResponse(value: unknown): value is CommandResponse<unknown> {
+  if (!value || typeof value !== 'object') return false;
+  const status = (value as { status?: unknown }).status;
+  return status === 'ok' || status === 'error' || status === 'cancelled';
 }
 
 /**

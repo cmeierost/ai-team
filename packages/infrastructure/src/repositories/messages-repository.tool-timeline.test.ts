@@ -75,4 +75,63 @@ describe('MessagesRepository tool timeline', () => {
     expect(resultRow?.messageToolCallId).toBe(callRow?.id);
     expect(resultRow?.completedAt).toBe(completedAt);
   });
+
+  it('round-trips typed chat error metadata while keeping it hidden from the LLM', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'ai-team-chat-error-'));
+    workspaces.push(workspace);
+    const backend = new SqliteBackend(workspace);
+    backends.push(backend);
+    await backend.ensureReadyAsync();
+
+    const now = '2026-07-24T17:33:39.826Z';
+    backend.getDb().insert(dbSchema.sessions).values({
+      id: 'session-error',
+      developerId: 'clemens',
+      startedAt: now,
+      lastActivityAt: now,
+      messageCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+
+    const repository = new MessagesRepository(backend.ensureReadyAsync, backend.getDb);
+    await repository.insertMessage('session-error', {
+      timestamp: now,
+      from: 'sarah-lee',
+      to: 'human',
+      content: "step 'sendTurn' failed: boom",
+      kind: 'error',
+      hiddenFromLlm: true,
+      failureId: 'chat-runtime-loop:run-123',
+      errorCode: 'CHAT_WORKFLOW_FAILED',
+      errorDetails: {
+        workflowId: 'chat-runtime-loop',
+        workflowInstanceId: 'chat-runtime-loop:run-123',
+        stepId: 'sendTurn',
+      },
+    });
+    await repository.insertMessage('session-error', {
+      timestamp: now,
+      from: 'sarah-lee',
+      content: 'duplicate',
+      kind: 'error',
+      hiddenFromLlm: true,
+      failureId: 'chat-runtime-loop:run-123',
+    });
+
+    const messages = await repository.getSessionMessages('session-error');
+    expect(messages).toHaveLength(1);
+    const [message] = messages;
+    expect(message).toMatchObject({
+      kind: 'error',
+      hiddenFromLlm: true,
+      failureId: 'chat-runtime-loop:run-123',
+      errorCode: 'CHAT_WORKFLOW_FAILED',
+      errorDetails: {
+        workflowId: 'chat-runtime-loop',
+        workflowInstanceId: 'chat-runtime-loop:run-123',
+        stepId: 'sendTurn',
+      },
+    });
+  });
 });

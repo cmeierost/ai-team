@@ -40,6 +40,7 @@ import type {
 import type { IDeveloperIdentityService, ISystemInfoService } from './platform-services.js';
 import type {
   IFileAnnotationService,
+  IFuzzyFileSearch,
   IFileTreeService,
   IIdeAdapterFactory,
   IWorkspaceAccessRuntime,
@@ -116,6 +117,7 @@ export const CORE_SERVICE_TOKENS = {
   WorkspaceStorage: new Token<IWorkspaceStorage>('WorkspaceStorage'),
   FileTreeService: new Token<IFileTreeService>('FileTreeService'),
   FileAnnotationService: new Token<IFileAnnotationService>('FileAnnotationService'),
+  FuzzyFileSearch: new Token<IFuzzyFileSearch>('FuzzyFileSearch'),
   IdeAdapterFactory: new Token<IIdeAdapterFactory>('IdeAdapterFactory'),
   WorkspaceAccessRuntime: new Token<IWorkspaceAccessRuntime>('WorkspaceAccessRuntime'),
   WorkspaceFsFactory: new Token<IWorkspaceFsFactory>('WorkspaceFsFactory'),

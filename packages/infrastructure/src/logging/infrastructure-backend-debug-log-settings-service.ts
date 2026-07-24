@@ -6,13 +6,14 @@ import type {
 } from '@ai-team/core';
 
 const DEFAULT_SETTINGS: BackendDebugLogSettings = {
-  file: 'off',
+  // Errors must remain diagnosable even when a workspace has not opted into
+  // verbose backend logging. Higher-volume levels remain explicitly opt-in.
+  file: 'error',
   console: 'off',
   sources: {
     // Workflow runner emits a debug event for every state transition and step
-    // boundary. Even when the user enables console debug logging, this volume
-    // of structural noise is not useful on the terminal — route it to file only.
-    'workflow-runner': 'off',
+    // boundary. Keep that noise disabled while retaining terminal failures.
+    'workflow-runner': 'error',
   },
 };
 

@@ -45,6 +45,29 @@ function makeDispatcher(questionService?: IQuestionService): {
 }
 
 describe('CommandDispatcher typed dispatch', () => {
+  it('does not wrap a command response that omits its optional message', async () => {
+    const { dispatcher, registry } = makeDispatcher();
+    const data = { path: '.', tree: { name: 'root' } };
+    const command: ICommand<Record<string, never>, typeof data> = {
+      metadata: {
+        key: 'message-less',
+        description: 'returns a response without a message',
+        availableIn: { chat: true },
+        group: 'system',
+        parameters: z.object({}),
+      },
+      execute: async () => ({ status: 'ok', data }),
+    };
+    registry.register(command.metadata, () => command as ICommand<unknown, unknown>);
+
+    const result = await dispatcher.dispatch('system-message-less', '', {
+      invocationSurface: 'slash',
+      history: [],
+    });
+
+    expect(result).toEqual({ status: 'ok', message: '', data });
+  });
+
   it('normalizes positional and JSON variadic input to the same parameter object', async () => {
     const { dispatcher, registry } = makeDispatcher();
     const parameters = z.object({

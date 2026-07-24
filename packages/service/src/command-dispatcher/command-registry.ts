@@ -201,7 +201,11 @@ export class CommandRegistry implements ICommandRegistry {
       .replace(/^_+|_+$/g, '');
   }
 
-  private static deriveLlmToolName(group: string, key: string): string {
+  /**
+   * Derive the canonical LLM tool name from a command's group and key.
+   * E.g. group="fs", key="who_should" → "fs_who_should".
+   */
+  static deriveLlmToolName(group: string, key: string): string {
     const normalizedGroup = CommandRegistry.toSnakeCase(group);
     const normalizedKey = CommandRegistry.toSnakeCase(key);
 

@@ -3,21 +3,21 @@ import fs from 'node:fs/promises';
 import { ConfigurationStorage } from '@ai-team/infrastructure';
 import type { LogDestinationLevel } from '@ai-team/core';
 
-type FrontendLogLevel = Exclude<LogDestinationLevel, 'off'>;
+type CliLogLevel = Exclude<LogDestinationLevel, 'off'>;
 
-const FRONTEND_LOG_LEVEL_ORDER: Record<FrontendLogLevel, number> = {
+const CLI_LOG_LEVEL_ORDER: Record<CliLogLevel, number> = {
   error: 0,
   warning: 1,
   info: 2,
   debug: 3,
 };
 
-interface FrontendDebugLogSettings {
+interface CliLogSettings {
   file: LogDestinationLevel;
   console: LogDestinationLevel;
 }
 
-export class FrontendDebugLogService {
+export class CliLogService {
   private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(
@@ -61,25 +61,25 @@ export class FrontendDebugLogService {
     return this.resolveSettings().console !== 'off';
   }
 
-  private resolveSettings(): FrontendDebugLogSettings {
+  private resolveSettings(): CliLogSettings {
     try {
       return {
-        file: this.normalizeOutputLevel(this.configurationStorage.get('log.frontend.file')),
-        console: this.normalizeOutputLevel(this.configurationStorage.get('log.frontend.console')),
+        file: this.normalizeOutputLevel(this.configurationStorage.get('log.cli.file'), 'error'),
+        console: this.normalizeOutputLevel(this.configurationStorage.get('log.cli.console'), 'off'),
       };
     } catch {
-      return { file: 'off', console: 'off' };
+      return { file: 'error', console: 'off' };
     }
   }
 
-  private shouldWrite(entryLevel: FrontendLogLevel, threshold: LogDestinationLevel): boolean {
+  private shouldWrite(entryLevel: CliLogLevel, threshold: LogDestinationLevel): boolean {
     if (threshold === 'off') {
       return false;
     }
-    return FRONTEND_LOG_LEVEL_ORDER[entryLevel] <= FRONTEND_LOG_LEVEL_ORDER[threshold];
+    return CLI_LOG_LEVEL_ORDER[entryLevel] <= CLI_LOG_LEVEL_ORDER[threshold];
   }
 
-  private inferEntryLevel(entry: unknown): FrontendLogLevel {
+  private inferEntryLevel(entry: unknown): CliLogLevel {
     const source = (entry ?? {}) as Record<string, unknown>;
     const explicit = this.normalizeLevel(source.level);
     if (explicit) return explicit;
@@ -96,7 +96,7 @@ export class FrontendDebugLogService {
     return 'info';
   }
 
-  private normalizeLevel(value: unknown): FrontendLogLevel | undefined {
+  private normalizeLevel(value: unknown): CliLogLevel | undefined {
     if (typeof value !== 'string') return undefined;
     const normalized = value.trim().toLowerCase();
     if (normalized === 'warn') return 'warning';
@@ -107,13 +107,16 @@ export class FrontendDebugLogService {
     return undefined;
   }
 
-  private normalizeOutputLevel(value: unknown): LogDestinationLevel {
+  private normalizeOutputLevel(
+    value: unknown,
+    fallback: LogDestinationLevel
+  ): LogDestinationLevel {
     if (typeof value === 'boolean') {
       return value ? 'info' : 'off';
     }
 
     if (typeof value !== 'string') {
-      return 'off';
+      return fallback;
     }
 
     const normalized = value.trim().toLowerCase();
@@ -130,7 +133,7 @@ export class FrontendDebugLogService {
     }
 
     const asLevel = this.normalizeLevel(normalized);
-    return asLevel ?? 'off';
+    return asLevel ?? fallback;
   }
 
   private writeToConsole(entry: unknown): void {
@@ -142,38 +145,38 @@ export class FrontendDebugLogService {
   }
 
   private resolveLogFilePath(): string {
-    const configured = process.env.AI_TEAM_FRONTEND_LOG_FILE;
+    const configured = process.env.AI_TEAM_CLI_LOG_FILE;
     if (configured && configured.trim().length > 0) {
       return path.isAbsolute(configured)
         ? configured
         : path.resolve(this.workspaceRootProvider(), configured);
     }
 
-    return path.join(this.workspaceRootProvider(), '.ai-team', 'logs', 'frontend.log');
+    return path.join(this.workspaceRootProvider(), '.ai-team', 'logs', 'cli.log');
   }
 }
 
 let defaultWorkspaceRoot: string | undefined;
-let defaultFrontendDebugLogService: FrontendDebugLogService | undefined;
+let defaultCliLogService: CliLogService | undefined;
 
-function getDefaultFrontendDebugLogService(): FrontendDebugLogService {
+function getDefaultCliLogService(): CliLogService {
   const workspaceRoot = process.cwd();
-  if (defaultFrontendDebugLogService && defaultWorkspaceRoot === workspaceRoot) {
-    return defaultFrontendDebugLogService;
+  if (defaultCliLogService && defaultWorkspaceRoot === workspaceRoot) {
+    return defaultCliLogService;
   }
 
   defaultWorkspaceRoot = workspaceRoot;
-  defaultFrontendDebugLogService = new FrontendDebugLogService(
+  defaultCliLogService = new CliLogService(
     new ConfigurationStorage(workspaceRoot),
     () => process.cwd()
   );
-  return defaultFrontendDebugLogService;
+  return defaultCliLogService;
 }
 
-export function isFrontendFileLogEnabled(): boolean {
-  return getDefaultFrontendDebugLogService().isFileLogEnabled();
+export function isCliFileLogEnabled(): boolean {
+  return getDefaultCliLogService().isFileLogEnabled();
 }
 
-export function writeFrontendDebugLog(entry: unknown): void {
-  getDefaultFrontendDebugLogService().write(entry);
+export function writeCliLog(entry: unknown): void {
+  getDefaultCliLogService().write(entry);
 }

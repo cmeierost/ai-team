@@ -294,9 +294,17 @@ export class ConfigurationStorage implements IConfigurationStorage {
                 },
               },
             },
+            cli: {
+              ...teamConfig.log.cli,
+              ...(userLogConfig.cli ?? {}),
+            },
             frontend: {
               ...teamConfig.log.frontend,
               ...(userLogConfig.frontend ?? {}),
+            },
+            server: {
+              ...teamConfig.log.server,
+              ...(userLogConfig.server ?? {}),
             },
             chat: {
               ...teamConfig.log.chat,

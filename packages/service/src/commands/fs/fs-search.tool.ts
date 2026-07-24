@@ -10,6 +10,7 @@ import type {
   CommandResponse,
   ICommandDescriptor,
   IAgentManager,
+  IFuzzyFileSearch,
   IPathPermissionChecker,
   IWorkspaceFsFactory,
 } from '@ai-team/core';
@@ -28,6 +29,7 @@ export const FsSearchToolMetadata = {
     'Search files visible to the current agent. Use /fs search as a slash command for a workspace-wide human search, or use the fs_search tool for an agent-permission-scoped search. Use mode "names" (default) to search listable paths, or mode "content" to search contents only in readable files. ' +
     'Use glob to restrict files (for example **/*.ts), regex for regular expressions, and wholeWord for word-boundary matching. ' +
     'Results are ranked writable > readable > listable, limited to 10 files by default, and include total counts, file metadata, line numbers/snippets for readable hits, and agents who can read or write files the current agent cannot. ' +
+    'If no exact name matches are found in mode "names", a fuzzy search fallback runs over the same candidate scope and fuzzy results are marked with [fuzzy]. ' +
     'After a readable hit, call fs_read (using offset and limit for the reported line range) to inspect it. If another agent is listed as the reader or writer, hand off with com_handoff/delegate instead of attempting the operation yourself. This is lexical path/content search, not embedding-based semantic retrieval.',
   parameters: z.object({
     query: z.string().min(1).describe('Literal text or regular expression to search for'),
@@ -54,7 +56,8 @@ export class FsSearchTool implements ICommand<FsSearchParams, FsSearchResult> {
     private readonly workspaceRoot: string,
     private readonly workspaceFsFactory: IWorkspaceFsFactory,
     private readonly agentManager: IAgentManager,
-    private readonly pathPermissionChecker: IPathPermissionChecker
+    private readonly pathPermissionChecker: IPathPermissionChecker,
+    private readonly fuzzyFileSearch: IFuzzyFileSearch
   ) {}
 
   async execute(
@@ -153,7 +156,33 @@ export class FsSearchTool implements ICommand<FsSearchParams, FsSearchResult> {
     }
 
     matches.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
-    const results = matches.slice(0, maxResults);
+
+    // If no exact matches in names mode, fall back to fuzzy search over the
+    // same listable/glob-filtered candidate set.
+    let fuzzyFallback: FsSearchResult['results'] = [];
+    let fuzzyTotalMatches = 0;
+    if (mode === 'names' && matches.length === 0) {
+      const fuzzyRanked = this.fuzzyFileSearch.findSimilarRanked(
+        params.query,
+        permissions,
+        candidates
+      );
+      fuzzyTotalMatches = fuzzyRanked.length;
+      fuzzyFallback = await this.buildFuzzyResults(
+        fuzzyRanked.slice(0, maxResults),
+        fs,
+        allAgents
+      );
+    }
+
+    const usedFuzzyFallback = mode === 'names' && matches.length === 0;
+    const results = !usedFuzzyFallback
+      ? matches.slice(0, maxResults)
+      : fuzzyFallback;
+
+    const totalMatches = usedFuzzyFallback ? fuzzyTotalMatches : matches.length;
+    const truncated = totalMatches > results.length;
+
     return {
       status: 'ok',
       data: {
@@ -161,13 +190,53 @@ export class FsSearchTool implements ICommand<FsSearchParams, FsSearchResult> {
         mode,
         scope,
         ...(params.glob ? { glob: params.glob } : {}),
-        totalMatches: matches.length,
+        totalMatches,
         returnedMatches: results.length,
         contentHitsKnown,
-        truncated: matches.length > results.length,
+        truncated,
         results,
       },
     };
+  }
+
+  private async buildFuzzyResults(
+    rankedMatches: Array<{ path: string; score: number }>,
+    fs: Awaited<ReturnType<IWorkspaceFsFactory['create']>>,
+    allAgents: Agent[]
+  ): Promise<FsSearchResult['results']> {
+    const results: FsSearchResult['results'] = [];
+    for (const candidateMatch of rankedMatches) {
+      const candidate = candidateMatch.path;
+      const readable = fs.canRead(candidate);
+      const writable = fs.canWrite(candidate);
+      const accessScore = writable ? 300 : readable ? 200 : 100;
+      const result: FsSearchResult['results'][number] = {
+        path: candidate,
+        score: accessScore + Math.round(candidateMatch.score * 700),
+        matchedBy: ['fuzzy'],
+        readable,
+        writable,
+        contentSearched: false,
+      };
+      try {
+        const metadata = await stat(path.resolve(this.workspaceRoot, candidate));
+        result.size = metadata.size;
+        result.mtime = metadata.mtime.toISOString();
+      } catch {
+        // File may have disappeared
+      }
+      if (!writable) {
+        result.writers = findAgents(allAgents, this.pathPermissionChecker, candidate, 'write');
+      }
+      if (!readable) {
+        result.readers = findAgents(allAgents, this.pathPermissionChecker, candidate, 'read');
+        result.nextAction = 'This file was found by fuzzy search. Use com_handoff or delegate to an agent listed in readers before inspecting this file.';
+      } else {
+        result.nextAction = 'This file was found by fuzzy search. Call fs_read to inspect it.';
+      }
+      results.push(result);
+    }
+    return results;
   }
 
   private async listCandidates(fs: Awaited<ReturnType<IWorkspaceFsFactory['create']>>, pattern?: string) {
@@ -189,9 +258,10 @@ interface SearchTreeNode {
 }
 
 function formatSearchResult(result: FsSearchResult): string {
+  const hasFuzzy = result.results.some((r) => r.matchedBy.includes('fuzzy'));
   const lines: string[] = [
     `Search: "${result.query}" (${result.mode}; scope: ${result.scope})`,
-    `Matches: ${result.totalMatches} files; showing ${result.returnedMatches}. Readable content hits known: ${result.contentHitsKnown}.`,
+    `Matches: ${result.totalMatches} files; showing ${result.returnedMatches}. Readable content hits known: ${result.contentHitsKnown}.${hasFuzzy ? ' (includes fuzzy-matched results)' : ''}`,
   ];
   const root: SearchTreeNode = { children: new Map() };
 
@@ -234,8 +304,9 @@ function renderSearchTreeNode(
     const rights = result.writable ? 'RW' : result.readable ? 'R-' : '--';
     const matchedBy = result.matchedBy.join('+') || 'match';
     const lineInfo = result.lines?.length ? `; lines ${result.lines.join(', ')}` : '';
+    const fuzzyLabel = result.matchedBy.includes('fuzzy') ? ' [fuzzy]' : '';
     const detailPrefix = `${prefix}${isLast ? '    ' : '│   '}   `;
-    lines.push(`${detailPrefix}intent: ${matchedBy}; access ${rights}; score ${result.score}${lineInfo}`);
+    lines.push(`${detailPrefix}intent: ${matchedBy}; access ${rights}; score ${result.score}${lineInfo}${fuzzyLabel}`);
     if (result.snippets?.length) {
       for (const snippet of result.snippets.slice(0, 3)) {
         lines.push(`${detailPrefix}line ${snippet.line}: ${snippet.content}`);

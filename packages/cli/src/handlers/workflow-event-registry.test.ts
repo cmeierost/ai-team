@@ -10,6 +10,7 @@ import { UserMessage } from '../tui/user-message.js';
 import { visibleWidth } from '@ai-team/tui';
 
 const timestamp = '2026-07-23T10:00:00.000Z';
+const stripAnsi = (value: string) => value.replaceAll(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 
 function createHarness() {
   return {
@@ -69,6 +70,29 @@ describe('WorkflowEventRegistry', () => {
 
     expect(harness.registry.handle(error, harness.state, harness.extensions)).not.toBeNull();
     expect(harness.registry.handle(error, harness.state, harness.extensions)).toBeNull();
+  });
+
+  it('does not duplicate an error emitted as both a log and a stream error', () => {
+    const harness = createHarness();
+    const log = {
+      command: 'chat',
+      kind: 'log',
+      timestamp,
+      level: 'error',
+      message: 'Workflow aborted: request signal was already aborted.',
+    } as any;
+    const error = {
+      command: 'chat',
+      kind: 'error',
+      timestamp,
+      message: log.message,
+    } as any;
+
+    const first = harness.registry.handle(log, harness.state, harness.extensions);
+    const duplicate = harness.registry.handle(error, harness.state, harness.extensions);
+
+    expect(renderedProjection(first)).toContain(log.message);
+    expect(duplicate).toBeNull();
   });
 
   it('renders streamed token chunks as one agent response', () => {
@@ -157,7 +181,7 @@ describe('WorkflowEventRegistry', () => {
     };
 
     const component = harness.registry.handle(event, harness.state, harness.extensions);
-    const rendered = renderedProjection(component);
+    const rendered = stripAnsi(renderedProjection(component));
 
     expect(rendered).not.toContain('README.md');
     expect(rendered).toContain('file contents');
@@ -510,6 +534,157 @@ describe('WorkflowEventRegistry', () => {
 
     expect(renderedProjection(component)).toContain('Available in-chat commands.');
     expect(userMessage.render(80).join('\n')).not.toContain('Available in-chat commands.');
+  });
+
+  it('renders structured /fs tree results with the fs_tree component', () => {
+    const harness = createHarness();
+    const component = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'tool',
+        timestamp,
+        toolName: 'slash:tree',
+        toolPhase: 'result',
+        toolResult: {
+          toolName: 'slash:tree',
+          commandGroup: 'fs',
+          commandKey: 'tree',
+          outcome: 'result',
+          resultLlm: '.\n\nsrc/\n  index.ts',
+          commandResponse: {
+            status: 'ok',
+            data: {
+              status: 'ok',
+              data: {
+                path: '.',
+                denied: 0,
+                tree: {
+                  name: '.',
+                  isDirectory: true,
+                  children: [
+                    {
+                      name: 'src',
+                      isDirectory: true,
+                      rights: { l: true, r: true, w: false },
+                      children: [{ name: 'index.ts', isDirectory: false }],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+      harness.state,
+      harness.extensions
+    );
+
+    const rendered = renderedProjection(component);
+    expect(rendered).toContain('src/');
+    expect(rendered).toContain('index.ts');
+    expect(rendered).not.toContain('(empty or not accessible)');
+  });
+
+  it('renders a persisted /fs read result from its command group and key', () => {
+    const harness = createHarness();
+    const component = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'tool',
+        timestamp,
+        historical: true,
+        toolName: 'slash:read',
+        toolPhase: 'result',
+        input: {
+          commandKey: 'fs-read',
+          commandToken: 'fs read',
+          rawInput: '/fs read package.json',
+        },
+        output: {
+          path: 'package.json',
+          content: '{ "name": "ai-team" }',
+          startLine: 1,
+          endLine: 1,
+          isFullFile: true,
+        },
+      } as any,
+      harness.state,
+      harness.extensions
+    );
+
+    const rendered = stripAnsi(renderedProjection(component));
+    expect(rendered).toContain('File: package.json');
+    expect(rendered).toContain('Scope: full-file lines 1-1');
+    expect(rendered).toContain('1 │ { "name": "ai-team" }');
+  });
+
+  it('renders live /fs read from structured command data instead of LLM text', () => {
+    const harness = createHarness();
+    const component = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'tool',
+        timestamp,
+        toolName: 'slash:read',
+        toolPhase: 'result',
+        toolResult: {
+          toolName: 'slash:read',
+          commandGroup: 'fs',
+          commandKey: 'read',
+          outcome: 'result',
+          resultLlm: 'backend text that must not feed the fs_read renderer',
+          commandResponse: {
+            status: 'ok',
+            message: '',
+            data: {
+              path: 'package.json',
+              content: '{ "name": "ai-team" }',
+              startLine: 1,
+              endLine: 1,
+              isFullFile: true,
+            },
+          },
+        },
+      } as any,
+      harness.state,
+      harness.extensions
+    );
+
+    const rendered = stripAnsi(renderedProjection(component));
+    expect(rendered).toContain('File: package.json');
+    expect(rendered).toContain('1 │ { "name": "ai-team" }');
+    expect(rendered).not.toContain('backend text');
+  });
+
+  it('uses backend LLM text when no exact command renderer exists', () => {
+    const harness = createHarness();
+    const component = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'tool',
+        timestamp,
+        toolName: 'slash:status',
+        toolPhase: 'result',
+        toolResult: {
+          toolName: 'slash:status',
+          commandGroup: 'system',
+          commandKey: 'status',
+          outcome: 'result',
+          resultLlm: 'Human-readable backend status',
+          commandResponse: {
+            status: 'ok',
+            message: '',
+            data: { deeply: { nested: true } },
+          },
+        },
+      } as any,
+      harness.state,
+      harness.extensions
+    );
+
+    const rendered = renderedProjection(component);
+    expect(rendered).toContain('Human-readable backend status');
+    expect(rendered).not.toContain('"nested"');
   });
 
   it('keeps repeated slash results distinct and renders live output like history', () => {

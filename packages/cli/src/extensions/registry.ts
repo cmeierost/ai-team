@@ -80,24 +80,56 @@ export class ExtensionRegistry {
 
   /**
    * Try to render a tool event with a custom renderer.
+   *
+   * Slash commands carry their command descriptor identity. The group/key
+   * pair defines the renderer key using the same `group_key` convention as
+   * ordinary tool calls.
+   *
+   * Exact matches are always preferred over wildcard matches so that a
+   * specific renderer (e.g. `fs_tree`) wins over a broad catch-all
+   * (e.g. `slash:*`).
    */
   renderTool(event: NormalizedToolEvent): ToolRenderDecision {
-    for (let index = this.toolRenderers.length - 1; index >= 0; index -= 1) {
-      const renderer = this.toolRenderers[index];
-      if (renderer?.toolName === event.toolName) return renderer.render(event);
+    const toolNamesToTry = [event.toolName];
+    if (event.commandGroup && event.commandKey) {
+      const commandRendererKey = `${event.commandGroup}_${event.commandKey}`;
+      if (commandRendererKey !== event.toolName) {
+        toolNamesToTry.push(commandRendererKey);
+      }
     }
 
+    // 1. Exact match pass — any renderer whose toolName exactly matches
+    //    one of our candidate names wins immediately.
+    const exact = this.findExactMatch(toolNamesToTry);
+    if (exact) return exact.render(event);
+
+    // 2. Wildcard match pass — fall back to pattern matching.
+    const wildcard = this.findWildcardMatch(toolNamesToTry);
+    if (wildcard) return wildcard.render(event);
+
+    return { handled: false, placements: [] };
+  }
+
+  private findExactMatch(toolNames: string[]): ToolRenderer | undefined {
     for (let index = this.toolRenderers.length - 1; index >= 0; index -= 1) {
       const renderer = this.toolRenderers[index];
       if (!renderer) continue;
-      if (
-        renderer.toolName !== event.toolName
-        && this.matchesToolPattern(renderer.toolName, event.toolName)
-      ) {
-        return renderer.render(event);
+      for (const name of toolNames) {
+        if (renderer.toolName === name) return renderer;
       }
     }
-    return { handled: false, placements: [] };
+    return undefined;
+  }
+
+  private findWildcardMatch(toolNames: string[]): ToolRenderer | undefined {
+    for (let index = this.toolRenderers.length - 1; index >= 0; index -= 1) {
+      const renderer = this.toolRenderers[index];
+      if (!renderer) continue;
+      for (const name of toolNames) {
+        if (this.matchesToolPattern(renderer.toolName, name)) return renderer;
+      }
+    }
+    return undefined;
   }
 
   /**

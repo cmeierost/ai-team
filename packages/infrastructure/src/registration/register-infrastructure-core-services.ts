@@ -25,6 +25,7 @@ import { TypeScriptAnalyzer } from '../code-analysis/typescript-analyzer.js';
 import {
   FileAnnotationServiceImpl,
   FileTreeServiceImpl,
+  InfrastructureFuzzyFileSearch,
   InfrastructureWorkspaceAccessRuntime,
   InfrastructureWorkspaceFsFactory,
 } from '../context/index.js';
@@ -71,6 +72,7 @@ export function registerInfrastructureCoreServices(
     | 'TypeScriptAnalyzer'
     | 'FileAnnotationService'
     | 'FileTreeService'
+    | 'FuzzyFileSearch'
     | 'IdeAdapterFactory'
     | 'WorkspaceAccessRuntime'
     | 'WorkspaceFsFactory'
@@ -176,6 +178,10 @@ export function registerInfrastructureCoreServices(
   container.registerSingleton(tokens.TypeScriptAnalyzer, () => new TypeScriptAnalyzer());
   container.registerSingleton(tokens.FileAnnotationService, () => new FileAnnotationServiceImpl());
   container.registerSingleton(tokens.FileTreeService, () => new FileTreeServiceImpl());
+  container.registerSingleton(
+    tokens.FuzzyFileSearch,
+    (c) => new InfrastructureFuzzyFileSearch(c.resolve(tokens.WorkspaceRoot))
+  );
   container.registerSingleton(
     tokens.IdeAdapterFactory,
     () => new InfrastructureIdeAdapterFactory()

@@ -101,4 +101,7 @@ export interface WorkflowResult<TState> {
   aborted: boolean;
   /** Error message captured when the workflow aborted due to a step failure. */
   abortedError?: string;
+  workflowId?: string;
+  workflowInstanceId?: string;
+  stepId?: string;
 }

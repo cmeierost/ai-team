@@ -22,6 +22,13 @@
       "when": 1784905200000,
       "tag": "0002_split_tool_call_results",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784914800000,
+      "tag": "0003_add_typed_chat_errors",
+      "breakpoints": true
     }
   ]
 }

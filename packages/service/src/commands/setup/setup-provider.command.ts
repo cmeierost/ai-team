@@ -193,15 +193,17 @@ export class ProviderICommand implements ICommand<z.infer<typeof _providerComman
           version: '0.1.0',
           log: {
             backend: {
-              file: 'off',
+              file: 'error',
               console: 'off',
               targets: {
-                console: { file: 'off', console: 'debug' },
-                api: { file: 'off', console: 'off' },
+                console: { console: 'off' },
+                api: { console: 'off' },
               },
               sources: {},
             },
-            frontend: { file: 'off', console: 'off' },
+            cli: { file: 'error', console: 'off' },
+            frontend: { file: 'error', console: 'off' },
+            server: { file: 'error', console: 'off' },
             chat: {
               sessionStartupLoad: {
                 enabled: false,

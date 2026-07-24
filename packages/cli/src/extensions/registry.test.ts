@@ -8,6 +8,7 @@ const baseEvent = {
   historical: false,
   output: 'default',
 };
+const stripAnsi = (value: string) => value.replaceAll(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 
 describe('ExtensionRegistry tool renderers', () => {
   it('prefers an exact renderer over the default slash wildcard', () => {
@@ -231,11 +232,41 @@ describe('ExtensionRegistry tool renderers', () => {
       request: { filePath: 'src/index.ts', offset: 1, limit: 2000 },
       output: { path: 'src/index.ts', content, startLine: 1, endLine: 30, isFullFile: true },
     });
-    const rendered = decision.placements[0]?.component.render(120).join('\n') ?? '';
+    const rawRendered = decision.placements[0]?.component.render(120).join('\n') ?? '';
+    const rendered = stripAnsi(rawRendered);
     expect(rendered).toContain('File: src/index.ts');
     expect(rendered).toContain('Scope: full-file lines 1-30');
-    expect(rendered).toContain('line 1');
+    expect(rendered).toContain(' 1 │ line 1');
     expect(rendered).toContain('more lines');
     expect(rendered).not.toContain('line 30');
+    expect(rawRendered).toContain('\x1b[33m');
+  });
+
+  it('renders fs_write as a colored source diff', () => {
+    const registry = new ExtensionRegistry();
+    const decision = registry.renderTool({
+      toolName: 'fs_write',
+      phase: 'result',
+      historical: false,
+      commandResponseData: {
+        path: 'src/example.ts',
+        written: true,
+        _fileChanges: [{
+          filePath: 'src/example.ts',
+          oldContent: 'const value = 1;\nreturn value;',
+          newContent: 'const value = 2;\nreturn value;',
+        }],
+      },
+    });
+    const rawRendered = decision.placements[0]?.component.render(120).join('\n') ?? '';
+    const rendered = stripAnsi(rawRendered);
+
+    expect(rendered).toContain('File: src/example.ts');
+    expect(rendered).toContain('1   - const value = 1;');
+    expect(rendered).toContain('  1 + const value = 2;');
+    expect(rendered).toContain('2 2   return value;');
+    expect(rawRendered).toContain('\x1b[31m');
+    expect(rawRendered).toContain('\x1b[32m');
+    expect(rawRendered).toContain('\x1b[36mconst\x1b[0m');
   });
 });

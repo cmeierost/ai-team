@@ -323,4 +323,43 @@ describe('ChatInfoService', () => {
 
     expect(emitService.emit).not.toHaveBeenCalled();
   });
+
+  it('replays persisted chat failures as historical error events', () => {
+    const emitService = { emit: vi.fn(), log: vi.fn() };
+    const service = new ChatInfoService(emitService as any);
+
+    service.showSessionResume(
+      [
+        {
+          timestamp: '2026-07-24T17:33:39.826Z',
+          from: 'sarah-lee',
+          content: "step 'sendTurn' failed: boom",
+          kind: 'error',
+          hiddenFromLlm: true,
+          failureId: 'chat-runtime-loop:run-123',
+          errorCode: 'CHAT_WORKFLOW_FAILED',
+          errorDetails: {
+            workflowId: 'chat-runtime-loop',
+            workflowInstanceId: 'chat-runtime-loop:run-123',
+            stepId: 'sendTurn',
+          },
+        },
+      ],
+      { id: 'sarah-lee', name: 'Sarah Lee', role: 'developer' } as any,
+      'Clemens Meier'
+    );
+
+    expect(emitService.emit).toHaveBeenCalledWith({
+      kind: 'error',
+      historical: true,
+      message: "step 'sendTurn' failed: boom",
+      failureId: 'chat-runtime-loop:run-123',
+      errorCode: 'CHAT_WORKFLOW_FAILED',
+      errorDetails: {
+        workflowId: 'chat-runtime-loop',
+        workflowInstanceId: 'chat-runtime-loop:run-123',
+        stepId: 'sendTurn',
+      },
+    });
+  });
 });

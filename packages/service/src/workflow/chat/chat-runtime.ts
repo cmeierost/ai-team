@@ -216,11 +216,20 @@ export class ChatRuntime implements IChatRuntime {
       });
 
       if (runResult.aborted) {
+        const failureId = runResult.workflowInstanceId;
         return {
           status: 'failed',
           text: runResult.state.lastText,
           hopCount: runResult.state.hop,
           error: runResult.abortedError ?? 'Workflow aborted',
+          sessionId: runResult.state.currentSessionId,
+          agentId: runResult.state.currentAgentId,
+          failureId,
+          errorDetails: {
+            workflowId: runResult.workflowId,
+            workflowInstanceId: runResult.workflowInstanceId,
+            stepId: runResult.stepId,
+          },
         };
       }
 

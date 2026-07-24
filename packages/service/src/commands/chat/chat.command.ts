@@ -7,6 +7,7 @@ import type {
   IEmitService,
 } from '@ai-team/core';
 import type { IChatRuntime } from '../../workflow/chat/chat-runtime.js';
+import type { SessionManager } from '../../sessions/session-manager.js';
 
 const chatParamsSchema = z.object({
   agentId: z.string().min(1).optional(),
@@ -34,7 +35,8 @@ export class ChatCommand implements ICommand<ChatParams, string> {
 
   constructor(
     private readonly runtime: IChatRuntime,
-    private readonly emitService: IEmitService
+    private readonly emitService: IEmitService,
+    private readonly sessionManager?: Pick<SessionManager, 'appendMessage'>
   ) {}
 
   async execute(params: ChatParams, ctx: ExecutionContext): Promise<CommandResponse<string>> {
@@ -65,6 +67,25 @@ export class ChatCommand implements ICommand<ChatParams, string> {
 
     if (output.status === 'failed') {
       const errorMessage = output.error ?? 'chat runtime failed';
+      const sessionId = output.sessionId ?? params.sessionId ?? ctx.sessionId;
+      if (sessionId && this.sessionManager) {
+        try {
+          await this.sessionManager.appendMessage(sessionId, {
+            timestamp: new Date().toISOString(),
+            from: output.agentId ?? params.agentId ?? ctx.agentId ?? 'system',
+            to: 'human',
+            isHuman: false,
+            content: errorMessage,
+            kind: 'error',
+            hiddenFromLlm: true,
+            failureId: output.failureId,
+            errorCode: 'CHAT_WORKFLOW_FAILED',
+            errorDetails: output.errorDetails,
+          });
+        } catch (persistenceError) {
+          console.error('[ChatCommand] Failed to persist chat error:', persistenceError);
+        }
+      }
       this.emitService.log('error', errorMessage);
       return {
         status: 'error',

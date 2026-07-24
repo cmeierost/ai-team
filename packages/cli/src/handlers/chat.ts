@@ -10,7 +10,7 @@ import type { ChatOptions, CommandDescriptor } from '@ai-team/api-contracts';
 import type { ITerminal } from '@ai-team/core';
 import type { ICliCommandClient } from '../cli-command-client.js';
 import { findWorkspaceRoot } from '@ai-team/infrastructure';
-import { TUI, ProcessTerminal, Loader } from '@ai-team/tui';
+import { TUI, ProcessTerminal, Loader, Spacer } from '@ai-team/tui';
 import { ExtensionRegistry, type ToolRenderDecision } from '../extensions/index.js';
 import { ChatView } from '../tui/chat-view.js';
 import { WorkflowEventRegistry, type WorkflowEventState } from './workflow-event-registry.js';
@@ -177,7 +177,11 @@ function buildChatCtx(
 }
 
 function addToChatView(ctx: ChatCtx, component: unknown): void {
-  ctx.chatView.getContent().addChild(component as any);
+  const content = ctx.chatView.getContent();
+  if (content.children.length > 0) {
+    content.addChild(new Spacer(1));
+  }
+  content.addChild(component as any);
 }
 
 function isToolRenderDecision(value: unknown): value is ToolRenderDecision {
@@ -456,7 +460,7 @@ export async function renderChat(
     workspaceRoot
   );
 
-  const questionPresenter = new TuiQuestionPresenter(ctx.layout, ctx.tui);
+  const questionPresenter = new TuiQuestionPresenter(ctx.layout, ctx.tui, () => ctx.eventState.currentAgent);
   const detachQuestionPresenter = dependencies.questionService?.attachPresenter(questionPresenter);
   const abortQuestions = () =>
     questionPresenter.abort(abortControl.signal.reason ?? new Error('Chat aborted'));

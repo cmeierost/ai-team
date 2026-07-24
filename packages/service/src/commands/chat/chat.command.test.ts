@@ -151,6 +151,51 @@ describe('ChatCommand', () => {
     expect(emitService.log).toHaveBeenCalledWith('error', 'boom');
   });
 
+  it('persists a failed chat turn as a typed LLM-hidden transcript entry', async () => {
+    const runtime = {
+      runAsync: vi.fn(async () => ({
+        status: 'failed' as const,
+        text: '',
+        hopCount: 0,
+        error: "step 'sendTurn' failed: boom",
+        sessionId: 'session-123',
+        agentId: 'sarah-lee',
+        failureId: 'chat-runtime-loop:run-123',
+        errorDetails: {
+          workflowId: 'chat-runtime-loop',
+          workflowInstanceId: 'chat-runtime-loop:run-123',
+          stepId: 'sendTurn',
+        },
+      })),
+    };
+    const emitService = { log: vi.fn() } as any;
+    const sessionManager = { appendMessage: vi.fn(async () => null) };
+    const command = new ChatCommand(runtime as any, emitService, sessionManager as any);
+
+    await command.execute(
+      { message: 'hello', sessionId: 'session-123' },
+      { history: [], agentId: 'sarah-lee' } as any
+    );
+
+    expect(sessionManager.appendMessage).toHaveBeenCalledWith(
+      'session-123',
+      expect.objectContaining({
+        from: 'sarah-lee',
+        to: 'human',
+        kind: 'error',
+        content: "step 'sendTurn' failed: boom",
+        hiddenFromLlm: true,
+        failureId: 'chat-runtime-loop:run-123',
+        errorCode: 'CHAT_WORKFLOW_FAILED',
+        errorDetails: {
+          workflowId: 'chat-runtime-loop',
+          workflowInstanceId: 'chat-runtime-loop:run-123',
+          stepId: 'sendTurn',
+        },
+      })
+    );
+  });
+
   it('forwards execution context signal to runtime', async () => {
     const runtime = {
       runAsync: vi.fn(async () => ({

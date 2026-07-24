@@ -87,9 +87,12 @@ function getFsTools(workspaceRoot: string): ICommand[] {
     create: (agentId: string, permissions: PermissionConfig | undefined) =>
       createTestWorkspaceFs(workspaceRoot, agentId, permissions),
   };
+  const mockFuzzyFileSearch = {
+    findSimilar: () => [],
+  };
 
   return [
-    new FsReadFileTool(workspaceRoot, workspaceFsFactory as any),
+    new FsReadFileTool(workspaceRoot, workspaceFsFactory as any, mockFuzzyFileSearch as any),
     new FsWriteFileTool(workspaceFsFactory as any),
     new FsCreateFileTool(workspaceFsFactory as any),
     new FsDeletePathTool(workspaceFsFactory as any),

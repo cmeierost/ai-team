@@ -29,6 +29,14 @@ export interface ChatMessage {
   to?: string;
   isHuman?: boolean;
   content: string;
+  kind?: 'message' | 'error';
+  failureId?: string;
+  errorCode?: string;
+  errorDetails?: {
+    workflowId?: string;
+    workflowInstanceId?: string;
+    stepId?: string;
+  };
   context?: string[];
   tool_calls?: ToolCall[];
   suggestions?: CodeSuggestion[];

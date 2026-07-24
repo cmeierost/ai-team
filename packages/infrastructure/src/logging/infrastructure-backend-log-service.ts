@@ -18,6 +18,7 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
 
 const LOG_DIR = '.ai-team/logs';
 const LOG_PREFIX = 'backend-';
+const DEFAULT_LOG_FILE = 'backend.log';
 const DEFAULT_RETENTION_DAYS = 7;
 
 // ── ANSI colours ──────────────────────────────────────────────────────────────
@@ -262,9 +263,7 @@ export class InfrastructureBackendLogService implements IBackendLogService {
         : path.resolve(this.workspaceRoot, configured);
     }
 
-    // Rolling daily log: backend-YYYY-MM-DD.log
-    const date = new Date().toISOString().slice(0, 10);
-    return path.join(this.workspaceRoot, LOG_DIR, `${LOG_PREFIX}${date}.log`);
+    return path.join(this.workspaceRoot, LOG_DIR, DEFAULT_LOG_FILE);
   }
 
   private cleanupOldLogs(): void {

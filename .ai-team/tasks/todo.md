@@ -6,16 +6,6 @@ Lightweight task list for small fixes, improvements, and refactorings that come 
 
 ---
 
-## 📦 Package: TUI Message Rendering
-
-- [ ] **TUI ask tool message rendering**  
-  The ask tool question renders in the input field but looks too similar to normal input (especially for type input). No line break, text cuts off on right side. The message should be clearly visually distinct from input/output, perhaps as a separate line above the input field with distinct formatting or styling.
-
-- [ ] **TUI chat message spacing**  
-  Regular chat messages in the TUI need padding and margin at the top and bottom for better visual separation and readability.
-
----
-
 ## 📦 Package: Tool Call Rendering
 
 - [ ] **TUI tool call rendering control**  
@@ -36,6 +26,9 @@ Lightweight task list for small fixes, improvements, and refactorings that come 
 
 - [ ] **Save and display LLM response metadata**  
   Save LLM response metadata in the database: response time (already in LLM response), input tokens, and output tokens. Display this information in the UI for better observability of LLM performance and costs.
+
+- [ ] **Store thought process metadata**  
+  Thought process is shown but not persisted. Store it as a message with a "thought" flag that excludes it from context (doesn't count toward token limits). Also save the time it took to generate the thought. Display as "AgentName is thinking..." instead of "💭 Thought process".
 
 ---
 

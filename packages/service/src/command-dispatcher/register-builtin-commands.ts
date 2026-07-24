@@ -652,7 +652,8 @@ export function registerBuiltInCommands(
     (r) =>
       new ChatCommand(
         r.resolve(CORE_SERVICE_TOKENS.ChatRuntime),
-        r.resolve(CORE_SERVICE_TOKENS.EmitService)
+        r.resolve(CORE_SERVICE_TOKENS.EmitService),
+        r.resolve(CORE_SERVICE_TOKENS.SessionManager)
       )
   );
 

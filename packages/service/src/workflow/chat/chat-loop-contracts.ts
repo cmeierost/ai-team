@@ -159,6 +159,14 @@ export interface ChatLoopOutput {
   text: string;
   hopCount: number;
   error?: string;
+  sessionId?: string;
+  agentId?: string;
+  failureId?: string;
+  errorDetails?: {
+    workflowId?: string;
+    workflowInstanceId?: string;
+    stepId?: string;
+  };
 }
 
 /**

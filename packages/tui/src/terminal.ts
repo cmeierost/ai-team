@@ -65,6 +65,9 @@ export class ProcessTerminal implements ITerminal {
     this.updateSize();
 
     if (!this.handlersInstalled) {
+      // A previous TUI lifecycle may have released stdin so Node can return
+      // to its caller. Re-reference it while this interactive session is live.
+      input.ref();
       input.resume();
       input.on('data', this.handleData);
       output.on('resize', this.handleResize);
@@ -90,6 +93,10 @@ export class ProcessTerminal implements ITerminal {
       input.off('data', this.handleData);
       output.off('resize', this.handleResize);
       input.pause();
+      // On Windows/ConPTY, pause() alone can leave the TTY handle referenced
+      // and keep Node alive after /exit. Explicitly release it once all input
+      // listeners have been removed.
+      input.unref();
       this.handlersInstalled = false;
     }
 

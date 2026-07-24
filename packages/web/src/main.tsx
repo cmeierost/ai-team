@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider, QueryCache, MutationCache } from '@ta
 import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
 import { useBackendConnectionStore } from './stores/backendConnectionStore';
+import { installFrontendErrorReporting, reportFrontendError } from './frontend-log';
 import './styles.css';
 
 const handleQuerySuccess = () => {
@@ -12,6 +13,7 @@ const handleQuerySuccess = () => {
 };
 
 const handleQueryError = (error: unknown) => {
+  reportFrontendError(error, { phase: 'query' });
   if (
     error instanceof Error &&
     (error.message.includes('fetch') ||
@@ -22,6 +24,8 @@ const handleQueryError = (error: unknown) => {
     useBackendConnectionStore.getState().setReachable(false);
   }
 };
+
+installFrontendErrorReporting();
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({

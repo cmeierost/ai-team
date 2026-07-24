@@ -36,20 +36,35 @@ function createStorage(overrides?: {
 }
 
 describe('InfrastructureBackendDebugLogSettingsService', () => {
+  it('persists backend errors by default when no logging target is configured', () => {
+    const service = new InfrastructureBackendDebugLogSettingsService({
+      get: () => ({}),
+    } as any);
+
+    expect(service.resolveForRuntime('console')).toMatchObject({
+      file: 'error',
+      console: 'off',
+    });
+    expect(service.resolveForRuntime('api')).toMatchObject({
+      file: 'error',
+      console: 'off',
+    });
+  });
+
   it('returns base backend settings when no target overrides exist', () => {
     const service = new InfrastructureBackendDebugLogSettingsService(
       createStorage({ file: 'warning', console: 'off' }) as any
     );
 
-    expect(service.resolveForRuntime('console')).toEqual({
+    expect(service.resolveForRuntime('console')).toMatchObject({
       file: 'warning',
       console: 'off',
-      sources: {},
+      sources: { 'workflow-runner': 'error' },
     });
-    expect(service.resolveForRuntime('api')).toEqual({
+    expect(service.resolveForRuntime('api')).toMatchObject({
       file: 'warning',
       console: 'off',
-      sources: {},
+      sources: { 'workflow-runner': 'error' },
     });
   });
 
@@ -64,10 +79,10 @@ describe('InfrastructureBackendDebugLogSettingsService', () => {
       }) as any
     );
 
-    expect(service.resolveForRuntime('console')).toEqual({
+    expect(service.resolveForRuntime('console')).toMatchObject({
       file: 'info',
       console: 'debug',
-      sources: {},
+      sources: { 'workflow-runner': 'error' },
     });
   });
 
@@ -82,16 +97,16 @@ describe('InfrastructureBackendDebugLogSettingsService', () => {
       }) as any
     );
 
-    expect(service.resolveForRuntime('api')).toEqual({
+    expect(service.resolveForRuntime('api')).toMatchObject({
       file: 'warning',
       console: 'off',
-      sources: {},
+      sources: { 'workflow-runner': 'error' },
     });
 
-    expect(service.resolveForRuntime('console')).toEqual({
+    expect(service.resolveForRuntime('console')).toMatchObject({
       file: 'off',
       console: 'off',
-      sources: {},
+      sources: { 'workflow-runner': 'error' },
     });
   });
 
@@ -106,7 +121,7 @@ describe('InfrastructureBackendDebugLogSettingsService', () => {
       }) as any
     );
 
-    expect(service.resolveForRuntime('console')).toEqual({
+    expect(service.resolveForRuntime('console')).toMatchObject({
       file: 'off',
       console: 'off',
       sources: {

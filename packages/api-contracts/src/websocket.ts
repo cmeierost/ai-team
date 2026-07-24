@@ -176,7 +176,10 @@ export async function* streamViaWebSocket<TCommand extends string = string>(
         }
 
         events.push(streamEvent);
-        if (streamEvent.kind === 'aborted' || streamEvent.kind === 'error') {
+        if (
+          streamEvent.kind === 'aborted'
+          || (streamEvent.kind === 'error' && streamEvent.historical !== true)
+        ) {
           done = true;
         }
         wakeEventWaiter();
@@ -371,7 +374,10 @@ export async function* summarizeNoteViaWebSocket(
           return;
         }
         events.push(streamEvent);
-        if (streamEvent.kind === 'aborted' || streamEvent.kind === 'error') {
+        if (
+          streamEvent.kind === 'aborted'
+          || (streamEvent.kind === 'error' && streamEvent.historical !== true)
+        ) {
           done = true;
         }
         wakeEventWaiter();

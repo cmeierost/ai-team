@@ -22,6 +22,7 @@ export interface RuntimeStreamEvent {
     | 'session_switched'
     | 'session_title_updated'
     | 'history_message'
+    | 'error'
     | 'subworkflow_start'
     | 'subworkflow_end';
   [key: string]: unknown;
@@ -43,6 +44,9 @@ export interface ToolDenialEvent {
 export interface ToolRuntimePayloadEvent {
   toolName: string;
   outcome: 'request' | 'start' | 'result' | 'error' | 'denied';
+  /** Command descriptor identity used to resolve a renderer for slash calls. */
+  commandGroup?: string;
+  commandKey?: string;
   request?: unknown;
   commandResponse?: CommandResponse;
   resultLlm?: unknown;

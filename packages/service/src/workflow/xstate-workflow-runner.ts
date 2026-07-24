@@ -62,6 +62,7 @@ interface WorkflowMachineContext<TState> {
   workflowInstanceId: string;
   aborted: boolean;
   abortedError: string | undefined;
+  abortedStepId: string | undefined;
   loopIterations: Record<string, number>;
   workflowReturn?: WorkflowReturnDefinition;
   workflowLastResult?: ExecutionContext['workflowLastResult'];
@@ -142,6 +143,7 @@ export class WorkflowRunner implements IWorkflowRunner {
       previousStateValue = currentStateValue;
     });
 
+    const signalWasAlreadyAborted = options?.signal?.aborted === true;
     actor.start();
 
     // Handle abort signal
@@ -207,6 +209,30 @@ export class WorkflowRunner implements IWorkflowRunner {
         finalState: this.serializeStateValue(snapshot.value),
       });
 
+      if (context.aborted) {
+        const abortDetail = this.describeStepFailure(
+          definition.id,
+          workflowInstanceId,
+          context.abortedStepId,
+          context.abortedError
+        );
+        this.logWorkflowRunError({
+          phase: 'workflow-aborted',
+          workflowId: definition.id,
+          workflowInstanceId,
+          ...(context.abortedStepId ? { stepId: context.abortedStepId } : {}),
+          error: abortDetail,
+        });
+        return {
+          state: context.state,
+          aborted: true,
+          abortedError: abortDetail,
+          workflowId: definition.id,
+          workflowInstanceId,
+          stepId: context.abortedStepId,
+        };
+      }
+
       return {
         state: context.state,
         aborted: context.aborted,
@@ -223,17 +249,25 @@ export class WorkflowRunner implements IWorkflowRunner {
           // Actor already stopped or never started, fall back to initial state
         }
 
-        this.logWorkflowRunDebug({
-          phase: 'run-aborted',
+        const abortDetail = this.describeWorkflowAbort(
+          definition.id,
+          workflowInstanceId,
+          error.reasonMessage,
+          signalWasAlreadyAborted
+        );
+        this.logWorkflowRunError({
+          phase: 'workflow-aborted',
           workflowId: definition.id,
           workflowInstanceId,
           recoveredStateAvailable: lastState !== initialState,
-          abortedError: error.reasonMessage,
+          error: abortDetail,
         });
         return {
           state: lastState,
           aborted: true,
-          abortedError: error.reasonMessage,
+          abortedError: abortDetail,
+          workflowId: definition.id,
+          workflowInstanceId,
         };
       }
 
@@ -247,6 +281,9 @@ export class WorkflowRunner implements IWorkflowRunner {
           state: ctx.state,
           aborted: true,
           abortedError: ctx.abortedError,
+          workflowId: definition.id,
+          workflowInstanceId,
+          stepId: ctx.abortedStepId,
         };
       }
 
@@ -294,6 +331,7 @@ export class WorkflowRunner implements IWorkflowRunner {
         workflowInstanceId: input.workflowInstanceId,
         aborted: false,
         abortedError: undefined,
+        abortedStepId: undefined,
         loopIterations: {},
         workflowReturn: definition.return,
         workflowLastResult: undefined,
@@ -547,6 +585,7 @@ export class WorkflowRunner implements IWorkflowRunner {
           target: '#aborted',
           actions: assign({
             aborted: true,
+            abortedStepId: step.id,
             abortedError: ({ event }: any) => this.toErrorMessage(event.error),
           }),
         },
@@ -583,6 +622,7 @@ export class WorkflowRunner implements IWorkflowRunner {
           target: '#aborted',
           actions: assign({
             aborted: true,
+            abortedStepId: step.id,
             abortedError: ({ event }: any) => this.toErrorMessage(event.error),
           }),
         },
@@ -698,6 +738,7 @@ export class WorkflowRunner implements IWorkflowRunner {
           target: '#aborted',
           actions: assign({
             aborted: true,
+            abortedStepId: stepId,
             abortedError: ({ event }: any) => this.toErrorMessage(event.error),
           }),
         },
@@ -739,6 +780,7 @@ export class WorkflowRunner implements IWorkflowRunner {
           target: '#aborted',
           actions: assign({
             aborted: true,
+            abortedStepId: stepId,
             abortedError: ({ event }: any) => this.toErrorMessage(event.error),
           }),
         },
@@ -948,6 +990,54 @@ export class WorkflowRunner implements IWorkflowRunner {
       level: 'debug',
       ...entry,
     });
+  }
+
+  private logWorkflowRunError(entry: Record<string, unknown>): void {
+    this.backendLogService.write({
+      source: 'workflow-runner',
+      level: 'error',
+      ...entry,
+    });
+  }
+
+  private describeWorkflowAbort(
+    workflowId: string,
+    workflowInstanceId: string,
+    reason: string | undefined,
+    signalWasAlreadyAborted: boolean
+  ): string {
+    const location = `workflow '${workflowId}' (run ${workflowInstanceId})`;
+    const normalizedReason = reason?.trim();
+    const genericReason =
+      !normalizedReason
+      || /^workflow aborted$/i.test(normalizedReason)
+      || /^this operation was aborted$/i.test(normalizedReason)
+      || /^aborterror:?\s*this operation was aborted$/i.test(normalizedReason);
+
+    if (signalWasAlreadyAborted) {
+      return genericReason
+        ? `Could not start ${location}: the request signal was already aborted.`
+        : `Could not start ${location}: ${normalizedReason}`;
+    }
+
+    return genericReason
+      ? `Execution of ${location} was interrupted without an abort reason.`
+      : `Execution of ${location} was interrupted: ${normalizedReason}`;
+  }
+
+  private describeStepFailure(
+    workflowId: string,
+    workflowInstanceId: string,
+    stepId: string | undefined,
+    reason: string | undefined
+  ): string {
+    const location = stepId
+      ? `step '${stepId}' of workflow '${workflowId}'`
+      : `workflow '${workflowId}'`;
+    const run = `(run ${workflowInstanceId})`;
+    return reason?.trim()
+      ? `${location} ${run} failed: ${reason.trim()}`
+      : `${location} ${run} reached the aborted state without an error reason.`;
   }
 
   private logWorkflowDebug<TState>(

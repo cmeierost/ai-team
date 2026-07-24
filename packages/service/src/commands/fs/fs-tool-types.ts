@@ -119,7 +119,7 @@ export interface FsSearchResult {
   results: Array<{
     path: string;
     score: number;
-    matchedBy: Array<'name' | 'content'>;
+    matchedBy: Array<'name' | 'content' | 'fuzzy'>;
     readable: boolean;
     writable: boolean;
     contentSearched: boolean;

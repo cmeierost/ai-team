@@ -349,6 +349,8 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     const slashCallId = randomUUID();
     const invocationRequest = {
       commandKey,
+      group: parsed?.descriptor.group,
+      key: parsed?.descriptor.key,
       commandToken: parsed?.commandToken ?? rawInvocation.commandToken,
       rawArgs: parsed?.rawArgs ?? rawInvocation.rawArgs,
       rawInput: parsed?.rawInput ?? rawInvocation.rawInput,
@@ -356,8 +358,8 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     };
     const requestedAt = new Date().toISOString();
     const splitToolHistory =
-      typeof this.sessionManager.appendToolCallRequest === 'function'
-      && typeof this.sessionManager.appendToolCallResult === 'function';
+      typeof this.sessionManager.appendToolCallRequest === 'function' &&
+      typeof this.sessionManager.appendToolCallResult === 'function';
 
     if (splitToolHistory) {
       await this.sessionManager.appendToolCallRequest!(toolHistorySessionId!, {
@@ -367,12 +369,14 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
         isHuman: true,
         hiddenFromLlm: true,
         content: rawInvocation.rawInput,
-        tool_calls: [{
-          callId: slashCallId,
-          tool: slashToolName,
-          params: invocationRequest,
-          requestedAt,
-        }],
+        tool_calls: [
+          {
+            callId: slashCallId,
+            tool: slashToolName,
+            params: invocationRequest,
+            requestedAt,
+          },
+        ],
       });
     }
     let commandResponse: CommandResponse<unknown>;
@@ -441,6 +445,8 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     }
     ctx.history.push(slashMessage);
 
+    const descriptor = parsed?.descriptor;
+
     this.emitService.toolEvent(
       slashToolName,
       slashCallId,
@@ -450,6 +456,8 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
       {
         toolName: slashToolName,
         outcome: commandResponse.status === 'ok' ? 'result' : 'error',
+        commandGroup: descriptor?.group,
+        commandKey: descriptor?.key,
         request: invocationRequest,
         commandResponse,
         resultLlm: responseText,

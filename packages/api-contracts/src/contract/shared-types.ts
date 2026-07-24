@@ -22,6 +22,14 @@ export interface ChatMessage {
   to?: string;
   isHuman?: boolean;
   content: string;
+  kind?: 'message' | 'error';
+  failureId?: string;
+  errorCode?: string;
+  errorDetails?: {
+    workflowId?: string;
+    workflowInstanceId?: string;
+    stepId?: string;
+  };
   timestamp: string;
   archived?: boolean;
   hiddenFromLlm?: boolean;
@@ -49,6 +57,8 @@ export interface SessionToolResult {
   id?: number;
   toolName: string;
   outcome: 'request' | 'start' | 'result' | 'error' | 'denied';
+  commandGroup?: string;
+  commandKey?: string;
   request?: unknown;
   commandResponse?: CommandResponse;
   resultLlm?: unknown;
