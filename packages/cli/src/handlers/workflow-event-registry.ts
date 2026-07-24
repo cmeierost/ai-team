@@ -208,6 +208,7 @@ function handleTool(
     request: input,
     output,
     commandResponseData: unwrapCommandResponseData(commandResponse?.data),
+    fileChanges: Array.isArray(toolResult?.fileChanges) ? toolResult.fileChanges : undefined,
     error:
       phase === 'error'
         ? (commandResponse?.message ?? payload.message ?? output)
@@ -429,6 +430,10 @@ function handleCodeEditProposal(
   _registry: ExtensionRegistry
 ): Component | null {
   const payload = event as any;
+  // Applied filesystem tools expose their full changes on the matching tool
+  // result. Rendering this notification as a legacy proposal duplicates the
+  // diff and produces a misleading "unknown [Pending]" entry.
+  if (Array.isArray(payload.files)) return null;
   const filePath = payload.filePath ?? payload.file ?? 'unknown';
   const diff = payload.diff ?? payload.patch ?? '';
 

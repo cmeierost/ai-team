@@ -447,7 +447,9 @@ export class ToolDispatcher implements IToolDispatchService {
       ? this.support.serialise(llmResult)
       : (execResult.error ?? 'Tool execution failed');
     const persistedToolResult = execResult.ok
-      ? strippedResult
+      ? fileChanges.length > 0 && tool?.formatForLlm
+        ? execResult.result
+        : strippedResult
       : {
           status: 'error' as const,
           message: outputText,

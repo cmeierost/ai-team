@@ -50,6 +50,8 @@ export interface NormalizedToolEvent {
   output?: unknown;
   /** Raw command response data (structured object) — preferred by rich renderers. */
   commandResponseData?: unknown;
+  /** Full file contents for user-facing diffs; never forwarded to the LLM. */
+  fileChanges?: Array<{ filePath: string; oldContent: string; newContent: string }>;
   error?: unknown;
   denial?: unknown;
   historical: boolean;

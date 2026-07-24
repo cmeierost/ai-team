@@ -325,7 +325,7 @@ export function registerBuiltInCommands(
       onboardCmd,
       setupCmd,
       new TestConnectionCommand(
-        r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage).get(),
+        () => r.resolve(CORE_SERVICE_TOKENS.ConfigurationStorage).get(),
         r.resolve(CORE_SERVICE_TOKENS.AgentManager),
         r.resolve(CORE_SERVICE_TOKENS.LlmProviderTester),
         r.resolve(CORE_SERVICE_TOKENS.TextToolCallParser)

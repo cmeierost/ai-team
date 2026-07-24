@@ -687,6 +687,68 @@ describe('WorkflowEventRegistry', () => {
     expect(rendered).not.toContain('"nested"');
   });
 
+  it('passes runtime fileChanges to the fs_write renderer', () => {
+    const harness = createHarness();
+    const component = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'tool',
+        timestamp,
+        toolName: 'fs_write',
+        toolPhase: 'result',
+        toolResult: {
+          toolName: 'fs_write',
+          outcome: 'result',
+          resultLlm: 'Created test-agent.agent.md',
+          commandResponse: {
+            status: 'ok',
+            data: {
+              path: '.ai-team/agents/test-agent.agent.md',
+              created: true,
+              bytes: 12,
+            },
+          },
+          fileChanges: [{
+            filePath: '.ai-team/agents/test-agent.agent.md',
+            oldContent: '',
+            newContent: 'first\nsecond',
+          }],
+        },
+      } as any,
+      harness.state,
+      harness.extensions
+    );
+
+    const rendered = stripAnsi(renderedProjection(component));
+    expect(rendered).toContain('File: .ai-team/agents/test-agent.agent.md');
+    expect(rendered).toContain('1 + first');
+    expect(rendered).toContain('2 + second');
+    expect(rendered).not.toContain('Created test-agent.agent.md');
+  });
+
+  it('suppresses applied file-change notifications instead of showing unknown Pending', () => {
+    const harness = createHarness();
+    const component = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'code_edit_proposal',
+        timestamp,
+        proposalId: 'fs_write-call-1',
+        files: [{
+          filePath: '.ai-team/agents/test-agent.agent.md',
+          oldContent: '',
+          newContent: 'created',
+          additions: 1,
+          deletions: 0,
+        }],
+      } as any,
+      harness.state,
+      harness.extensions
+    );
+
+    expect(component).toBeNull();
+  });
+
   it('keeps repeated slash results distinct and renders live output like history', () => {
     const harness = createHarness();
     const live = harness.registry.handle(

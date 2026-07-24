@@ -17,16 +17,14 @@ export const FsWriteToolMetadata = {
   key: 'write',
   group: 'fs',
   availableIn: { tool: true, chat: true },
-  usage: '<filePath> [content] [mode]',
-  description: [
-    'Write through fs-context access checks.',
-    'mode="replace" overwrites or creates a file, mode="create" requires a new file, mode="patch" performs one read-before-edit exact replacement, and mode="multi" applies several exact replacements to one file.',
-    'Patch and multi modes preserve stale-read protection and require fs_read first.',
-    'Use createDirectories when creating a file in a missing directory.',
-  ].join(' '),
+  usage: '<filePath> <content|oldString+newString|edits>',
+  examples: [
+    '/fs write docs/new.md "# New document"',
+  ],
+  description:
+    'Create, replace, or edit one file. Provide exactly one of: content, oldString+newString, or edits[]. Targeted edits require a prior fs_read; use fs_read to inspect files.',
   parameters: z.object({
-    filePath: z.string().describe('Relative or absolute file path'),
-    mode: z.enum(['replace', 'create', 'patch', 'multi']).optional().describe('Write mode (default replace)'),
+    filePath: z.string().describe('File to write or edit. To read this path, use fs_read instead'),
     content: z.string().optional().describe('Complete replacement or initial file content'),
     oldString: z.string().optional().describe('Patch text to replace'),
     newString: z.string().optional().describe('Patch replacement text'),
@@ -38,13 +36,19 @@ export const FsWriteToolMetadata = {
     })).min(1).optional().describe('Ordered replacements for multi mode'),
     createDirectories: z.boolean().optional().describe('Create parent directories when needed'),
   }).superRefine((value, ctx) => {
-    if (value.mode === 'patch') {
-      if (value.oldString === undefined) ctx.addIssue({ code: 'custom', path: ['oldString'], message: 'Required for patch mode' });
-      if (value.newString === undefined) ctx.addIssue({ code: 'custom', path: ['newString'], message: 'Required for patch mode' });
-    } else if (value.mode === 'multi') {
-      if (value.edits === undefined) ctx.addIssue({ code: 'custom', path: ['edits'], message: 'Required for multi mode' });
-    } else if (value.content === undefined) {
-      ctx.addIssue({ code: 'custom', path: ['content'], message: 'Required for replace/create mode' });
+    const hasContent = value.content !== undefined;
+    const hasPatch = value.oldString !== undefined || value.newString !== undefined;
+    const hasMulti = value.edits !== undefined;
+    const operationCount = Number(hasContent) + Number(hasPatch) + Number(hasMulti);
+    if (operationCount !== 1) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Supply exactly one operation: content, oldString+newString, or edits',
+      });
+    }
+    if (hasPatch) {
+      if (value.oldString === undefined) ctx.addIssue({ code: 'custom', path: ['oldString'], message: 'Required with newString' });
+      if (value.newString === undefined) ctx.addIssue({ code: 'custom', path: ['newString'], message: 'Required with oldString' });
     }
   }),
 } satisfies ICommandDescriptor;
@@ -62,7 +66,7 @@ export class FsWriteTool implements ICommand<FsWriteParams, unknown> {
 
   constructor(
     workspaceRoot: string,
-    workspaceFsFactory: IWorkspaceFsFactory,
+    private readonly workspaceFsFactory: IWorkspaceFsFactory,
     pathPermissionChecker: IPathPermissionChecker,
     ideAdapterFactory: IIdeAdapterFactory
   ) {
@@ -86,8 +90,13 @@ export class FsWriteTool implements ICommand<FsWriteParams, unknown> {
   }
 
   async execute(params: FsWriteParams, context: ExecutionContext): Promise<CommandResponse<unknown>> {
-    const mode = params.mode ?? 'replace';
-    if (mode === 'patch') {
+    if (params.edits !== undefined) {
+      return this.multiTool.execute({
+        filePath: params.filePath,
+        edits: params.edits,
+      }, context);
+    }
+    if (params.oldString !== undefined || params.newString !== undefined) {
       return this.patchTool.execute({
         filePath: params.filePath,
         oldString: params.oldString!,
@@ -95,13 +104,11 @@ export class FsWriteTool implements ICommand<FsWriteParams, unknown> {
         replaceAll: params.replaceAll,
       }, context);
     }
-    if (mode === 'multi') {
-      return this.multiTool.execute({
-        filePath: params.filePath,
-        edits: params.edits!,
-      }, context);
-    }
-    if (mode === 'create') {
+    const workspaceFs = await this.workspaceFsFactory.create(
+      context.agent?.id ?? '',
+      context.agent?.permissions
+    );
+    if (!(await workspaceFs.existsPath(params.filePath))) {
       return this.createTool.execute({
         filePath: params.filePath,
         content: params.content,

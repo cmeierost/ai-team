@@ -190,7 +190,14 @@ export function ToolCallBlock({
   const result = event.toolResult?.commandResponse?.data;
   const sizeLabel = resultSizeLabel(event);
   const renderer = getRenderer(toolName);
-  const hasRichRenderer = renderer !== undefined && result !== undefined;
+  const richNode =
+    renderer !== undefined && result !== undefined
+      ? renderer.render(result, event.toolResult?.resultLlm, event)
+      : null;
+  const hasRichRenderer = richNode !== null;
+  const showInlineDiff =
+    hasRichRenderer
+    && (toolName === 'fs_write' || toolName === 'fs_write_file' || toolName === 'fs_create');
   const canOpen =
     result !== undefined ||
     event.toolResult?.resultLlm !== undefined ||
@@ -318,6 +325,7 @@ export function ToolCallBlock({
           </button>
         </div>
       )}
+      {showInlineDiff && <div className="tool-call-inline-rendered">{richNode}</div>}
       {detailsOpen && !isHiddenFromLlm && <ToolCallDetailsPanel event={event} />}
     </div>
   );

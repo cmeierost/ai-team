@@ -327,7 +327,7 @@ export class RunCliTool implements ICommand<RunCliParams, RunCliResult> {
 export const RunShellChatCommandMetadata = {
   key: 'run',
   usage: '/chat run <command> [args...]',
-  aliases: ['shell'],
+  aliases: ['run', 'shell'],
   description: 'Run a shell command → output shared with agent',
   availableIn: { chat: true, tool: false },
   group: 'chat',

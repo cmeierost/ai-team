@@ -204,7 +204,7 @@ export async function runInitWorkflowAsync(
     shouldClear: false,
   };
 
-  await workflowRunnerFactory
+  const result = await workflowRunnerFactory
     .create()
     .run(createInitWorkflowDefinition(deps, emitService), initialState, {
       signal,
@@ -213,4 +213,8 @@ export async function runInitWorkflowAsync(
         history: [],
       } as ExecutionContext,
     });
+
+  if (result.aborted) {
+    throw new Error(result.abortedError ?? 'Initialization workflow aborted.');
+  }
 }

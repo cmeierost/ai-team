@@ -470,6 +470,21 @@ export async function renderChat(
   let exitRequested = false;
 
   try {
+    const isEmbeddedWorkflow =
+      options.oneShot && requestCommand !== 'chat-chat' && options.message === undefined;
+
+    if (isEmbeddedWorkflow) {
+      await streamTurn(
+        ctx,
+        client,
+        requestCommand,
+        requestPayload ?? {},
+        workspaceRoot,
+        abortControl.signal
+      );
+      return;
+    }
+
     if (!options.oneShot && requestCommand === 'chat-chat') {
       const startupOk = await streamTurn(
         ctx,

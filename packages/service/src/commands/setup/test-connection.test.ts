@@ -56,6 +56,43 @@ describe('commands/test-connection --tool-call', () => {
     );
   }
 
+  it('reads configuration lazily so setup changes are visible during init verification', async () => {
+    let currentConfig = defaultTeamConfig;
+    const command = new TestConnectionCommand(
+      () => currentConfig,
+      mocks.agentManager as any,
+      mocks.llmProviderTester as any,
+      mocks.textToolCallParser as any
+    );
+
+    currentConfig = {
+      ...defaultTeamConfig,
+      providers: {
+        'llm-hub': {
+          kind: 'openai-compatible',
+          baseUrl: 'https://api.llmhub.infs.ai/v1',
+          defaultModel: 'best-chat',
+        },
+      },
+      defaultModel: {
+        providerRef: 'llm-hub',
+        provider: 'llm-hub',
+        model: 'best-chat',
+      },
+    };
+
+    await command.execute({ workspaceRoot: 'C:/workspace', options: {} });
+
+    expect(mocks.llmProviderTester.testLlmConnectionAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'openai-compatible',
+        baseUrl: 'https://api.llmhub.infs.ai/v1',
+        model: 'best-chat',
+      }),
+      undefined
+    );
+  });
+
   it('uses resolved provider-specific apiKey from config', async () => {
     const teamConfig: TeamConfig = {
       version: '1',

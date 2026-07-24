@@ -1,43 +1,34 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ICliCommandClient } from '../cli-command-client.js';
 
-const clientApi = vi.hoisted(() => ({
-  streamInteraction: vi.fn(),
+const chatApi = vi.hoisted(() => ({
+  renderChat: vi.fn(async () => undefined),
 }));
 
-import { renderInit } from './init.js';
+vi.mock('./chat.js', () => chatApi);
 
-const client = {
-  streamInteraction: clientApi.streamInteraction,
-  getCommands: vi.fn(() => []),
-} as unknown as ICliCommandClient;
+import { renderInit } from './init.js';
 
 describe('init command', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clientApi.streamInteraction.mockReturnValue(
-      (async function* () {
-        yield { kind: 'started', command: 'init', timestamp: new Date().toISOString() };
-        yield { kind: 'done', command: 'init', timestamp: new Date().toISOString() };
-      })()
-    );
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+  it('runs init as an embedded workflow in the shared chat TUI', async () => {
+    const client = {} as ICliCommandClient;
+    const questionService = { attachPresenter: vi.fn() } as any;
 
-  it('streams init through the injected command client', async () => {
-    await renderInit(client, { force: true });
+    await renderInit(client, { force: true }, { questionService });
 
-    expect(clientApi.streamInteraction).toHaveBeenCalledWith(
-      {
-        command: 'init',
-        payload: { options: { force: true } },
-      },
-      expect.objectContaining({
-        signal: expect.any(AbortSignal),
-      })
+    expect(chatApi.renderChat).toHaveBeenCalledWith(
+      client,
+      undefined,
+      { oneShot: true },
+      false,
+      undefined,
+      'init',
+      { options: { force: true } },
+      { questionService }
     );
   });
 });

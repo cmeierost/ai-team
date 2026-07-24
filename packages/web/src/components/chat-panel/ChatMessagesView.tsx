@@ -59,6 +59,22 @@ function getPersistedToolCall(message: ChatMessage): PersistedToolCall | undefin
   return calls[0];
 }
 
+function extractPersistedFileChanges(
+  result: unknown
+): Array<{ filePath: string; oldContent: string; newContent: string }> | undefined {
+  if (!result || typeof result !== 'object') return undefined;
+  const changes = (result as Record<string, unknown>)._fileChanges;
+  return Array.isArray(changes)
+    ? changes as Array<{ filePath: string; oldContent: string; newContent: string }>
+    : undefined;
+}
+
+function stripPersistedFileChanges(result: unknown): unknown {
+  if (!result || typeof result !== 'object' || !('_fileChanges' in result)) return result;
+  const { _fileChanges: _, ...rest } = result as Record<string, unknown>;
+  return rest;
+}
+
 function resolveToolEvent(
   message: ChatMessage,
   index: number,
@@ -106,6 +122,7 @@ function resolveToolEvent(
       };
     }
     const status = getPersistedToolStatus(persistedCall);
+    const fileChanges = extractPersistedFileChanges(persistedCall.result);
     return {
       toolName: extractedToolName,
       toolPhase: status.phase,
@@ -119,10 +136,11 @@ function resolveToolEvent(
         commandResponse: toRuntimeCommandResponse(
           extractedToolName,
           status.outcome,
-          persistedCall.result,
+          stripPersistedFileChanges(persistedCall.result),
           status.message
         ),
         resultLlm: persistedCall.resultLlm,
+        fileChanges,
         denial: status.denial,
       },
     };

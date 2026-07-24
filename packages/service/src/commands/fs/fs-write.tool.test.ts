@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { FileTime } from 'fs-context';
+import { FileTime, WorkspaceFs } from 'fs-context';
 import { FsWriteTool, FsWriteToolMetadata } from './fs-write.tool.js';
 
 const workspaces: string[] = [];
@@ -14,6 +14,12 @@ afterEach(async () => {
 });
 
 describe('fs_write', () => {
+  it('clearly routes read operations to fs_read in LLM-facing metadata', () => {
+    expect(FsWriteToolMetadata.description).toContain('use fs_read to inspect files');
+    expect(FsWriteToolMetadata.description.length).toBeLessThan(220);
+    expect('mode' in FsWriteToolMetadata.parameters.shape).toBe(false);
+  });
+
   it('applies multiple stale-read-safe edits in multi mode', async () => {
     const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-fs-write-'));
     workspaces.push(workspace);
@@ -40,7 +46,6 @@ describe('fs_write', () => {
     const response = await tool.execute(
       {
         filePath: 'notes.md',
-        mode: 'multi',
         edits: [
           { oldString: 'alpha', newString: 'one' },
           { oldString: 'gamma', newString: 'three' },
@@ -55,12 +60,73 @@ describe('fs_write', () => {
     await expect(fs.readFile(absolutePath, 'utf8')).resolves.toBe('one\nbeta\nthree\n');
   });
 
-  it('requires edits in multi mode', () => {
+  it('requires exactly one inferred operation shape', () => {
     const parsed = FsWriteToolMetadata.parameters.safeParse({
       filePath: 'notes.md',
-      mode: 'multi',
     });
 
     expect(parsed.success).toBe(false);
+  });
+
+  it('accepts the three simple operation shapes', () => {
+    expect(FsWriteToolMetadata.parameters.safeParse({
+      filePath: 'notes.md',
+      content: 'complete file',
+    }).success).toBe(true);
+    expect(FsWriteToolMetadata.parameters.safeParse({
+      filePath: 'notes.md',
+      oldString: 'before',
+      newString: 'after',
+    }).success).toBe(true);
+    expect(FsWriteToolMetadata.parameters.safeParse({
+      filePath: 'notes.md',
+      edits: [{ oldString: 'before', newString: 'after' }],
+    }).success).toBe(true);
+  });
+
+  it('accepts legacy mode payloads while stripping mode before execution', () => {
+    const parsed = FsWriteToolMetadata.parameters.safeParse({
+      filePath: 'notes.md',
+      mode: 'create',
+      content: 'legacy caller',
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data).not.toHaveProperty('mode');
+  });
+
+  it('automatically creates or replaces from the same content shape', async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-fs-write-content-'));
+    workspaces.push(workspace);
+    const workspaceFsFactory = {
+      create: async () => new WorkspaceFs(workspace, 'writer', {
+        canList: () => true,
+        canRead: () => true,
+        canWrite: () => true,
+      }),
+    };
+    const tool = new FsWriteTool(
+      workspace,
+      workspaceFsFactory as any,
+      {} as any,
+      {} as any
+    );
+
+    const created = await tool.execute(
+      { filePath: 'nested/notes.md', content: 'first', createDirectories: true },
+      { agent: { id: 'writer', permissions: {} } } as any
+    );
+    const replaced = await tool.execute(
+      { filePath: 'nested/notes.md', content: 'second' },
+      { agent: { id: 'writer', permissions: {} } } as any
+    );
+
+    expect(created.status).toBe('ok');
+    expect(created.data).toEqual(expect.objectContaining({ created: true }));
+    expect(replaced.status).toBe('ok');
+    expect(replaced.data).toEqual(expect.objectContaining({ written: true }));
+    await expect(fs.readFile(path.join(workspace, 'nested', 'notes.md'), 'utf8')).resolves.toBe(
+      'second'
+    );
   });
 });

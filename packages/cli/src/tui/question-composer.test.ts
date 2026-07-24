@@ -92,6 +92,22 @@ describe('TuiQuestionPresenter', () => {
     h.stop();
   });
 
+  it('submits the highlighted Allow choice instead of the original deny default', async () => {
+    const h = harness();
+    const confirmed = h.presenter.confirm({
+      message: 'Allow Michael Brown to run fs_delete?',
+      default: false,
+      style: 'allow',
+    });
+
+    expect(h.layout.render(80).join('\n')).toContain('Allow');
+    h.terminal.input('\x1b[D');
+    h.terminal.input('\r');
+
+    await expect(confirmed).resolves.toBe(true);
+    h.stop();
+  });
+
   it('enforces checklist selection limits and supports defaults', async () => {
     const h = harness();
     const answer = h.presenter.checklist({

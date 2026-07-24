@@ -269,4 +269,32 @@ describe('ExtensionRegistry tool renderers', () => {
     expect(rawRendered).toContain('\x1b[32m');
     expect(rawRendered).toContain('\x1b[36mconst\x1b[0m');
   });
+
+  it('renders every added line for a newly created file from user-only fileChanges', () => {
+    const registry = new ExtensionRegistry();
+    const content = Array.from({ length: 100 }, (_, index) => `new line ${index + 1}`).join('\n');
+    const decision = registry.renderTool({
+      toolName: 'fs_write',
+      phase: 'result',
+      historical: false,
+      commandResponseData: {
+        path: '.ai-team/agents/test-agent.agent.md',
+        created: true,
+        bytes: content.length,
+      },
+      fileChanges: [{
+        filePath: '.ai-team/agents/test-agent.agent.md',
+        oldContent: '',
+        newContent: content,
+      }],
+    });
+    const rendered = stripAnsi(
+      decision.placements[0]?.component.render(120).join('\n') ?? ''
+    );
+
+    expect(rendered).toContain('File: .ai-team/agents/test-agent.agent.md');
+    expect(rendered).toContain('1 + new line 1');
+    expect(rendered).toContain('100 + new line 100');
+    expect(rendered).not.toContain('more lines');
+  });
 });

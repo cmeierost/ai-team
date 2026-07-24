@@ -146,8 +146,7 @@ class TuiQuestion implements Component {
       else if (/^[yY]$/.test(data)) this.resolve(true);
       else if (/^[nN]$/.test(data)) this.resolve(false);
       else if (data === '\r') {
-        const defaultIndex = this.spec.default === undefined ? this.selectedIndex : (this.spec.default ? 0 : 1);
-        this.resolve(defaultIndex === 0);
+        this.resolve(this.selectedIndex === 0);
       }
       return;
     }

@@ -118,7 +118,8 @@ function renderWriteResult(event: NormalizedToolEvent): ToolRenderDecision {
   }
 
   const payload = asRecord(event.commandResponseData);
-  const changes = Array.isArray(payload?.['_fileChanges']) ? payload['_fileChanges'] : [];
+  const changes = event.fileChanges
+    ?? (Array.isArray(payload?.['_fileChanges']) ? payload['_fileChanges'] : []);
   const lines = changes.flatMap((change, index) => {
     const record = asRecord(change);
     if (!record) return [];
@@ -142,7 +143,9 @@ function renderWriteResult(event: NormalizedToolEvent): ToolRenderDecision {
       event.phase
     ));
   }
-  return terminalTranscriptResult(event, new AnsiLinesResult(lines));
+  // A write diff is the user-visible audit record. Never truncate it,
+  // especially for newly created files where every line is an addition.
+  return terminalTranscriptResult(event, new AnsiLinesResult(lines, Number.POSITIVE_INFINITY));
 }
 
 function renderStreamingRun(

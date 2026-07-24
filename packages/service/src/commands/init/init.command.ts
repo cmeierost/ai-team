@@ -72,13 +72,22 @@ export class InitICommand implements ICommand<Params, void> {
       shouldClear: false,
     };
 
-    await this.workflowRunnerFactory.create().run(this.createWorkflowDefinition(), initialState, {
-      signal: resolvedCtx?.signal,
-      executionContext: {
-        workspaceRoot: this.workspaceRoot,
-        history: [],
-      } as ExecutionContext,
-    });
+    const result = await this.workflowRunnerFactory
+      .create()
+      .run(this.createWorkflowDefinition(), initialState, {
+        signal: resolvedCtx?.signal,
+        executionContext: {
+          workspaceRoot: this.workspaceRoot,
+          history: [],
+        } as ExecutionContext,
+      });
+
+    if (result.aborted) {
+      return {
+        status: 'error',
+        message: result.abortedError ?? 'Initialization workflow aborted.',
+      };
+    }
 
     return { status: 'ok' };
   }

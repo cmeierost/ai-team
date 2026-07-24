@@ -2555,6 +2555,11 @@
   font-size: 13px;
 }
 
+.tool-call-inline-rendered {
+  margin: 0 0 8px 22px;
+  max-width: calc(100% - 22px);
+}
+
 .tc-write-diffs {
   display: grid;
   gap: 12px;

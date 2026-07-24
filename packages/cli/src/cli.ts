@@ -27,6 +27,7 @@ import { createConsoleEmitService } from './emit/console-emit-service.js';
 import type { ChatOptions } from '@ai-team/api-contracts';
 import { CONTRACT_SERVICE_TOKENS } from '@ai-team/api-contracts';
 import { renderChat } from './handlers/chat.js';
+import { renderInit } from './handlers/init.js';
 import { launchServer, launchServerWithUi } from './handlers/serve.js';
 import { launchUi } from './handlers/ui.js';
 import { resolveChatInvocationTarget } from './chat-invocation-target.js';
@@ -84,13 +85,16 @@ class CliApplication {
       .description('Manage virtual AI development teams')
       .version('0.1.0');
 
-    this.registerDirectCliCommands(this.createDirectCliActionHandlers());
+    const directActionHandlers = this.createDirectCliActionHandlers();
+    this.registerDirectCliCommands(directActionHandlers);
 
     // Default: running `ait` with no subcommand is an alias for `ait init`
     const initEntry = this.deps.metadataEntries.find((e) => e.key === 'init');
     if (initEntry) {
       this.deps.program.action(
-        this.withCliErrorHandling(this.createDefaultRegistryAction(initEntry))
+        this.withCliErrorHandling(
+          directActionHandlers[initEntry.key] ?? this.createDefaultRegistryAction(initEntry)
+        )
       );
     }
 
@@ -439,6 +443,12 @@ class CliApplication {
     };
 
     return {
+      init: (options) =>
+        renderInit(
+          this.deps.commandClient,
+          { force: options?.force === true },
+          { questionService: cliQuestionService }
+        ),
       chat: runChat,
       serve: (options) => launchServer(options, this.deps.workspaceRoot),
       'serve.ui': (options) => launchServerWithUi(options, this.deps.workspaceRoot),

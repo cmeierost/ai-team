@@ -15,7 +15,7 @@ export interface TestConnectionCommandParams {
 
 export class TestConnectionCommand {
   constructor(
-    private readonly teamConfig: TeamConfig,
+    private readonly teamConfig: TeamConfig | (() => TeamConfig),
     private readonly agentManager: IAgentManager,
     private readonly llmProviderTester: ILlmProviderTester,
     private readonly textToolCallParser: ITextToolCallParser
@@ -24,7 +24,7 @@ export class TestConnectionCommand {
   async execute(params: TestConnectionCommandParams): Promise<void> {
     return testConnectionCommandAsync(
       params.options ?? {},
-      this.teamConfig,
+      typeof this.teamConfig === 'function' ? this.teamConfig() : this.teamConfig,
       this.agentManager,
       this.llmProviderTester,
       this.textToolCallParser

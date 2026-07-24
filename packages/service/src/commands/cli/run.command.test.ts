@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ExecutionContext, ICommand, IServiceContainer } from '@ai-team/core';
 import { CommandDispatcher } from '../../command-dispatcher/command-dispatcher.js';
 import { CommandRegistry } from '../../command-dispatcher/command-registry.js';
+import { resolveSlashInvocation } from '../../command-dispatcher/slash-invocation.js';
 import {
   RunCliTool,
   RunCliToolMetadata,
@@ -12,11 +13,23 @@ import {
 describe('/run command', () => {
   it('declares structured variadic input for dispatcher normalization', () => {
     expect(RunShellChatCommandMetadata).toMatchObject({
+      aliases: expect.arrayContaining(['run']),
       input: {
         mode: 'structured',
         variadicParameter: 'args',
         jsonSignature: true,
       },
+    });
+  });
+
+  it.each([
+    ['/run git status', 'git status'],
+    ['/run pnpm --filter @ai-team/web storybook', 'pnpm --filter @ai-team/web storybook'],
+  ])('resolves %s through the public chat alias', (input, rawArgs) => {
+    expect(resolveSlashInvocation(input, [RunShellChatCommandMetadata])).toMatchObject({
+      commandKey: 'chat-run',
+      commandToken: 'run',
+      rawArgs,
     });
   });
 

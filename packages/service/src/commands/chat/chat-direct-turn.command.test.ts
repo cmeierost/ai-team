@@ -683,6 +683,46 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     });
   });
 
+  it.each([
+    ['/run git status', 'git', 'status'],
+    ['/run pnpm --filter @ai-team/web storybook', 'pnpm', '--filter @ai-team/web storybook'],
+  ])('dispatches the legacy one-token run alias: %s', async (message, commandName, rawArgs) => {
+    const { command, commandDispatcher, stepService } = createDeps({
+      resolveLatestSessionForResume: async () => ({
+        id: 'sess-latest',
+        agentId: 'michael-brown',
+      }),
+      getAgentAsync: async (id: string) => ({ id, name: 'Michael Brown', role: 'ceo' }),
+      getLatestSession: async () => ({ id: 'sess-agent', agentId: 'michael-brown' }),
+      getSessionMessages: async () => [],
+    });
+    commandDispatcher.getCommands.mockReturnValue([
+      {
+        key: 'run',
+        group: 'chat',
+        aliases: ['run', 'shell'],
+        availableIn: { chat: true },
+      },
+    ]);
+    commandDispatcher.dispatch.mockResolvedValue({
+      status: 'ok',
+      message: 'Command executed',
+      data: {},
+    });
+
+    await command.execute(
+      { options: { message } } as any,
+      { history: [] } as any
+    );
+
+    expect(commandDispatcher.dispatch).toHaveBeenCalledWith(
+      'chat-run',
+      `${commandName} ${rawArgs}`,
+      expect.anything()
+    );
+    expect(stepService.invokeTurnLlmAsync).not.toHaveBeenCalled();
+  });
+
   it('projects a slash handoff through the same applied transition contract', async () => {
     const { command, commandDispatcher, stepService } = createDeps({
       resolveLatestSessionForResume: async () => ({

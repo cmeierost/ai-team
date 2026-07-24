@@ -43,6 +43,40 @@ function clientWith(events: StreamEvent<'chat'>[]): ICliCommandClient {
 const timestamp = '2026-07-23T10:00:00.000Z';
 
 describe('new chat TUI projection', () => {
+  it('executes an embedded init workflow immediately without prompting for a chat message', async () => {
+    const terminal = new FakeTerminal();
+    const streamInteraction = vi.fn(async function* (request: unknown) {
+      yield { command: 'init', kind: 'done', timestamp } as StreamEvent<'chat'>;
+    });
+    const client = {
+      getCommands: () => [],
+      streamInteraction,
+    } as unknown as ICliCommandClient;
+
+    await renderChat(
+      client,
+      undefined,
+      { oneShot: true },
+      false,
+      undefined,
+      'init',
+      { options: { force: true } },
+      { terminal }
+    );
+
+    expect(streamInteraction).toHaveBeenCalledWith(
+      {
+        command: 'init',
+        payload: { options: { force: true } },
+      },
+      expect.objectContaining({
+        invocationSurface: 'cli',
+        calledByHuman: true,
+        signal: expect.any(AbortSignal),
+      })
+    );
+  });
+
   it('renders user input and streamed agent tokens from service events', async () => {
     const terminal = new FakeTerminal();
     const client = clientWith([

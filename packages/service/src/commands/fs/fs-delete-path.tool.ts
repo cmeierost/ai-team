@@ -9,7 +9,7 @@ import type {
 import { failed } from './fs-tools-helpers.js';
 import type { FsDeleteParams, FsDeleteResult } from './fs-tool-types.js';
 export const FsDeletePathToolMetadata = {
-  key: 'delete_path',
+  key: 'delete',
   group: 'fs',
   availableIn: { tool: true },
   description: 'Delete a file or directory through access checks.',
@@ -21,7 +21,7 @@ export const FsDeletePathToolMetadata = {
 
 export class FsDeletePathTool implements ICommand<FsDeleteParams, FsDeleteResult> {
   readonly metadata = FsDeletePathToolMetadata;
-  readonly name = 'delete_path';
+  readonly name = 'delete';
 
   constructor(private readonly workspaceFsFactory: IWorkspaceFsFactory) {}
 

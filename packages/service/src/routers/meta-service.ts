@@ -572,7 +572,7 @@ export class MetaService implements IContextService {
   ): string[] {
     const writeToolNames = new Set([
       'fs_write',
-      'fs_delete_path',
+      'fs_delete',
       'fs_mkdir',
       'fs_apply_patch',
       'fs_patch',

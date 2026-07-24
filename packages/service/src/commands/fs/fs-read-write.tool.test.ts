@@ -95,7 +95,7 @@ describe('remaining fs tool execution', () => {
     expect(disk).toBe('updated');
   });
 
-  it('supports fs_list and fs_delete_path', async () => {
+  it('supports fs_list and fs_delete', async () => {
     const workspaceRoot = await createWorkspace();
     await fs.mkdir(path.join(workspaceRoot, 'tmp', 'dir'), { recursive: true });
     await fs.writeFile(path.join(workspaceRoot, 'tmp', 'dir', 'a.txt'), 'a', 'utf8');
@@ -109,7 +109,7 @@ describe('remaining fs tool execution', () => {
 
     const deleted = await manager.execute(
       a,
-      'fs_delete_path',
+      'fs_delete',
       { path: 'tmp/dir', recursive: true },
       ctx(a, workspaceRoot)
     );

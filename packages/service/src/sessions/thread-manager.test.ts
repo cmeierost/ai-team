@@ -67,7 +67,21 @@ function createInMemoryRepos() {
       const list = messagesBySession.get(sessionId) ?? [];
       return list
         .filter((message) => includeArchived || !message._archived)
-        .map(({ _messageId, _hiddenFromLlm, _archived, ...message }) => ({ ...message }));
+        .map(({ _messageId, _hiddenFromLlm, _archived, ...message }) => ({
+          ...message,
+          id: _messageId,
+        }));
+    },
+    async insertToolCallResult(sessionId, callId, result, resultLlm, phase, timestamp) {
+      const message = (messagesBySession.get(sessionId) ?? []).find((candidate) =>
+        candidate.tool_calls?.some((toolCall) => toolCall.callId === callId)
+      );
+      const toolCall = message?.tool_calls?.find((candidate) => candidate.callId === callId);
+      if (!toolCall) throw new Error(`Tool call ${callId} not found`);
+      toolCall.result = result;
+      toolCall.resultLlm = resultLlm;
+      toolCall.resultPhase = phase;
+      toolCall.completedAt = timestamp;
     },
     async queryMessages(filter) {
       const base = filter.sessionId
@@ -87,6 +101,7 @@ function createInMemoryRepos() {
       }
       return result.map(({ _messageId, _hiddenFromLlm, _archived, ...message }) => ({
         ...message,
+        id: _messageId,
       }));
     },
     async archiveMessage() {
@@ -410,6 +425,63 @@ describe('ThreadManager active thread navigation', () => {
       from: 'emily-davis',
       content: '',
       tool_calls: [{ tool: 'fs_read', params: {} }],
+    });
+
+    const latest = await threadManager.resolveLatestSessionWithActivity('dev-1');
+
+    expect(latest?.id).toBe(emily.id);
+  });
+
+  it('uses tool completion time and ignores mirrored handoff messages when resuming bare chat', async () => {
+    const michael = await sessionManager.createSession('michael-brown', 'dev-1');
+    const emily = await sessionManager.createSession('emily-davis', 'dev-1');
+
+    await sessionManager.appendMessage(michael.id, {
+      timestamp: '2026-07-24T10:00:00.000Z',
+      from: 'michael-brown',
+      content: '',
+      tool_calls: [{
+        callId: 'call-1',
+        tool: 'cli_run',
+        params: {},
+        requestedAt: '2026-07-24T10:00:00.000Z',
+      }],
+    });
+    await sessionManager.appendToolCallResult?.(
+      michael.id,
+      'call-1',
+      { status: 'ok' },
+      'done',
+      'result',
+      '2026-07-24T10:05:00.000Z'
+    );
+    await sessionManager.appendMessage(emily.id, {
+      timestamp: '2026-07-24T10:04:00.000Z',
+      from: 'emily-davis',
+      content: 'Mirrored handoff briefing',
+      handoffId: 'handoff-1',
+      handoffType: 'agent-briefing',
+    });
+
+    const latest = await threadManager.resolveLatestSessionWithActivity('dev-1');
+
+    expect(latest?.id).toBe(michael.id);
+  });
+
+  it('breaks equal message timestamps by persisted message order', async () => {
+    const michael = await sessionManager.createSession('michael-brown', 'dev-1');
+    const emily = await sessionManager.createSession('emily-davis', 'dev-1');
+    const timestamp = '2026-07-24T10:00:00.000Z';
+
+    await sessionManager.appendMessage(michael.id, {
+      timestamp,
+      from: 'michael-brown',
+      content: 'First persisted message',
+    });
+    await sessionManager.appendMessage(emily.id, {
+      timestamp,
+      from: 'emily-davis',
+      content: 'Actually the last persisted message',
     });
 
     const latest = await threadManager.resolveLatestSessionWithActivity('dev-1');

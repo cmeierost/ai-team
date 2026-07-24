@@ -152,7 +152,7 @@ export function makeFullFsAgent(id: string): Agent {
       'fs_read',
       'fs_write_file',
       'fs_create',
-      'fs_delete_path',
+      'fs_delete',
       'fs_mkdir',
       'fs_list',
     ],

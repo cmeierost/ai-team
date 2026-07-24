@@ -1016,6 +1016,47 @@ describe('code_edit_proposal emission', () => {
     expect(persisted).not.toContain('_fileChanges');
   });
 
+  it('persists complete file changes for formatted write tools without returning them to the LLM', async () => {
+    const fileChanges = [
+      { filePath: '/ws/write.ts', oldContent: 'old', newContent: 'new' },
+    ];
+    const toolManager = {
+      get: vi.fn(() => ({
+        metadata: {},
+        formatForLlm: () => 'Wrote write.ts',
+      })),
+      execute: vi.fn(async () => ({
+        ok: true,
+        result: {
+          status: 'ok',
+          data: { path: 'write.ts', written: true },
+          _fileChanges: fileChanges,
+        },
+      })),
+    } as any;
+    const sessionManager = {
+      appendToolCallRequest: vi.fn(async () => undefined),
+      appendToolCallResult: vi.fn(async () => undefined),
+    } as any;
+    createEmitService(vi.fn());
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
+
+    const response = await dispatcher.dispatch(
+      { toolCallId: 'tc-durable-diff', toolName: 'fs_write', args: {} },
+      makeContext()
+    );
+
+    expect(response.result).toBe('Wrote write.ts');
+    expect(sessionManager.appendToolCallResult).toHaveBeenCalledWith(
+      'sess-1',
+      'tc-durable-diff',
+      expect.objectContaining({ _fileChanges: fileChanges }),
+      'Wrote write.ts',
+      'result',
+      expect.any(String)
+    );
+  });
+
   it('does NOT emit code_edit_proposal on execution failure', async () => {
     const toolManager = {
       get: vi.fn(() => undefined),

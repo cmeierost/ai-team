@@ -93,23 +93,53 @@ export class ThreadManager implements IThreadManager {
     const candidates = await Promise.all(
       sessions.map(async (session) => {
         const messages = await this.sessionManager.getSessionMessages(session.id);
-        const lastActivity = messages.reduce<string | null>((latest, message) => {
+        const lastActivity = messages.reduce<{ timestamp: string; sequence: number } | null>((latest, message) => {
+          // Handoff summaries are mirrored into multiple sessions. They are
+          // presentation artifacts, not evidence that the developer last
+          // talked in either copy.
+          if (message.handoffId || message.handoffType) {
+            return latest;
+          }
           const hasMessage = message.content.trim().length > 0;
           const hasToolCall = (message.tool_calls?.length ?? 0) > 0;
           if (!hasMessage && !hasToolCall) {
             return latest;
           }
-          return !latest || message.timestamp > latest ? message.timestamp : latest;
+          const toolActivity = (message.tool_calls ?? []).flatMap((toolCall) =>
+            [toolCall.completedAt, toolCall.requestedAt].filter(
+              (timestamp): timestamp is string => Boolean(timestamp)
+            )
+          );
+          const timestamp = [message.timestamp, ...toolActivity].sort().at(-1) ?? message.timestamp;
+          const sequence = Math.max(
+            message.id ?? 0,
+            ...(message.tool_calls ?? []).map((toolCall) => toolCall.id ?? 0)
+          );
+          if (
+            !latest
+            || timestamp > latest.timestamp
+            || (timestamp === latest.timestamp && sequence > latest.sequence)
+          ) {
+            return { timestamp, sequence };
+          }
+          return latest;
         }, null);
         return lastActivity ? { session, lastActivity } : null;
       })
     );
 
     return candidates
-      .filter((candidate): candidate is { session: ChatSession; lastActivity: string } => Boolean(candidate))
+      .filter(
+        (candidate): candidate is {
+          session: ChatSession;
+          lastActivity: { timestamp: string; sequence: number };
+        } => Boolean(candidate)
+      )
       .sort(
         (left, right) =>
-          right.lastActivity.localeCompare(left.lastActivity) || right.session.id.localeCompare(left.session.id)
+          right.lastActivity.timestamp.localeCompare(left.lastActivity.timestamp)
+          || right.lastActivity.sequence - left.lastActivity.sequence
+          || right.session.id.localeCompare(left.session.id)
       )[0]?.session ?? null;
   }
 

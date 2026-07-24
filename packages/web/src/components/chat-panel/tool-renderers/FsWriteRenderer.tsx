@@ -83,7 +83,13 @@ function renderFsWrite(
   _resultLlm: unknown,
   event: SessionActivatedTool
 ): ReactNode {
-  const changes = event.toolResult?.fileChanges as FileChange[] | undefined;
+  const resultRecord =
+    _result && typeof _result === 'object' ? _result as Record<string, unknown> : undefined;
+  const changes = (
+    event.toolResult?.fileChanges
+    ?? resultRecord?.fileChanges
+    ?? resultRecord?._fileChanges
+  ) as FileChange[] | undefined;
   if (!changes?.length) return null;
 
   return (
