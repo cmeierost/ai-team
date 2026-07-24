@@ -79,6 +79,12 @@ describe('remaining fs tool execution', () => {
     expect(toolPayload(mkdir).created).toBe(true);
     expect(created.ok).toBe(true);
     expect(toolPayload(created).created).toBe(true);
+    expect((created.result as any)._fileChanges).toEqual([
+      expect.objectContaining({
+        oldContent: '',
+        newContent: 'hello',
+      }),
+    ]);
     expect(written.ok).toBe(true);
 
     const writtenPayload = toolPayload(written);

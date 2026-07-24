@@ -819,12 +819,20 @@ describe('code_edit_proposal emission', () => {
         filePath: '/ws/src/new-file.ts',
         oldContent: '',
         newContent: 'export const x = 1;\n',
+        additions: 2,
+        deletions: 0,
       },
     ]);
     const toolResultEvent = events.find(
       (event: any) => event.kind === 'tool' && event.toolPhase === 'result'
     );
-    expect(toolResultEvent.toolResult.fileChanges).toEqual(proposal.files);
+    expect(toolResultEvent.toolResult.fileChanges).toEqual([
+      {
+        filePath: '/ws/src/new-file.ts',
+        oldContent: '',
+        newContent: 'export const x = 1;\n',
+      },
+    ]);
     expect(toolResultEvent.toolResult.commandResponse.data).not.toHaveProperty('_fileChanges');
   });
 
@@ -857,7 +865,13 @@ describe('code_edit_proposal emission', () => {
     expect(proposal.agentName).toBe('Agent A');
     expect(proposal.filesChanged).toBe(1);
     expect(proposal.files).toEqual([
-      { filePath: '/ws/app.ts', oldContent: 'const x = 1;', newContent: 'const x = 42;' },
+      {
+        filePath: '/ws/app.ts',
+        oldContent: 'const x = 1;',
+        newContent: 'const x = 42;',
+        additions: 1,
+        deletions: 1,
+      },
     ]);
   });
 

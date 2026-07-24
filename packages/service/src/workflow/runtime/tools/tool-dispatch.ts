@@ -574,13 +574,38 @@ export class ToolDispatcher implements IToolDispatchService {
       filesChanged: fileChanges.length,
       additions,
       deletions,
-      files: fileChanges.map((fc) => ({
-        filePath: fc.filePath,
-        oldContent: fc.oldContent,
-        newContent: fc.newContent,
-      })),
+      files: fileChanges.map((fc) => {
+        const counts = countChangedLines(fc.oldContent, fc.newContent);
+        return {
+          filePath: fc.filePath,
+          oldContent: fc.oldContent,
+          newContent: fc.newContent,
+          additions: counts.additions,
+          deletions: counts.deletions,
+        };
+      }),
     });
   }
+}
+
+function countChangedLines(
+  oldContent: string,
+  newContent: string
+): { additions: number; deletions: number } {
+  const oldLines = oldContent ? oldContent.split('\n') : [];
+  const newLines = newContent ? newContent.split('\n') : [];
+  const maxLen = Math.max(oldLines.length, newLines.length);
+  let additions = 0;
+  let deletions = 0;
+  for (let index = 0; index < maxLen; index++) {
+    if (index >= oldLines.length) additions++;
+    else if (index >= newLines.length) deletions++;
+    else if (oldLines[index] !== newLines[index]) {
+      additions++;
+      deletions++;
+    }
+  }
+  return { additions, deletions };
 }
 
 function commandResponseData(result: unknown): unknown {
