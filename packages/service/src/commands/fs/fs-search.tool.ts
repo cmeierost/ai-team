@@ -114,7 +114,7 @@ export class FsSearchTool implements ICommand<FsSearchParams, FsSearchResult> {
       const matchedBy: Array<'name' | 'content'> = [];
       if (nameMatch) matchedBy.push('name');
       if (contentScore > 0) matchedBy.push('content');
-      if (mode === 'content' && !nameMatch && contentScore === 0) continue;
+      if (mode === 'content' && contentScore === 0) continue;
       if (mode === 'names' && !nameMatch) continue;
 
       const accessScore = writable ? 300 : readable ? 200 : 100;
@@ -258,6 +258,20 @@ interface SearchTreeNode {
 }
 
 function formatSearchResult(result: FsSearchResult): string {
+  if (result.mode === 'content') {
+    const lines = [
+      `Search: "${result.query}" (content; scope: ${result.scope})`,
+      `Matches: ${result.totalMatches} files; showing ${result.returnedMatches}.`,
+    ];
+    for (const match of result.results) {
+      for (const snippet of match.snippets ?? []) {
+        lines.push(`${match.path}:${snippet.line}: ${clipMatchingLine(snippet.content, result.query)}`);
+      }
+    }
+    if (result.truncated) lines.push('… more matches not shown; narrow the glob or query.');
+    return lines.join('\n');
+  }
+
   const hasFuzzy = result.results.some((r) => r.matchedBy.includes('fuzzy'));
   const lines: string[] = [
     `Search: "${result.query}" (${result.mode}; scope: ${result.scope})`,
@@ -286,6 +300,15 @@ function formatSearchResult(result: FsSearchResult): string {
   }
   if (result.truncated) lines.push('… more matches not shown; narrow the glob or query to inspect them.');
   return lines.join('\n');
+}
+
+function clipMatchingLine(content: string, query: string, maxLength = 300): string {
+  if (content.length <= maxLength) return content;
+  const matchIndex = content.toLowerCase().indexOf(query.toLowerCase());
+  const center = matchIndex >= 0 ? matchIndex + Math.floor(query.length / 2) : 0;
+  const start = Math.max(0, Math.min(content.length - maxLength, center - Math.floor(maxLength / 2)));
+  const end = start + maxLength;
+  return `${start > 0 ? '…' : ''}${content.slice(start, end)}${end < content.length ? '…' : ''}`;
 }
 
 function renderSearchTreeNode(

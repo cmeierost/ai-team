@@ -50,6 +50,8 @@ export interface ToolRuntimePayloadEvent {
   request?: unknown;
   commandResponse?: CommandResponse;
   resultLlm?: unknown;
+  /** Complete file changes for user-facing diff rendering; never injected into the LLM result. */
+  fileChanges?: Array<{ filePath: string; oldContent: string; newContent: string }>;
   denial?: ToolDenialEvent;
   longRunning?: boolean;
 }

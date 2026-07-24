@@ -385,6 +385,8 @@ export interface ToolRuntimePayloadEvent {
   commandResponse?: CommandResponse;
   /** LLM-formatted representation of result — what was injected into the model's context window. */
   resultLlm?: unknown;
+  /** Complete file changes for user-facing diff rendering; never injected into the LLM result. */
+  fileChanges?: Array<{ filePath: string; oldContent: string; newContent: string }>;
   denial?: ToolDenialEvent;
 }
 

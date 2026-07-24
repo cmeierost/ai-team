@@ -71,6 +71,7 @@ export interface SendTurnResolvedSkillsAndTools {
 export interface SendTurnLlmInvocationResult {
   fullResponse: string;
   structuredResults: StructuredToolResult[];
+  metrics: NonNullable<ChatMessage['llmMetadata']>;
 }
 
 const TITLE_GENERATION_MIN_HUMAN_TURNS = 3;
@@ -223,6 +224,7 @@ export class SendTurnStepService implements ISendTurnStepService {
     return {
       fullResponse: invoked.fullResponse,
       structuredResults: invoked.structuredResults,
+      metrics: invoked.metrics,
     };
   }
 
@@ -265,7 +267,8 @@ export class SendTurnStepService implements ISendTurnStepService {
 
   async persistAssistantMessageAsync(
     fullResponse: string,
-    ctx: ExecutionContext
+    ctx: ExecutionContext,
+    llmMetadata?: ChatMessage['llmMetadata']
   ): Promise<{ persistedContent: string; persistedMessage: ChatMessage }> {
     const persistedContent = fullResponse;
 
@@ -275,6 +278,7 @@ export class SendTurnStepService implements ISendTurnStepService {
       to: 'human',
       content: persistedContent,
       isHuman: false,
+      llmMetadata,
     };
 
     const generatedTitle = await this.sessionManager.appendMessage(

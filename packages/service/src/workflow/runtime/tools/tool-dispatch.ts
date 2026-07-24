@@ -187,7 +187,11 @@ export class ToolDispatcher implements IToolDispatchService {
     return {
       toolCallId,
       toolName,
-      result: execResult.ok ? processed.strippedResult : processed.outputText,
+      result: execResult.ok && processed.resultLlm !== undefined
+        ? processed.resultLlm
+        : execResult.ok
+          ? processed.strippedResult
+          : processed.outputText,
       isError: !execResult.ok,
       structured,
       terminal:
@@ -436,8 +440,9 @@ export class ToolDispatcher implements IToolDispatchService {
     const strippedResult =
       fileChanges.length > 0 ? this.support.stripFileChanges(execResult.result) : execResult.result;
     const tool = this.toolManager.get(toolName);
+    const formatterInput = commandResponseData(strippedResult);
     const llmResult =
-      execResult.ok && tool?.formatForLlm ? tool.formatForLlm(strippedResult) : strippedResult;
+      execResult.ok && tool?.formatForLlm ? tool.formatForLlm(formatterInput) : strippedResult;
     const outputText = execResult.ok
       ? this.support.serialise(llmResult)
       : (execResult.error ?? 'Tool execution failed');
@@ -476,11 +481,12 @@ export class ToolDispatcher implements IToolDispatchService {
   private buildToolEvent(
     toolName: string,
     args: unknown,
-    processed: {
+      processed: {
       ok: boolean;
       strippedResult: unknown;
       outputText: string;
       resultLlm?: string;
+      fileChanges: Array<{ filePath: string; oldContent: string; newContent: string }>;
       denial?: ToolDenial;
     }
   ) {
@@ -502,7 +508,8 @@ export class ToolDispatcher implements IToolDispatchService {
         processed.denial
       ),
       processed.denial,
-      processed.resultLlm
+      processed.resultLlm,
+      processed.fileChanges
     );
     return {
       toolPhase,
@@ -574,6 +581,19 @@ export class ToolDispatcher implements IToolDispatchService {
       })),
     });
   }
+}
+
+function commandResponseData(result: unknown): unknown {
+  if (
+    typeof result === 'object'
+    && result !== null
+    && 'status' in result
+    && result.status === 'ok'
+    && 'data' in result
+  ) {
+    return result.data;
+  }
+  return result;
 }
 
 function asStructuredToolResult(result: unknown): StructuredToolResult | undefined {

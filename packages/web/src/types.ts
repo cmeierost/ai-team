@@ -392,6 +392,17 @@ export interface PermissionAnalysisView {
   summary: PermissionAnalysisSummary;
 }
 
+export interface LlmInvocationMetadata {
+  durationMs?: number;
+  timeToFirstTokenMs?: number;
+  providerDurationMs?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  model?: string;
+  provider?: string;
+}
+
 export interface ChatMessage {
   from: string; // Agent ID or developer ID (e.g., 'clemens-meier')
   to?: string; // Target agent ID (used for handoff messages)
@@ -414,6 +425,7 @@ export interface ChatMessage {
   handoffId?: string; // UUID shared by all messages in one handoff event
   handoffFromSessionId?: string; // Session this briefing came FROM
   handoffToSessionId?: string; // Session this briefing is directed TO
+  llmMetadata?: LlmInvocationMetadata;
   tool_calls?: Array<{
     id?: number;
     tool: string;
@@ -446,6 +458,8 @@ export interface SessionActivatedTool {
     };
     /** LLM-formatted representation — what was injected into the model's context window. */
     resultLlm?: unknown;
+    /** Complete changes for user-facing diff rendering; excluded from LLM context. */
+    fileChanges?: Array<{ filePath: string; oldContent: string; newContent: string }>;
     denial?: {
       kind: 'user-denied' | 'policy-denied' | 'execution-failed';
       reasonCode: string;

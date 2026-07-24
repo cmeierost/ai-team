@@ -303,6 +303,44 @@ describe('LlmInvokeService', () => {
     expect(emittedTokens.join('')).toContain('Here is the answer.');
   });
 
+  it('collects provider identity, token usage, and invocation timing', async () => {
+    const llmService = {
+      getInvocationIdentity: () => ({ model: 'gpt-test', provider: 'openai' }),
+      streamChat: vi.fn(async function* () {
+        yield { choices: [{ delta: { content: 'Hello' } }], model: 'gpt-test' };
+        yield {
+          choices: [],
+          usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+        };
+      }),
+      chatWithTools: vi.fn(),
+    };
+
+    const service = createService(llmService, new EmitService(() => {}));
+    const result = await service.invokeAsync({
+      messages: [{ role: 'user', content: 'Hello' } as any],
+      tools: [],
+      toolDefs: [],
+      skills: [],
+      teamRoster: [],
+      ctx: {
+        agent: makeAgent('michael-brown', 'Michael Brown'),
+        workspaceRoot: '/workspace',
+        history: [],
+      } as any,
+    });
+
+    expect(result.metrics).toMatchObject({
+      model: 'gpt-test',
+      provider: 'openai',
+      promptTokens: 12,
+      completionTokens: 3,
+      totalTokens: 15,
+    });
+    expect(result.metrics.durationMs).toBeGreaterThanOrEqual(0);
+    expect(result.metrics.timeToFirstTokenMs).toBeGreaterThanOrEqual(0);
+  });
+
   it('passes transcript-style speaker-label lines through unchanged', async () => {
     const emittedTokens: string[] = [];
     const emitService = new EmitService((event) => {

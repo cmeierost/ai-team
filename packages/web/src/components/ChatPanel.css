@@ -2555,6 +2555,102 @@
   font-size: 13px;
 }
 
+.tc-write-diffs {
+  display: grid;
+  gap: 12px;
+}
+
+.tc-write-diff {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(10, 10, 10, 0.72);
+}
+
+.tc-write-diff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.035);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+
+.tc-write-diff-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tc-write-diff-stats {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.tc-write-diff-additions {
+  color: #72d58c;
+}
+
+.tc-write-diff-deletions {
+  color: #ff8585;
+}
+
+.tc-write-diff-body {
+  overflow: auto;
+  max-height: 520px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.tc-write-diff-row {
+  display: grid;
+  grid-template-columns: 42px 42px 22px minmax(max-content, 1fr);
+  min-height: 20px;
+}
+
+.tc-write-diff-row > code {
+  padding: 1px 10px 1px 6px;
+  white-space: pre;
+}
+
+.tc-write-diff-line,
+.tc-write-diff-marker {
+  padding: 1px 6px;
+  color: rgba(255, 255, 255, 0.3);
+  text-align: right;
+  user-select: none;
+}
+
+.tc-write-diff-marker {
+  text-align: center;
+}
+
+.tc-write-diff-row--add {
+  background: rgba(46, 160, 67, 0.2);
+}
+
+.tc-write-diff-row--add .tc-write-diff-marker {
+  color: #72d58c;
+}
+
+.tc-write-diff-row--remove {
+  background: rgba(248, 81, 73, 0.2);
+}
+
+.tc-write-diff-row--remove .tc-write-diff-marker {
+  color: #ff8585;
+}
+
+.tc-write-diff-row--same:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
 /* ── Line-numbered pre block ─────────────────────────────────────────────── */
 
 .tcd-pre-wrap {

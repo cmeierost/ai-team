@@ -44,7 +44,6 @@ export interface FsWriteResult {
   path: string;
   written: boolean;
   bytes?: number;
-  _fileChanges?: unknown[];
   error?: string;
 }
 

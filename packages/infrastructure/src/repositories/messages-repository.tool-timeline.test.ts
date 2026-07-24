@@ -134,4 +134,62 @@ describe('MessagesRepository tool timeline', () => {
       },
     });
   });
+
+  it('round-trips queryable LLM invocation metadata on assistant messages', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'ai-team-llm-metrics-'));
+    workspaces.push(workspace);
+    const backend = new SqliteBackend(workspace);
+    backends.push(backend);
+    await backend.ensureReadyAsync();
+
+    const now = '2026-07-24T20:00:00.000Z';
+    backend.getDb().insert(dbSchema.sessions).values({
+      id: 'session-metrics',
+      developerId: 'clemens',
+      startedAt: now,
+      lastActivityAt: now,
+      messageCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+
+    const repository = new MessagesRepository(backend.ensureReadyAsync, backend.getDb);
+    await repository.insertMessage('session-metrics', {
+      timestamp: now,
+      from: 'michael-brown',
+      to: 'human',
+      content: 'Measured response',
+      llmMetadata: {
+        durationMs: 1250,
+        timeToFirstTokenMs: 180,
+        providerDurationMs: 990,
+        promptTokens: 120,
+        completionTokens: 30,
+        totalTokens: 150,
+        model: 'gpt-test',
+        provider: 'openai',
+      },
+    });
+
+    const [message] = await repository.getSessionMessages('session-metrics');
+    expect(message.llmMetadata).toEqual({
+      durationMs: 1250,
+      timeToFirstTokenMs: 180,
+      providerDurationMs: 990,
+      promptTokens: 120,
+      completionTokens: 30,
+      totalTokens: 150,
+      model: 'gpt-test',
+      provider: 'openai',
+    });
+
+    const row = backend.getDb().select().from(dbSchema.messages).get();
+    expect(row).toMatchObject({
+      llmDurationMs: 1250,
+      llmPromptTokens: 120,
+      llmTotalTokens: 150,
+      llmModel: 'gpt-test',
+      llmProvider: 'openai',
+    });
+  });
 });

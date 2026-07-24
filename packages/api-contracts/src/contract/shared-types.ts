@@ -16,6 +16,17 @@ export interface ChatSummary {
   tags?: string[];
 }
 
+export interface LlmInvocationMetadata {
+  durationMs?: number;
+  timeToFirstTokenMs?: number;
+  providerDurationMs?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  model?: string;
+  provider?: string;
+}
+
 export interface ChatMessage {
   id?: number;
   from: string;
@@ -38,6 +49,7 @@ export interface ChatMessage {
   handoffId?: string;
   handoffFromSessionId?: string;
   handoffToSessionId?: string;
+  llmMetadata?: LlmInvocationMetadata;
 }
 
 export interface SessionToolDenial {

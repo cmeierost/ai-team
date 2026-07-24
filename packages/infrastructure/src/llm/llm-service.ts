@@ -35,6 +35,7 @@ import type {
   ILlmService,
   LlmChatOptions,
   LlmDiagnosticReporter,
+  LlmInvocationMetadata,
 } from '@ai-team/core';
 import { LlmProviderClient } from './llm-provider-client.js';
 import { LlmSystemPromptBuilder } from './llm-system-prompt.js';
@@ -86,6 +87,7 @@ export interface RuntimeToolEvidence {
 export interface LlmToolChatResult {
   text: string;
   toolResults: LlmToolResult[];
+  metrics?: LlmInvocationMetadata;
 }
 
 import type { LlmLogPayload, SerializedError } from './llm-console-log.js';
@@ -131,6 +133,11 @@ export class LlmService implements ILlmService {
 
   setDiagnosticReporter(reporter?: LlmDiagnosticReporter): void {
     this.diagnosticReporter = reporter;
+  }
+
+  getInvocationIdentity(): Pick<LlmInvocationMetadata, 'model' | 'provider'> {
+    this.assertReady();
+    return { model: this.model, provider: this.config.provider };
   }
 
   /**
@@ -345,6 +352,7 @@ export class LlmService implements ILlmService {
           frequency_penalty: options?.frequencyPenalty,
           stop: options?.stop,
           stream: true,
+          stream_options: { include_usage: true },
         }),
         requestTimeoutMs,
         `LLM stream setup timed out after ${requestTimeoutMs / 1000}s.`
@@ -397,6 +405,10 @@ export class LlmService implements ILlmService {
     );
     const start = Date.now();
     const collectedResults: LlmToolResult[] = [];
+    const metrics: LlmInvocationMetadata = {
+      model: options?.model ?? this.model,
+      provider: this.config.provider,
+    };
     const failedToolCallAttempts = new Map<string, number>();
 
     if (
@@ -413,7 +425,8 @@ export class LlmService implements ILlmService {
           maxToolRounds,
           onToken,
           collectedResults,
-          failedToolCallAttempts
+          failedToolCallAttempts,
+          metrics
         );
       } catch (error) {
         if (!this.utils.isResponsesApiFallbackError(error)) {
@@ -440,6 +453,7 @@ export class LlmService implements ILlmService {
             stop: options?.stop,
             tools: this.toChatCompletionTools(tools),
             stream: true,
+            stream_options: { include_usage: true },
           }),
           requestTimeoutMs,
           `LLM request timed out after ${requestTimeoutMs / 1000}s.`
@@ -461,6 +475,7 @@ export class LlmService implements ILlmService {
           }
 
           const chunk = nextChunk.value;
+          this.accumulateResponseMetrics(metrics, chunk);
           const delta = chunk.choices?.[0]?.delta;
           const contentText = this.utils.extractDeltaText(delta?.content);
           const reasoningDelta = delta as
@@ -559,6 +574,7 @@ export class LlmService implements ILlmService {
           return {
             text,
             toolResults: collectedResults,
+            metrics,
           };
         }
 
@@ -617,7 +633,7 @@ export class LlmService implements ILlmService {
           } as ChatCompletionMessageParam);
 
           if (toolResult.terminal) {
-            return { text: '', toolResults: collectedResults };
+            return { text: '', toolResults: collectedResults, metrics };
           }
         }
       }
@@ -646,7 +662,8 @@ export class LlmService implements ILlmService {
     maxToolRounds: number,
     onToken: ((token: string) => void) | undefined,
     collectedResults: LlmToolResult[],
-    failedToolCallAttempts: Map<string, number>
+    failedToolCallAttempts: Map<string, number>,
+    metrics: LlmInvocationMetadata
   ): Promise<LlmToolChatResult> {
     const responseClient = (
       this.client as unknown as {
@@ -689,6 +706,7 @@ export class LlmService implements ILlmService {
         requestTimeoutMs,
         `LLM request timed out after ${requestTimeoutMs / 1000}s.`
       );
+      this.accumulateResponseMetrics(metrics, response);
 
       const roundText = this.utils.extractResponsesOutputText(response);
       if (roundText) {
@@ -709,6 +727,7 @@ export class LlmService implements ILlmService {
         return {
           text: lastText,
           toolResults: collectedResults,
+          metrics,
         };
       }
 
@@ -753,7 +772,7 @@ export class LlmService implements ILlmService {
         });
 
         if (toolResult.terminal) {
-          return { text: '', toolResults: collectedResults };
+          return { text: '', toolResults: collectedResults, metrics };
         }
       }
 
@@ -1155,6 +1174,40 @@ ${excerpts}`;
     }
 
     return generator();
+  }
+
+  private accumulateResponseMetrics(
+    target: LlmInvocationMetadata,
+    value: unknown
+  ): void {
+    if (!value || typeof value !== 'object') return;
+    const record = value as Record<string, any>;
+    const usage =
+      record.usage && typeof record.usage === 'object'
+        ? (record.usage as Record<string, unknown>)
+        : undefined;
+    const add = (key: 'promptTokens' | 'completionTokens' | 'totalTokens', next: unknown) => {
+      if (typeof next === 'number' && Number.isFinite(next)) {
+        target[key] = (target[key] ?? 0) + next;
+      }
+    };
+    add('promptTokens', usage?.prompt_tokens ?? usage?.input_tokens);
+    add('completionTokens', usage?.completion_tokens ?? usage?.output_tokens);
+    add('totalTokens', usage?.total_tokens);
+
+    const timings =
+      record.timings && typeof record.timings === 'object'
+        ? (record.timings as Record<string, unknown>)
+        : undefined;
+    const providerDuration =
+      record.provider_duration_ms
+      ?? record.duration_ms
+      ?? timings?.total_ms
+      ?? (typeof timings?.total === 'number' ? timings.total * 1000 : undefined);
+    if (typeof providerDuration === 'number' && Number.isFinite(providerDuration)) {
+      target.providerDurationMs = (target.providerDurationMs ?? 0) + providerDuration;
+    }
+    if (typeof record.model === 'string') target.model = record.model;
   }
 
   private async writeLlmLog(payload: LlmLogPayload): Promise<void> {

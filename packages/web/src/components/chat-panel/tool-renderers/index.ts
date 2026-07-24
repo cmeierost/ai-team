@@ -8,3 +8,4 @@ import './FsReadRenderer';
 import './ComAskRenderer';
 import './FsWhoShouldRenderer';
 import './FsSearchRenderer';
+import './FsWriteRenderer';

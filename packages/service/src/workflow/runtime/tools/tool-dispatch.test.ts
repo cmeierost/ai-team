@@ -57,6 +57,44 @@ function createEmitService(emit: (event: any) => void) {
 }
 
 describe('dispatchToolCall denial metadata', () => {
+  it('passes command response data to the LLM formatter', async () => {
+    const formatForLlm = vi.fn((result: any) => result.results.join(', '));
+    const commandResponse = {
+      status: 'ok',
+      data: { results: ['orchestrator.ts'] },
+    };
+    const toolManager = {
+      get: vi.fn(() => ({ metadata: {}, formatForLlm })),
+      execute: vi.fn(async () => ({ ok: true, result: commandResponse })),
+    } as any;
+    const sessionManager = {
+      appendToolCallRequest: vi.fn(async () => undefined),
+      appendToolCallResult: vi.fn(async () => undefined),
+    } as any;
+    createEmitService(vi.fn());
+    const dispatcher = createDispatcher(toolManager, sessionManager, {} as any);
+
+    const response = await dispatcher.dispatch(
+      {
+        toolCallId: 'tc-command-response-format',
+        toolName: 'fs_search',
+        args: { query: 'orchestrator', mode: 'names', maxResults: 10 },
+      },
+      makeContext()
+    );
+
+    expect(formatForLlm).toHaveBeenCalledWith(commandResponse.data);
+    expect(response.result).toBe('orchestrator.ts');
+    expect(sessionManager.appendToolCallResult).toHaveBeenCalledWith(
+      'sess-1',
+      'tc-command-response-format',
+      commandResponse,
+      'orchestrator.ts',
+      'result',
+      expect.any(String)
+    );
+  });
+
   it('emits ordered request/start/result lifecycle events with stable toolCallId', async () => {
     const toolManager = {
       get: vi.fn(() => undefined),
@@ -783,6 +821,11 @@ describe('code_edit_proposal emission', () => {
         newContent: 'export const x = 1;\n',
       },
     ]);
+    const toolResultEvent = events.find(
+      (event: any) => event.kind === 'tool' && event.toolPhase === 'result'
+    );
+    expect(toolResultEvent.toolResult.fileChanges).toEqual(proposal.files);
+    expect(toolResultEvent.toolResult.commandResponse.data).not.toHaveProperty('_fileChanges');
   });
 
   it('emits code_edit_proposal when tool result contains _fileChanges', async () => {

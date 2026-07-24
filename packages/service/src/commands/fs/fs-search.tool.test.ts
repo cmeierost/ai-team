@@ -11,7 +11,7 @@ afterEach(async () => {
 });
 
 describe('fs_search', () => {
-  it('returns listable unreadable files with delegation hints and readable content lines', async () => {
+  it('returns only readable files with matching content lines', async () => {
     const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-team-search-'));
     workspaces.push(workspace);
     await fs.mkdir(path.join(workspace, 'src'), { recursive: true });
@@ -59,22 +59,51 @@ describe('fs_search', () => {
           lines: [1, 2],
           contentSearched: true,
         }),
-        expect.objectContaining({
-          path: 'docs/workflow.md',
-          readable: false,
-          writable: false,
-          contentSearched: false,
-          readers: [{ contextId: 'sarah-lee', label: 'Sarah Lee' }],
-        }),
       ])
     );
+    expect(response.data.results).toHaveLength(1);
 
     const rendered = tool.formatForLlm(response.data);
     expect(rendered).toContain('Search: "workflow" (content; scope: agent-permissions)');
-    expect(rendered).toContain('src/');
-    expect(rendered).toContain('intent: name+content; access RW');
-    expect(rendered).toContain('delegate reading to: Sarah Lee');
+    expect(rendered).toContain('src/workflow.ts:1: const workflow = true;');
+    expect(rendered).toContain('src/workflow.ts:2: return workflow;');
+    expect(rendered).not.toContain('docs/workflow.md');
+    expect(rendered).not.toContain('intent:');
     expect(rendered).not.toContain('"results"');
+  });
+
+  it('clips very long matching lines in compact content output', async () => {
+    const tool = new FsSearchTool(
+      '',
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any
+    );
+    const longLine = `${'a'.repeat(500)}ChatOrchestrator${'b'.repeat(500)}`;
+
+    const rendered = tool.formatForLlm({
+      query: 'ChatOrchestrator',
+      mode: 'content',
+      scope: 'agent-permissions',
+      totalMatches: 1,
+      returnedMatches: 1,
+      contentHitsKnown: 1,
+      truncated: false,
+      results: [{
+        path: 'src/chat.ts',
+        score: 1,
+        matchedBy: ['content'],
+        readable: true,
+        writable: false,
+        contentSearched: true,
+        snippets: [{ line: 42, content: longLine }],
+      }],
+    });
+
+    expect(rendered).toContain('src/chat.ts:42: …');
+    expect(rendered).toContain('ChatOrchestrator');
+    expect(rendered.length).toBeLessThan(500);
   });
 
   it('allows a human slash search to span the workspace without agent read restrictions', async () => {

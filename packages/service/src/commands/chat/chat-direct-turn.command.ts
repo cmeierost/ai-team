@@ -219,10 +219,16 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
         };
       }
 
-      const persisted = await this.stepService.persistAssistantMessageAsync(
-        invocation.fullResponse,
-        turnContext
-      );
+      const persisted = invocation.metrics
+        ? await this.stepService.persistAssistantMessageAsync(
+            invocation.fullResponse,
+            turnContext,
+            invocation.metrics
+          )
+        : await this.stepService.persistAssistantMessageAsync(
+            invocation.fullResponse,
+            turnContext
+          );
       const parsed = await this.stepService.parseTurnResultAsync(
         invocation.structuredResults,
         invocation.fullResponse,

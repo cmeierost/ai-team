@@ -23,6 +23,7 @@ import type {
   ExecutionContext,
   IToolDispatchService,
   ILlmInvokeService,
+  LlmInvocationMetadata,
 } from '@ai-team/core';
 import { withAbortSignal } from '../utils/async-utils.js';
 import type { LlmToolDefinition } from '../tooling/manager/tool-manager.js';
@@ -62,7 +63,8 @@ type RuntimeLlmService = ILlmService & {
     maxToolRounds?: number,
     onToken?: (delta: string) => void,
     instructions?: InstructionFile[]
-  ): Promise<{ text: string }>;
+  ): Promise<{ text: string; metrics?: LlmInvocationMetadata }>;
+  getInvocationIdentity?(): Pick<LlmInvocationMetadata, 'model' | 'provider'>;
 };
 
 export interface LlmInvokeParams {
@@ -78,6 +80,7 @@ export interface LlmInvokeParams {
 export interface LlmInvokeResult {
   fullResponse: string;
   structuredResults: StructuredToolResult[];
+  metrics: LlmInvocationMetadata;
 }
 
 export class LlmInvokeService implements ILlmInvokeService {
@@ -98,8 +101,14 @@ export class LlmInvokeService implements ILlmInvokeService {
     const runtimeLlm = this.llmService as RuntimeLlmService;
 
     let fullResponse = '';
+    const startedAt = Date.now();
+    let firstTokenAt: number | undefined;
+    let providerMetrics: LlmInvocationMetadata = {};
     const structuredResults: StructuredToolResult[] = [];
-    const writeToken = (text: string) => this.emitService.token(text);
+    const writeToken = (text: string) => {
+      if (text && firstTokenAt === undefined) firstTokenAt = Date.now();
+      this.emitService.token(text);
+    };
 
     const workingMessages: ILlmChatMessageParam[] =
       toolDefs.length > 0 ? [this.buildToolPolicyMessage(toolDefs), ...messages] : messages;
@@ -115,6 +124,10 @@ export class LlmInvokeService implements ILlmInvokeService {
         )) as AsyncIterable<unknown>;
 
         for await (const chunk of stream) {
+          providerMetrics = this.mergeMetrics(
+            providerMetrics,
+            this.extractMetrics(chunk, runtimeLlm.getInvocationIdentity?.())
+          );
           const delta = this.streamDeltaExtractor.extractSegments(chunk as LlmStreamChunk);
           if (delta.reasoning) {
             writeToken(`${THINKING_TOKEN_PREFIX}${delta.reasoning}`);
@@ -171,6 +184,10 @@ export class LlmInvokeService implements ILlmInvokeService {
           ctx.signal,
           'Chat aborted.'
         );
+        providerMetrics = this.mergeMetrics(
+          providerMetrics,
+          result.metrics ?? runtimeLlm.getInvocationIdentity?.() ?? {}
+        );
 
         // Do NOT overwrite fullResponse with result.text here.
         // fullResponse is accumulated across ALL rounds via the onToken delta callback,
@@ -190,7 +207,70 @@ export class LlmInvokeService implements ILlmInvokeService {
       throw err;
     }
 
-    return { fullResponse, structuredResults };
+    return {
+      fullResponse,
+      structuredResults,
+      metrics: {
+        ...providerMetrics,
+        durationMs: Date.now() - startedAt,
+        timeToFirstTokenMs:
+          firstTokenAt === undefined ? undefined : Math.max(0, firstTokenAt - startedAt),
+      },
+    };
+  }
+
+  private extractMetrics(
+    value: unknown,
+    identity: Pick<LlmInvocationMetadata, 'model' | 'provider'> = {}
+  ): LlmInvocationMetadata {
+    const record = value && typeof value === 'object' ? (value as Record<string, any>) : {};
+    const usage = record.usage && typeof record.usage === 'object' ? record.usage : {};
+    const timings = record.timings && typeof record.timings === 'object' ? record.timings : {};
+    const promptTokens = usage.prompt_tokens ?? usage.input_tokens;
+    const completionTokens = usage.completion_tokens ?? usage.output_tokens;
+    return {
+      ...identity,
+      model: typeof record.model === 'string' ? record.model : identity.model,
+      promptTokens: typeof promptTokens === 'number' ? promptTokens : undefined,
+      completionTokens: typeof completionTokens === 'number' ? completionTokens : undefined,
+      totalTokens:
+        typeof usage.total_tokens === 'number'
+          ? usage.total_tokens
+          : typeof promptTokens === 'number' && typeof completionTokens === 'number'
+            ? promptTokens + completionTokens
+            : undefined,
+      providerDurationMs: this.firstFiniteNumber(
+        record.provider_duration_ms,
+        record.duration_ms,
+        timings.total_ms,
+        typeof timings.total === 'number' ? timings.total * 1000 : undefined
+      ),
+    };
+  }
+
+  private mergeMetrics(
+    current: LlmInvocationMetadata,
+    next: LlmInvocationMetadata
+  ): LlmInvocationMetadata {
+    return {
+      ...current,
+      ...next,
+      promptTokens: this.sumOptional(current.promptTokens, next.promptTokens),
+      completionTokens: this.sumOptional(current.completionTokens, next.completionTokens),
+      totalTokens: this.sumOptional(current.totalTokens, next.totalTokens),
+      providerDurationMs: this.sumOptional(
+        current.providerDurationMs,
+        next.providerDurationMs
+      ),
+    };
+  }
+
+  private sumOptional(left?: number, right?: number): number | undefined {
+    return left === undefined ? right : right === undefined ? left : left + right;
+  }
+
+  private firstFiniteNumber(...values: unknown[]): number | undefined {
+    return values.find((value): value is number => typeof value === 'number' && Number.isFinite(value));
   }
 
   private buildToolPolicyMessage(toolDefs: LlmToolDefinition[]): ILlmChatMessageParam {

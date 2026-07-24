@@ -145,7 +145,8 @@ export class ToolDispatchSupportService implements IToolDispatchSupportService {
     request: unknown,
     commandResponse: CommandResponse | undefined,
     denial?: ToolDenial,
-    resultLlm?: string
+    resultLlm?: string,
+    fileChanges?: FileChange[]
   ): ToolRuntimePayloadEvent {
     return {
       toolName,
@@ -153,6 +154,7 @@ export class ToolDispatchSupportService implements IToolDispatchSupportService {
       request,
       commandResponse,
       resultLlm,
+      fileChanges,
       denial: denial ? this.toToolDenialEvent(denial) : undefined,
     };
   }

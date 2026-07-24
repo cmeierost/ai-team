@@ -6,7 +6,12 @@ import type {
   CommandResponse,
 } from './command-types.js';
 import type { Agent, Skill, PermissionConfig } from './agent-models.js';
-import type { Artifact, ChatMessage, ChatSession } from './communication.js';
+import type {
+  Artifact,
+  ChatMessage,
+  ChatSession,
+  LlmInvocationMetadata,
+} from './communication.js';
 import type { LlmConfig, SkillConfig, TeamConfig } from './schemas.js';
 import type { StructuredToolResult } from './tool-results.js';
 import type {
@@ -54,6 +59,7 @@ export interface ILlmInvokeParams {
 export interface ILlmInvokeResult {
   fullResponse: string;
   structuredResults: StructuredToolResult[];
+  metrics: LlmInvocationMetadata;
 }
 
 export interface ILlmInvokeService {
@@ -85,7 +91,8 @@ export interface ISendTurnStepService<
   ): Promise<ILlmInvokeResult>;
   persistAssistantMessageAsync(
     fullResponse: string,
-    ctx: ExecutionContext
+    ctx: ExecutionContext,
+    llmMetadata?: LlmInvocationMetadata
   ): Promise<{ persistedMessage: ChatMessage; persistedContent: string }>;
   parseTurnResultAsync(
     structuredResults: StructuredToolResult[],
@@ -411,7 +418,8 @@ export interface IToolDispatchSupportService {
         contexts: Array<{ contextId: string; allowedPaths: string[] }>;
       };
     },
-    resultLlm?: string
+    resultLlm?: string,
+    fileChanges?: Array<{ filePath: string; oldContent: string; newContent: string }>
   ): ToolRuntimePayloadEvent;
   buildPendingToolRuntimePayload(
     toolName: string,

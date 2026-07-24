@@ -46,6 +46,14 @@ export const messages = sqliteTable('messages', {
   handoffToSessionId: text('handoff_to_session_id'),
   handoffId: text('handoff_id'),
   importance: text('importance'),
+  llmDurationMs: integer('llm_duration_ms'),
+  llmTimeToFirstTokenMs: integer('llm_time_to_first_token_ms'),
+  llmProviderDurationMs: integer('llm_provider_duration_ms'),
+  llmPromptTokens: integer('llm_prompt_tokens'),
+  llmCompletionTokens: integer('llm_completion_tokens'),
+  llmTotalTokens: integer('llm_total_tokens'),
+  llmModel: text('llm_model'),
+  llmProvider: text('llm_provider'),
 });
 
 export const messageFiles = sqliteTable('message_files', {

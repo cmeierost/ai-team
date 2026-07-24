@@ -83,7 +83,7 @@ describe('remaining fs tool execution', () => {
 
     const writtenPayload = toolPayload(written);
     expect(writtenPayload.written).toBe(true);
-    expect(writtenPayload._fileChanges).toHaveLength(1);
+    expect((written.result as any)._fileChanges).toHaveLength(1);
 
     const disk = await fs.readFile(path.join(workspaceRoot, 'tmp', 'nested', 'new.txt'), 'utf8');
     expect(disk).toBe('updated');

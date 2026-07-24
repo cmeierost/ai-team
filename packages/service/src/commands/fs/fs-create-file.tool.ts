@@ -36,8 +36,13 @@ export class FsCreateFileTool implements ICommand<FsCreateParams, FsCreateResult
         context.agent?.id ?? '',
         context.agent?.permissions ?? { read: [], write: [], list: [] }
       );
+      const absolutePath = fs.toAbsolutePath(filePath);
       const { bytes } = await fs.createFile(filePath, content, { createDirectories });
-      return { status: 'ok', data: { path: filePath, created: true, bytes } };
+      return {
+        status: 'ok',
+        data: { path: filePath, created: true, bytes },
+        _fileChanges: [{ filePath: absolutePath, oldContent: '', newContent: content }],
+      } as CommandResponse<FsCreateResult>;
     } catch (e) {
       const data = failed(e, filePath, 'created') as unknown as FsCreateResult;
       return {

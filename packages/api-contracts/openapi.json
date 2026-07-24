@@ -8874,6 +8874,43 @@
           "timestamp"
         ]
       },
+      "LlmInvocationMetadata": {
+        "type": "object",
+        "properties": {
+          "durationMs": {
+            "type": "number",
+            "nullable": true
+          },
+          "timeToFirstTokenMs": {
+            "type": "number",
+            "nullable": true
+          },
+          "providerDurationMs": {
+            "type": "number",
+            "nullable": true
+          },
+          "promptTokens": {
+            "type": "number",
+            "nullable": true
+          },
+          "completionTokens": {
+            "type": "number",
+            "nullable": true
+          },
+          "totalTokens": {
+            "type": "number",
+            "nullable": true
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "provider": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "ChatMessage": {
         "type": "object",
         "properties": {
@@ -8999,6 +9036,10 @@
           },
           "handoffToSessionId": {
             "type": "string",
+            "nullable": true
+          },
+          "llmMetadata": {
+            "$ref": "#/components/schemas/LlmInvocationMetadata",
             "nullable": true
           }
         },

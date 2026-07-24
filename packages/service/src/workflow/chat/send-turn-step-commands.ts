@@ -4,7 +4,11 @@ import type {
   ICommand,
   ICommandDescriptor,
 } from '@ai-team/core';
-import type { ILlmChatMessageParam, StructuredToolResult } from '@ai-team/core';
+import type {
+  ILlmChatMessageParam,
+  LlmInvocationMetadata,
+  StructuredToolResult,
+} from '@ai-team/core';
 import type { TurnResult, ResolvedPlugins } from '../runtime/pipeline.js';
 import type {
   SendTurnLlmInvocationResult,
@@ -55,6 +59,7 @@ export interface SendTurnStepCommandInputMap {
   persistAssistantMessage: {
     fullResponse: string;
     ctx: ExecutionContext;
+    llmMetadata?: LlmInvocationMetadata;
   };
   parseResult: {
     structuredResults: StructuredToolResult[];
@@ -143,7 +148,8 @@ export function createSendTurnStepCommands(
     persistAssistantMessage: createSendTurnStepCommand('persistAssistantMessage', async (input) => {
       const persisted = await stepService.persistAssistantMessageAsync(
         input.fullResponse,
-        input.ctx
+        input.ctx,
+        input.llmMetadata
       );
       return { persistedContent: persisted.persistedContent };
     }),

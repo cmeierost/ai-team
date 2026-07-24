@@ -78,6 +78,14 @@ export class MessagesRepository implements IMessagesRepository {
           handoffToSessionId: message.handoffToSessionId || null,
           handoffId: message.handoffId || null,
           importance: message.importance || null,
+          llmDurationMs: message.llmMetadata?.durationMs ?? null,
+          llmTimeToFirstTokenMs: message.llmMetadata?.timeToFirstTokenMs ?? null,
+          llmProviderDurationMs: message.llmMetadata?.providerDurationMs ?? null,
+          llmPromptTokens: message.llmMetadata?.promptTokens ?? null,
+          llmCompletionTokens: message.llmMetadata?.completionTokens ?? null,
+          llmTotalTokens: message.llmMetadata?.totalTokens ?? null,
+          llmModel: message.llmMetadata?.model ?? null,
+          llmProvider: message.llmMetadata?.provider ?? null,
         })
         .run();
 
@@ -211,6 +219,14 @@ export class MessagesRepository implements IMessagesRepository {
         handoff_to_session_id: dbSchema.messages.handoffToSessionId,
         handoff_id: dbSchema.messages.handoffId,
         importance: dbSchema.messages.importance,
+        llm_duration_ms: dbSchema.messages.llmDurationMs,
+        llm_time_to_first_token_ms: dbSchema.messages.llmTimeToFirstTokenMs,
+        llm_provider_duration_ms: dbSchema.messages.llmProviderDurationMs,
+        llm_prompt_tokens: dbSchema.messages.llmPromptTokens,
+        llm_completion_tokens: dbSchema.messages.llmCompletionTokens,
+        llm_total_tokens: dbSchema.messages.llmTotalTokens,
+        llm_model: dbSchema.messages.llmModel,
+        llm_provider: dbSchema.messages.llmProvider,
       })
       .from(dbSchema.messages)
       .where(and(...whereConditions))
@@ -275,6 +291,14 @@ export class MessagesRepository implements IMessagesRepository {
         handoff_to_session_id: dbSchema.messages.handoffToSessionId,
         handoff_id: dbSchema.messages.handoffId,
         importance: dbSchema.messages.importance,
+        llm_duration_ms: dbSchema.messages.llmDurationMs,
+        llm_time_to_first_token_ms: dbSchema.messages.llmTimeToFirstTokenMs,
+        llm_provider_duration_ms: dbSchema.messages.llmProviderDurationMs,
+        llm_prompt_tokens: dbSchema.messages.llmPromptTokens,
+        llm_completion_tokens: dbSchema.messages.llmCompletionTokens,
+        llm_total_tokens: dbSchema.messages.llmTotalTokens,
+        llm_model: dbSchema.messages.llmModel,
+        llm_provider: dbSchema.messages.llmProvider,
       })
       .from(dbSchema.messages)
       .orderBy(asc(dbSchema.messages.timestamp));
@@ -362,6 +386,14 @@ export class MessagesRepository implements IMessagesRepository {
         m.handoff_to_session_id,
         m.handoff_id,
         m.importance,
+        m.llm_duration_ms,
+        m.llm_time_to_first_token_ms,
+        m.llm_provider_duration_ms,
+        m.llm_prompt_tokens,
+        m.llm_completion_tokens,
+        m.llm_total_tokens,
+        m.llm_model,
+        m.llm_provider,
         messages_fts.rank
       FROM messages m
       INNER JOIN messages_fts ON messages_fts.message_id = m.id
@@ -395,6 +427,14 @@ export class MessagesRepository implements IMessagesRepository {
         handoff_to_session_id: dbSchema.messages.handoffToSessionId,
         handoff_id: dbSchema.messages.handoffId,
         importance: dbSchema.messages.importance,
+        llm_duration_ms: dbSchema.messages.llmDurationMs,
+        llm_time_to_first_token_ms: dbSchema.messages.llmTimeToFirstTokenMs,
+        llm_provider_duration_ms: dbSchema.messages.llmProviderDurationMs,
+        llm_prompt_tokens: dbSchema.messages.llmPromptTokens,
+        llm_completion_tokens: dbSchema.messages.llmCompletionTokens,
+        llm_total_tokens: dbSchema.messages.llmTotalTokens,
+        llm_model: dbSchema.messages.llmModel,
+        llm_provider: dbSchema.messages.llmProvider,
       })
       .from(dbSchema.messages)
       .where(eq(dbSchema.messages.id, messageId))
@@ -668,6 +708,7 @@ export class MessagesRepository implements IMessagesRepository {
       handoffToSessionId: row.handoff_to_session_id || undefined,
       handoffId: row.handoff_id || undefined,
       importance: (row.importance as 'low' | 'normal' | 'high' | null) || undefined,
+      llmMetadata: this.toLlmMetadata(row),
     };
   }
 
@@ -794,8 +835,23 @@ export class MessagesRepository implements IMessagesRepository {
         handoffToSessionId: row.handoff_to_session_id || undefined,
         handoffId: row.handoff_id || undefined,
         importance: (row.importance as 'low' | 'normal' | 'high' | null) || undefined,
+        llmMetadata: this.toLlmMetadata(row),
       } as ChatMessage;
     });
+  }
+
+  private toLlmMetadata(row: any): ChatMessage['llmMetadata'] {
+    const metadata = {
+      durationMs: row.llm_duration_ms ?? undefined,
+      timeToFirstTokenMs: row.llm_time_to_first_token_ms ?? undefined,
+      providerDurationMs: row.llm_provider_duration_ms ?? undefined,
+      promptTokens: row.llm_prompt_tokens ?? undefined,
+      completionTokens: row.llm_completion_tokens ?? undefined,
+      totalTokens: row.llm_total_tokens ?? undefined,
+      model: row.llm_model ?? undefined,
+      provider: row.llm_provider ?? undefined,
+    };
+    return Object.values(metadata).some((value) => value !== undefined) ? metadata : undefined;
   }
 
   private parseErrorDetails(value: unknown): ChatMessage['errorDetails'] {

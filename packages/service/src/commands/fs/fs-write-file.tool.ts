@@ -52,9 +52,9 @@ export class FsWriteFileTool implements ICommand<FsWriteParams, FsWriteResult> {
           path: filePath,
           written: true,
           bytes,
-          _fileChanges: [{ filePath: absolutePath, oldContent, newContent: content }],
         },
-      };
+        _fileChanges: [{ filePath: absolutePath, oldContent, newContent: content }],
+      } as CommandResponse<FsWriteResult>;
     } catch (e) {
       const data = failed(e, filePath, 'written') as unknown as FsWriteResult;
       return {

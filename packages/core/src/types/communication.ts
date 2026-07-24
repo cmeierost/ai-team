@@ -22,6 +22,17 @@ export interface FileContext {
   detail: 'summary' | 'overview' | 'detailed' | 'full';
 }
 
+export interface LlmInvocationMetadata {
+  durationMs?: number;
+  timeToFirstTokenMs?: number;
+  providerDurationMs?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  model?: string;
+  provider?: string;
+}
+
 export interface ChatMessage {
   id?: number;
   timestamp: string;
@@ -48,6 +59,7 @@ export interface ChatMessage {
   handoffToSessionId?: string;
   handoffId?: string;
   importance?: 'low' | 'normal' | 'high';
+  llmMetadata?: LlmInvocationMetadata;
 }
 
 export interface ToolCall {
