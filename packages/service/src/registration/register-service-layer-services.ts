@@ -136,6 +136,8 @@ import type { ChatOptions, IInteractionService, WorkflowCallbacks } from '@ai-te
 import {
   CommandActorAdapterResolver,
   CommandChatRuntime,
+  WorkflowActorHost,
+  WorkflowInteractionRouter,
   WorkflowRunnerFactory,
   WORKFLOW_SERVICE_TOKENS,
 } from '../workflow/index.js';
@@ -261,6 +263,19 @@ export function registerServiceLayerServices(
   container.registerScoped(
     WORKFLOW_SERVICE_TOKENS.CommandActorAdapterResolver,
     () => new CommandActorAdapterResolver()
+  );
+
+  container.registerSingleton(
+    WORKFLOW_SERVICE_TOKENS.WorkflowActorHost,
+    (c) => new WorkflowActorHost(c.resolve(CORE_SERVICE_TOKENS.WorkflowRunRepository))
+  );
+  container.registerSingleton(
+    WORKFLOW_SERVICE_TOKENS.WorkflowInteractionRouter,
+    (c) =>
+      new WorkflowInteractionRouter(
+        c.resolve(CORE_SERVICE_TOKENS.WorkflowRunRepository),
+        c.resolve(WORKFLOW_SERVICE_TOKENS.WorkflowActorHost)
+      )
   );
 
   container.registerScoped(

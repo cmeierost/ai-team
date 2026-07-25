@@ -6,11 +6,25 @@ import { CommandDispatcher } from './command-dispatcher.js';
 import { CommandRegistry } from './command-registry.js';
 import { COMMAND_FACTORY_TOKENS } from '../types.js';
 
+class DispatcherTestRegistry extends CommandRegistry {
+  override register(
+    metadata: Parameters<CommandRegistry['register']>[0],
+    factory: Parameters<CommandRegistry['register']>[1]
+  ): void {
+    super.register(
+      metadata.availableIn.chat && !metadata.group
+        ? { ...metadata, path: ['dynamic', 'dispatcher-test'] }
+        : metadata,
+      factory
+    );
+  }
+}
+
 function makeDispatcher(questionService?: IQuestionService): {
   dispatcher: CommandDispatcher;
   registry: CommandRegistry;
 } {
-  const registry = new CommandRegistry();
+  const registry = new DispatcherTestRegistry();
   const resolver = {
     resolve: () => {
       throw new Error('not used in tests');

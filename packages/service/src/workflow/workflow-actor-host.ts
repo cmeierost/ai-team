@@ -38,7 +38,13 @@ interface LiveRun<TOutput> {
  * seam and XState stays out of core.
  */
 export class WorkflowActorHost {
+  private readonly liveRuns = new Map<string, WorkflowActorRunHandle<unknown>>();
+
   constructor(private readonly repository: IWorkflowRunRepository) {}
+
+  getLiveRun(runId: string): WorkflowActorRunHandle<unknown> | undefined {
+    return this.liveRuns.get(runId);
+  }
 
   async start<TInput, TOutput>(
     options: WorkflowActorHostStartOptions<TInput>
@@ -141,7 +147,7 @@ export class WorkflowActorHost {
       return output as TOutput;
     });
 
-    return {
+    const handle: WorkflowActorRunHandle<TOutput> = {
       id: record.id,
       getStatus: () => live.record.status,
       getSnapshot: () => actor.getSnapshot(),
@@ -161,9 +167,17 @@ export class WorkflowActorHost {
         live.record.status = 'cancelled';
         live.record.cancelledAt = new Date().toISOString();
         await this.enqueueCheckpoint(live);
+        this.liveRuns.delete(record.id);
       },
       waitForDone: () => live.done,
     };
+
+    this.liveRuns.set(record.id, handle as WorkflowActorRunHandle<unknown>);
+    void live.done.then(
+      () => this.liveRuns.delete(record.id),
+      () => this.liveRuns.delete(record.id)
+    );
+    return handle;
   }
 
   private enqueueCheckpoint<TOutput>(live: LiveRun<TOutput>): Promise<WorkflowRunRecord> {

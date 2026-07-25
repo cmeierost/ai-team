@@ -13,6 +13,7 @@ const factory = container.resolve<IWorkflowRunnerFactory>(TOKENS.WorkflowRunnerF
 
 const myWorkflow: WorkflowDefinition<MyState> = {
   id: 'my-workflow',
+  version: '1',
   description: 'Does something useful',
   availableIn: { tool: true },
   prepare: (params) => params as MyState,
@@ -85,6 +86,14 @@ const delegatedReview: WorkflowDefinition<ReviewState> = {
 };
 ```
 
+For CLI, slash-command, and direct callers, the command keeps the familiar
+`execute()` compatibility path. When an XState parent resolves that same
+registered command, the workflow runner detects its actor capability and
+invokes the child machine directly. The parent receives the child's typed
+`toResult()` output through `onDone`; it never blocks on the child's
+promise-based `execute()` wrapper. Ordinary commands continue to run as
+promise actors through the same command registry.
+
 The runner resolves `return.args` against current workflow state and exposes
 the contract as `ExecutionContext.workflowReturn`. `/return` dispatches the
 configured command through the normal command pipeline. The return command is
@@ -112,6 +121,7 @@ interface ApprovalState {
 
 export const approvalWorkflow: WorkflowDefinition<ApprovalState> = {
   id: 'approval-workflow',
+  version: '1',
   description: 'Generic approval workflow',
   availableIn: { tool: true },
 
@@ -173,6 +183,7 @@ interface DeployState {
 
 export const deployWorkflow: WorkflowDefinition<DeployState> = {
   id: 'deploy-workflow',
+  version: '1',
   description: 'Deploy with approval gate',
   availableIn: { tool: true },
 

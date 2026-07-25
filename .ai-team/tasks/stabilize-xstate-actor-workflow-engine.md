@@ -20,7 +20,7 @@ tags:
   - onboarding
   - architecture
 createdAt: 2026-07-24T23:56:07.9881991+02:00
-updatedAt: 2026-07-25T04:38:15.1242669+02:00
+updatedAt: 2026-07-25T04:47:58.3917226+02:00
 ---
 
 ## Goal
@@ -1494,7 +1494,7 @@ The stabilization effort is complete when:
 - [x] Reimplement `IWorkflowRunner.run()` as a compatibility wrapper over `start()` and `waitForDone()`.
 - [x] Keep `asCommand()` as the one workflow-to-`ICommand` adapter and add its service-local actor capability.
 - [ ] Make `IWorkflowCommand.execute()` await bounded workflows or start/attach interactive runs without holding a multi-turn promise open.
-- [ ] Update `WORKFLOW-COMPOSITION.md` so actor parents select the child-machine capability on the same registered `IWorkflowCommand`.
+- [x] Update `WORKFLOW-COMPOSITION.md` so actor parents select the child-machine capability on the same registered `IWorkflowCommand`.
 - [ ] Extract compiler, actor host, interaction router, and event projector behind DI from the current runner before changing behavior.
 - [ ] Keep exactly one `IWorkflowRunner` and one production adapter per extracted seam registered in every composition root.
 - [ ] Delete each temporary current-behavior adapter in the same slice that switches its DI binding.
@@ -1508,7 +1508,7 @@ The stabilization effort is complete when:
 - [x] Restore root actors from persisted snapshots, including invoked children.
 - [ ] Add workflow-run/session/child-actor associations.
 - [ ] Add the persisted deepest-active-interaction cursor using stable actor/correlation paths.
-- [ ] Add service APIs to resolve the active workflow actor from a session.
+- [x] Add service APIs to resolve the active workflow actor from a session.
 - [ ] Define the generic invoked-chat DSL contract with chat config, done checker, finalizer, and result mapping.
 - [ ] Compile invoked-chat definitions into child XState machines with `conversing`, `checkingCompletion`, `finalizing`, and final states.
 - [ ] Represent durable human questions as stable states with typed interaction metadata and accepted response events.
@@ -1516,9 +1516,9 @@ The stabilization effort is complete when:
 - [ ] Scope chat tool policy to the child actor and remove it after child completion.
 - [ ] Route normal chat messages to the active child actor without creating a second chat runtime.
 - [ ] Route `/return` to the active child actor as a return-attempt event.
-- [ ] Model asynchronous completion checks as invoked actors.
-- [ ] Model incomplete completion checks as guarded `onDone` branches back to `conversing`.
-- [ ] Inject failed completion evidence as system-level workflow feedback rather than human-authored transcript text.
+- [x] Model asynchronous completion checks as invoked actors.
+- [x] Model incomplete completion checks as guarded `onDone` branches back to `conversing`.
+- [x] Inject failed completion evidence as system-level workflow feedback rather than human-authored transcript text.
 - [ ] Implement idempotent finalization and typed child output.
 - [ ] Deliver child output to parent `invoke.onDone` and apply parent result mapping.
 - [ ] Expose workflow descriptors in the LLM tool catalog without converting them to command promises.

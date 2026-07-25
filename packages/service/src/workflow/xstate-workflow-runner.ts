@@ -198,6 +198,7 @@ export class WorkflowRunner implements IWorkflowRunner {
         workflowId: definition.id,
         workflowInstanceId,
       },
+      rootSessionId: options?.executionContext?.sessionId,
       activeSessionId: options?.executionContext?.sessionId,
       inspect,
       onSnapshot,
@@ -1350,7 +1351,10 @@ export class WorkflowRunnerFactory implements IWorkflowRunnerFactory {
     const workflowRunRepository = this.container.tryResolve(
       CORE_SERVICE_TOKENS.WorkflowRunRepository
     ) as IWorkflowRunRepository | undefined;
-    const actorHost = workflowRunRepository ? new WorkflowActorHost(workflowRunRepository) : undefined;
+    const actorHost = (this.container.tryResolve(
+      WORKFLOW_SERVICE_TOKENS.WorkflowActorHost
+    ) as WorkflowActorHost | undefined) ??
+      (workflowRunRepository ? new WorkflowActorHost(workflowRunRepository) : undefined);
     const commandActorAdapters = this.container.tryResolve(
       WORKFLOW_SERVICE_TOKENS.CommandActorAdapterResolver
     ) as CommandActorAdapterResolver | undefined;

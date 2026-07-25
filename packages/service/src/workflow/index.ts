@@ -19,6 +19,17 @@ export { OrdinaryCommandActorAdapter } from './command-actor-adapter.js';
 export { WorkflowCommandActorAdapter } from './workflow-command-actor-adapter.js';
 export { CommandActorAdapterResolver } from './command-actor-adapter-resolver.js';
 export { WORKFLOW_SERVICE_TOKENS } from './workflow-service-tokens.js';
+export { WorkflowActorHost } from './workflow-actor-host.js';
+export { WorkflowInteractionRouter } from './workflow-interaction-router.js';
+export {
+  createDurableChatActor,
+  type DurableChatActorContext,
+  type DurableChatActorEvent,
+  type DurableChatActorInput,
+  type DurableChatActorServices,
+  type DurableChatCompletionResult,
+  type DurableChatTurnResult,
+} from './durable-chat-actor.js';
 
 // Workflow composition examples and utilities
 export {
