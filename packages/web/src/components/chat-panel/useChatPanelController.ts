@@ -96,6 +96,42 @@ export function shouldSkipDuplicateGreetingSpeech(
   return now - previousTimestamp <= dedupeWindowMs;
 }
 
+const WORKFLOW_RUNTIME_EVENT_KINDS = new Set([
+  'workflow_started',
+  'workflow_actor',
+  'workflow_state',
+  'workflow_completed',
+  'workflow_failed',
+  'workflow_cancelled',
+  'workflow_restored',
+]);
+
+export function isWorkflowRuntimeEventKind(kind: unknown): kind is string {
+  return typeof kind === 'string' && WORKFLOW_RUNTIME_EVENT_KINDS.has(kind);
+}
+
+export function resolveWorkflowRuntimeErrorMessage(event: {
+  kind: string;
+  message?: unknown;
+  workflowId?: unknown;
+  stepId?: unknown;
+}): string | null {
+  if (event.kind !== 'workflow_failed' && event.kind !== 'workflow_cancelled') {
+    return null;
+  }
+  if (typeof event.message === 'string' && event.message.trim()) {
+    return event.message;
+  }
+  const workflowId = typeof event.workflowId === 'string' ? event.workflowId : 'unknown';
+  if (event.kind === 'workflow_cancelled') {
+    return `Workflow ${workflowId} was cancelled.`;
+  }
+  const stepId = typeof event.stepId === 'string' ? event.stepId : null;
+  return stepId
+    ? `Workflow ${workflowId} failed in step ${stepId}.`
+    : `Workflow ${workflowId} failed.`;
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1091,6 +1127,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
   const consumeStream = async (stream: AsyncIterable<any>, activeSessionId: string | null) => {
     let accumulator = '';
     let handoffDetected = false;
+    let lastStructuredWorkflowError: string | null = null;
     // Track the active agent ID locally so it updates immediately on handoff,
     // without waiting for React state to re-render.
     let activeAgentId = currentAgentId;
@@ -1185,7 +1222,25 @@ export function useChatPanelController(): UseChatPanelControllerResult {
         continue;
       }
 
+      if (isWorkflowRuntimeEventKind(event.kind)) {
+        const workflowError = resolveWorkflowRuntimeErrorMessage(event as {
+          kind: string;
+          message?: unknown;
+          workflowId?: unknown;
+          stepId?: unknown;
+        });
+        if (workflowError) {
+          lastStructuredWorkflowError = workflowError;
+          setChatError(normalizeChatErrorMessage(workflowError));
+        }
+        continue;
+      }
+
       if (event.kind === 'error') {
+        const errorMessage = event.message || 'Chat error';
+        if (lastStructuredWorkflowError && errorMessage === lastStructuredWorkflowError) {
+          continue;
+        }
         if (event.historical === true) {
           await queueMessageRender((previous) => [
             ...previous,
@@ -1193,7 +1248,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
               from: 'system',
               to: 'human',
               isHuman: false,
-              content: event.message || 'Unknown chat error',
+              content: errorMessage,
               timestamp: event.timestamp || new Date().toISOString(),
               hiddenFromLlm: true,
               kind: 'error',
@@ -1204,7 +1259,7 @@ export function useChatPanelController(): UseChatPanelControllerResult {
           ]);
           continue;
         }
-        throw new Error(event.message || 'Chat error');
+        throw new Error(errorMessage);
       }
     }
 

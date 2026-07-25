@@ -166,12 +166,17 @@ import {
   NewSessionChatCommand,
   NewSessionChatCommandMetadata,
 } from '../commands/session/new-session-chat.command.js';
+import { BackChatCommand, BackChatCommandMetadata } from '../commands/session/back.command.js';
 import {
   ReturnChatCommand,
   ReturnChatCommandMetadata,
   HandoffWorkflowReturnCommand,
   HandoffWorkflowReturnCommandMetadata,
 } from '../commands/session/return.command.js';
+import {
+  CancelChatCommand,
+  CancelChatCommandMetadata,
+} from '../commands/session/cancel.command.js';
 import {
   HistoryChatCommand,
   HistoryChatCommandMetadata,
@@ -831,11 +836,25 @@ export function registerBuiltInCommands(
   );
 
   registry.register(
+    BackChatCommandMetadata,
+    (r) => new BackChatCommand(r.tryResolve(WORKFLOW_SERVICE_TOKENS.WorkflowInteractionRouter))
+  );
+
+  registry.register(
     ReturnChatCommandMetadata,
     (r) =>
       new ReturnChatCommand(
         r.resolve(CORE_SERVICE_TOKENS.CommandDispatcher),
         r.tryResolve(WORKFLOW_SERVICE_TOKENS.WorkflowInteractionRouter)
+      )
+  );
+
+  registry.register(
+    CancelChatCommandMetadata,
+    (r) =>
+      new CancelChatCommand(
+        r.tryResolve(WORKFLOW_SERVICE_TOKENS.WorkflowInteractionRouter),
+        r.tryResolve(WORKFLOW_SERVICE_TOKENS.WorkflowActorHost)
       )
   );
 

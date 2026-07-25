@@ -86,6 +86,61 @@ describe('CommandChatRuntime', () => {
     expect(getLiveRun).not.toHaveBeenCalled();
   });
 
+  it('allows normal chat turns to resume after /exit detaches from the workflow UI', async () => {
+    const dispatch = vi.fn(async () => ({
+      status: 'ok',
+      data: {
+        text: 'Resumed after detach.',
+        agentId: 'michael-brown',
+        sessionId: 'session-michael',
+      },
+    }));
+    const checkpoint = vi.fn(async () => ({}));
+    const resolveActiveRun = vi.fn(async () => ({ id: 'run-1' }));
+    const getLiveRun = vi.fn(() => ({ checkpoint }));
+    const runtime = new CommandChatRuntime(
+      { dispatch } as any,
+      { create: workflowRunner } as any,
+      { resolveActiveRun } as any,
+      { getLiveRun } as any
+    );
+
+    await runtime.runAsync({
+      message: '/exit',
+      agentId: 'michael-brown',
+      sessionId: 'session-michael',
+      invocationSurface: 'cli',
+      calledByHuman: true,
+    });
+    const resumed = await runtime.runAsync({
+      message: 'Continue from where we left off.',
+      agentId: 'michael-brown',
+      sessionId: 'session-michael',
+      invocationSurface: 'cli',
+      calledByHuman: true,
+    });
+
+    expect(resumed).toMatchObject({
+      status: 'completed',
+      text: 'Resumed after detach.',
+      hopCount: 0,
+    });
+    expect(checkpoint).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledWith(
+      'chat-chat-direct-turn',
+      expect.objectContaining({
+        options: expect.objectContaining({
+          message: 'Continue from where we left off.',
+          sessionId: 'session-michael',
+        }),
+      }),
+      expect.objectContaining({
+        sessionId: 'session-michael',
+      })
+    );
+  });
+
   it('continues an already-applied tool handoff without dispatching it twice', async () => {
     const dispatch = vi
       .fn()

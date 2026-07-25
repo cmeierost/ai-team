@@ -154,6 +154,61 @@ export type RuntimeStreamEvent =
       agentName?: string;
       status?: string;
       hopCount?: number;
+    }
+  | {
+      kind: 'workflow_started';
+      workflowId: string;
+      workflowInstanceId: string;
+      definitionVersion: string;
+    }
+  | {
+      kind: 'workflow_actor';
+      workflowId: string;
+      workflowInstanceId: string;
+      actorEvent: 'spawned' | 'stopped';
+      actorRef: string;
+    }
+  | {
+      kind: 'workflow_state';
+      workflowId: string;
+      workflowInstanceId: string;
+      stateValue: string;
+      actorStatus: string;
+      stepId?: string;
+      interaction?: {
+        sessionId: string;
+        actorPath: string;
+        metadata?: {
+          kind: 'chat' | 'question';
+          prompt?: string;
+          response?: { type: 'text' | 'select'; options?: Array<{ value: string; label: string }> };
+        };
+      };
+    }
+  | {
+      kind: 'workflow_completed';
+      workflowId: string;
+      workflowInstanceId: string;
+      finalState: string;
+    }
+  | {
+      kind: 'workflow_failed';
+      workflowId: string;
+      workflowInstanceId: string;
+      message: string;
+      stepId?: string;
+    }
+  | {
+      kind: 'workflow_cancelled';
+      workflowId: string;
+      workflowInstanceId: string;
+      message?: string;
+    }
+  | {
+      kind: 'workflow_restored';
+      workflowId: string;
+      workflowInstanceId: string;
+      definitionVersion: string;
     };
 
 export interface AvatarOptions {
@@ -589,6 +644,82 @@ export type StreamEvent<TCommand extends string = string> =
       agentName?: string;
       status?: string;
       hopCount?: number;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
+      kind: 'workflow_started';
+      timestamp: string;
+      workflowId: string;
+      workflowInstanceId: string;
+      definitionVersion: string;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
+      kind: 'workflow_actor';
+      timestamp: string;
+      workflowId: string;
+      workflowInstanceId: string;
+      actorEvent: 'spawned' | 'stopped';
+      actorRef: string;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
+      kind: 'workflow_state';
+      timestamp: string;
+      workflowId: string;
+      workflowInstanceId: string;
+      stateValue: string;
+      actorStatus: string;
+      stepId?: string;
+      interaction?: {
+        sessionId: string;
+        actorPath: string;
+        metadata?: {
+          kind: 'chat' | 'question';
+          prompt?: string;
+          response?: { type: 'text' | 'select'; options?: Array<{ value: string; label: string }> };
+        };
+      };
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
+      kind: 'workflow_completed';
+      timestamp: string;
+      workflowId: string;
+      workflowInstanceId: string;
+      finalState: string;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
+      kind: 'workflow_failed';
+      timestamp: string;
+      workflowId: string;
+      workflowInstanceId: string;
+      message: string;
+      stepId?: string;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
+      kind: 'workflow_cancelled';
+      timestamp: string;
+      workflowId: string;
+      workflowInstanceId: string;
+      message?: string;
+    }
+  | {
+      requestId?: string;
+      command: TCommand;
+      kind: 'workflow_restored';
+      timestamp: string;
+      workflowId: string;
+      workflowInstanceId: string;
+      definitionVersion: string;
     }
   | {
       requestId?: string;

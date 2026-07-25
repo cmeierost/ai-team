@@ -52,6 +52,10 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 - `ait init` completes setup through CEO creation, then returns a typed CEO chat
   handoff. The CLI opens the existing chat TUI from that result; workflow steps
   must not implement their own terminal input loop.
+- Durable workflow chat interactions route through `WorkflowInteractionRouter`
+  using the persisted active-interaction cursor; `/return`, `/back`, `/cancel`,
+  and `/exit` semantics stay service-owned and must not be reimplemented in
+  adapters.
 
 ## Command parameter invariant
 

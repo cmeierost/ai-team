@@ -24,7 +24,14 @@ export interface RuntimeStreamEvent {
     | 'history_message'
     | 'error'
     | 'subworkflow_start'
-    | 'subworkflow_end';
+    | 'subworkflow_end'
+    | 'workflow_started'
+    | 'workflow_actor'
+    | 'workflow_state'
+    | 'workflow_completed'
+    | 'workflow_failed'
+    | 'workflow_cancelled'
+    | 'workflow_restored';
   [key: string]: unknown;
 }
 

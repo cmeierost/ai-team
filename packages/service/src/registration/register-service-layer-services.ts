@@ -33,7 +33,28 @@ import {
   PrepareOnboardingCommand,
   PrepareOnboardingCommandMetadata,
 } from '../commands/orchestration/onboarding-prepare.tool.js';
-import { HireWorkflowCommand, HireWorkflowMetadata } from '../commands/hr/hire-workflow.js';
+import {
+  CheckBusinessDefinitionCommand,
+  CheckBusinessDefinitionCommandMetadata,
+  ApproveBusinessDefinitionCommand,
+  ApproveBusinessDefinitionCommandMetadata,
+  FinalizeBusinessDefinitionCommand,
+  FinalizeBusinessDefinitionCommandMetadata,
+} from '../commands/orchestration/business-definition.tool.js';
+import {
+  CheckHiringCompletionCommand,
+  CheckHiringCompletionCommandMetadata,
+  FinalizeHiringCompletionCommand,
+  FinalizeHiringCompletionCommandMetadata,
+} from '../commands/orchestration/hiring-completion.tool.js';
+import {
+  CheckHireWorkflowCompletionCommand,
+  CheckHireWorkflowCompletionMetadata,
+  FinalizeHireWorkflowCommand,
+  FinalizeHireWorkflowMetadata,
+  HireWorkflowCommand,
+  HireWorkflowMetadata,
+} from '../commands/hr/hire-workflow.js';
 import {
   HireOrchestrationCommand,
   HireOrchestrationCommandMetadata,
@@ -514,6 +535,36 @@ export function registerServiceLayerServices(
         )
     );
     registry.register(
+      CheckBusinessDefinitionCommandMetadata,
+      (r) => new CheckBusinessDefinitionCommand(r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot))
+    );
+    registry.register(
+      ApproveBusinessDefinitionCommandMetadata,
+      (r) => new ApproveBusinessDefinitionCommand(r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot))
+    );
+    registry.register(
+      FinalizeBusinessDefinitionCommandMetadata,
+      (r) => new FinalizeBusinessDefinitionCommand(r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot))
+    );
+    registry.register(
+      CheckHiringCompletionCommandMetadata,
+      (r) =>
+        new CheckHiringCompletionCommand(
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+          r.resolve(CORE_SERVICE_TOKENS.PermissionStorage)
+        )
+    );
+    registry.register(
+      FinalizeHiringCompletionCommandMetadata,
+      (r) =>
+        new FinalizeHiringCompletionCommand(
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+          r.resolve(CORE_SERVICE_TOKENS.PermissionStorage)
+        )
+    );
+    registry.register(
       SaveTranscriptCommandMetadata,
       (r) => new SaveTranscriptCommand(r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot))
     );
@@ -535,6 +586,20 @@ export function registerServiceLayerServices(
         new HireOrchestrationCommand(
           r.resolve(CORE_SERVICE_TOKENS.AgentManager),
           r.resolve(CORE_SERVICE_TOKENS.MarkdownSectionService)
+        )
+    );
+    registry.register(
+      CheckHireWorkflowCompletionMetadata,
+      (r) =>
+        new CheckHireWorkflowCompletionCommand(
+          (sessionId) => r.resolve(CORE_SERVICE_TOKENS.SessionManager).getSessionMessages(sessionId)
+        )
+    );
+    registry.register(
+      FinalizeHireWorkflowMetadata,
+      (r) =>
+        new FinalizeHireWorkflowCommand(
+          (sessionId) => r.resolve(CORE_SERVICE_TOKENS.SessionManager).getSessionMessages(sessionId)
         )
     );
 

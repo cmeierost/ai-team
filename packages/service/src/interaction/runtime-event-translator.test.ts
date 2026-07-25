@@ -69,4 +69,26 @@ describe('runtimeEventToStreamEvent', () => {
     });
     expect(mapped).toEqual({ kind: 'custom', payload: 1, command: 'chat', timestamp: 't1' });
   });
+
+  it('passes through workflow lifecycle events without adapter-side workflow logic', () => {
+    const mapped = runtimeEventToStreamEvent(
+      {
+        kind: 'workflow_state',
+        workflowId: 'init_onboarding',
+        workflowInstanceId: 'wf-1',
+        stateValue: 'chat_waiting',
+        actorStatus: 'active',
+      },
+      { command: 'chat', timestamp: 't3' }
+    );
+    expect(mapped).toEqual({
+      kind: 'workflow_state',
+      workflowId: 'init_onboarding',
+      workflowInstanceId: 'wf-1',
+      stateValue: 'chat_waiting',
+      actorStatus: 'active',
+      command: 'chat',
+      timestamp: 't3',
+    });
+  });
 });

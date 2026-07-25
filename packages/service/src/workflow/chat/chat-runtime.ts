@@ -177,14 +177,20 @@ interface ChatRuntimeState {
 
 export class ChatRuntime implements IChatRuntime {
   private readonly knownWorkflowToolTargets: readonly string[];
+  private readonly knownWorkflowToolCatalogVersion: string | undefined;
 
   constructor(
     private readonly resolveStep: ChatRuntimeStepResolver,
     private readonly workflowRunner: IWorkflowRunner,
-    options?: { knownWorkflowToolTargets?: string[] }
+    options?: { knownWorkflowToolTargets?: string[]; knownWorkflowToolCatalogVersion?: string }
   ) {
     const knownTargets = options?.knownWorkflowToolTargets ?? [];
     this.knownWorkflowToolTargets = [...new Set(knownTargets)].filter((target) => target.length > 0);
+    const catalogVersion = options?.knownWorkflowToolCatalogVersion?.trim();
+    this.knownWorkflowToolCatalogVersion =
+      typeof catalogVersion === 'string' && catalogVersion.length > 0
+        ? catalogVersion
+        : undefined;
   }
 
   async runAsync(input: ChatRuntimeRunInput): Promise<ChatLoopOutput> {
@@ -772,10 +778,8 @@ export class ChatRuntime implements IChatRuntime {
     return this.knownWorkflowToolTargets.map((toolName) => ({
       id: `persistWorkflowToolStart_${this.toWorkflowToolStepSuffix(toolName)}`,
       skipWhen: `selectedWorkflowTool != "${toolName}"`,
-      execute: async (state: ChatRuntimeState, ctx: ExecutionContext, services: IServiceContainer) => {
-        await this.persistWorkflowToolStartAsync(toolName, state, ctx, services);
-        return state;
-      },
+      execute: async (state: ChatRuntimeState, ctx: ExecutionContext, services: IServiceContainer) =>
+        this.persistWorkflowToolStartAsync(toolName, state, ctx, services),
     }));
   }
 
@@ -842,12 +846,12 @@ export class ChatRuntime implements IChatRuntime {
     state: ChatRuntimeState,
     ctx: ExecutionContext,
     services: IServiceContainer
-  ): Promise<void> {
+  ): Promise<ChatRuntimeState> {
     const operations = services.tryResolve(
       CORE_SERVICE_TOKENS.WorkflowOperationRepository
     ) as IWorkflowOperationRepository | undefined;
     if (!operations) {
-      return;
+      return state;
     }
 
     const toolCallId = this.resolveToolCallId(state, toolName);
@@ -866,6 +870,64 @@ export class ChatRuntime implements IChatRuntime {
       sessionId: entry.sessionId,
     }));
     const existing = await operations.get(runId, operationKey);
+    const existingDefinitionVersion = this.readPersistedDefinitionVersion(existing?.input);
+    const existingCatalogVersion = this.readPersistedCatalogVersion(existing?.input);
+    if (
+      existingCatalogVersion &&
+      this.knownWorkflowToolCatalogVersion &&
+      existingCatalogVersion !== this.knownWorkflowToolCatalogVersion
+    ) {
+      const mismatch = {
+        status: 'error',
+        message:
+          `Workflow tool call rejected: invocation catalog version mismatch for '${toolName}' ` +
+          `(persisted ${existingCatalogVersion}, current ${this.knownWorkflowToolCatalogVersion}).`,
+        error: {
+          code: 'workflow_tool_catalog_version_mismatch',
+          message:
+            `Persisted invocation catalog version ${existingCatalogVersion} does not match ` +
+            `current version ${this.knownWorkflowToolCatalogVersion}.`,
+          details: {
+            toolName,
+            persistedCatalogVersion: existingCatalogVersion,
+            currentCatalogVersion: this.knownWorkflowToolCatalogVersion,
+          },
+        },
+      } satisfies CommandResponse<unknown>;
+      return {
+        ...state,
+        selectedWorkflowTool: undefined,
+        toolRound: this.toWorkflowToolRoundResult(mismatch, toolName, toolCallId),
+        workflowToolRawResult: undefined,
+      };
+    }
+    if (
+      existingDefinitionVersion &&
+      definitionVersion &&
+      existingDefinitionVersion !== definitionVersion
+    ) {
+      const mismatch = {
+        status: 'error',
+        message:
+          `Workflow tool call rejected: definition version mismatch for '${toolName}' ` +
+          `(persisted ${existingDefinitionVersion}, current ${definitionVersion}).`,
+        error: {
+          code: 'workflow_tool_definition_version_mismatch',
+          message: `Persisted definition version ${existingDefinitionVersion} does not match current version ${definitionVersion}.`,
+          details: {
+            toolName,
+            persistedDefinitionVersion: existingDefinitionVersion,
+            currentDefinitionVersion: definitionVersion,
+          },
+        },
+      } satisfies CommandResponse<unknown>;
+      return {
+        ...state,
+        selectedWorkflowTool: undefined,
+        toolRound: this.toWorkflowToolRoundResult(mismatch, toolName, toolCallId),
+        workflowToolRawResult: undefined,
+      };
+    }
     const now = new Date().toISOString();
 
     await operations.save({
@@ -884,11 +946,15 @@ export class ChatRuntime implements IChatRuntime {
         },
         depth: typeof ctx.subworkflowDepth === 'number' ? ctx.subworkflowDepth : 0,
         ancestry,
+        ...(this.knownWorkflowToolCatalogVersion
+          ? { catalogVersion: this.knownWorkflowToolCatalogVersion }
+          : {}),
         ...(definitionVersion ? { definitionVersion } : {}),
       },
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     });
+    return state;
   }
 
   private async persistWorkflowToolResultAsync(
@@ -1038,5 +1104,17 @@ export class ChatRuntime implements IChatRuntime {
       code: 'workflow_tool_cycle_detected',
       message: `Workflow tool call rejected: '${command.definitionId}' would create a workflow cycle.`,
     };
+  }
+
+  private readPersistedDefinitionVersion(input: unknown): string | undefined {
+    if (!input || typeof input !== 'object') return undefined;
+    const value = (input as { definitionVersion?: unknown }).definitionVersion;
+    return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+  }
+
+  private readPersistedCatalogVersion(input: unknown): string | undefined {
+    if (!input || typeof input !== 'object') return undefined;
+    const value = (input as { catalogVersion?: unknown }).catalogVersion;
+    return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
   }
 }

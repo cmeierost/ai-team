@@ -633,6 +633,191 @@ describe('ChatRuntime handoff routing', () => {
     expect(sendTurn.mock.calls[1]?.[0]?.userMessage).toContain('error_code: workflow_tool_cycle_detected');
   });
 
+  it('rejects workflow-tool invocation when persisted and current definition versions mismatch', async () => {
+    const execute = vi.fn(async () => ({ done: true }));
+    const workflowTool = {
+      metadata: {
+        key: 'onboarding',
+        group: 'workflow',
+        description: 'Onboarding workflow',
+        availableIn: { cli: false, chat: true, tool: true },
+      },
+      [workflowCommand]: true as const,
+      definitionId: 'workflow-onboarding',
+      definitionVersion: '2',
+      getWorkflowDefinition: () => ({
+        id: 'workflow-onboarding',
+        version: '2',
+        description: 'Workflow tool actor',
+        availableIn: { cli: false, chat: false, tool: false },
+        steps: [{ id: 'complete', execute }],
+      }),
+      execute: vi.fn(async () => ({ status: 'ok' })),
+    };
+    const sendTurn = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: 'Run onboarding.',
+        toolRoundNeeded: true as const,
+        pendingToolCall: { toolCallId: 'tc-version', toolName: 'workflow_onboarding', args: {} },
+      })
+      .mockResolvedValueOnce({
+        text: 'Handled version mismatch.',
+        toolRoundNeeded: false as const,
+      });
+    const workflowOperationRepository = {
+      get: vi.fn(async (_runId: string, operationKey: string) => {
+        if (operationKey === 'workflow-tool-start:tc-version') {
+          return {
+            runId: 'chat-runtime',
+            operationKey,
+            status: 'started',
+            input: {
+              kind: 'workflow-tool-start',
+              toolName: 'workflow_onboarding',
+              toolCallId: 'tc-version',
+              definitionVersion: '1',
+            },
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return null;
+      }),
+      save: vi.fn(async () => undefined),
+    };
+    const steps = new Map<ChatRuntimeStepName, ReturnType<typeof createChatRuntimeStepCommand>>([
+      [
+        'preturn',
+        createChatRuntimeStepCommand('preturn', async () => ({ outcome: 'continue' as const })),
+      ],
+      ['sendTurn', createChatRuntimeStepCommand('sendTurn', sendTurn)],
+      [
+        'postTurnResolution',
+        createChatRuntimeStepCommand('postTurnResolution', async () => ({ outcome: 'normal_complete' as const })),
+      ],
+      ['handoffTransition', createChatRuntimeStepCommand('handoffTransition', async () => ({}))],
+    ]);
+    const runtime = new ChatRuntime(
+      ((step) => steps.get(step)) as ChatRuntimeStepResolver,
+      new WorkflowRunner(
+        createResolver({ workflow_onboarding: workflowTool }, workflowOperationRepository),
+        noOpBackendLogService
+      ),
+      { knownWorkflowToolTargets: ['workflow_onboarding'] }
+    );
+
+    const result = await runtime.runAsync({
+      message: 'Run onboarding.',
+      agentId: 'michael',
+      sessionId: 'session-michael',
+    });
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      text: 'Handled version mismatch.',
+      hopCount: 1,
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect(sendTurn.mock.calls[1]?.[0]?.userMessage).toContain(
+      'error_code: workflow_tool_definition_version_mismatch'
+    );
+  });
+
+  it('rejects workflow-tool invocation when persisted and current catalog versions mismatch', async () => {
+    const execute = vi.fn(async () => ({ done: true }));
+    const workflowTool = {
+      metadata: {
+        key: 'onboarding',
+        group: 'workflow',
+        description: 'Onboarding workflow',
+        availableIn: { cli: false, chat: true, tool: true },
+      },
+      [workflowCommand]: true as const,
+      definitionId: 'workflow-onboarding',
+      definitionVersion: '1',
+      getWorkflowDefinition: () => ({
+        id: 'workflow-onboarding',
+        version: '1',
+        description: 'Workflow tool actor',
+        availableIn: { cli: false, chat: false, tool: false },
+        steps: [{ id: 'complete', execute }],
+      }),
+      execute: vi.fn(async () => ({ status: 'ok' })),
+    };
+    const sendTurn = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: 'Run onboarding.',
+        toolRoundNeeded: true as const,
+        pendingToolCall: { toolCallId: 'tc-catalog', toolName: 'workflow_onboarding', args: {} },
+      })
+      .mockResolvedValueOnce({
+        text: 'Handled catalog mismatch.',
+        toolRoundNeeded: false as const,
+      });
+    const workflowOperationRepository = {
+      get: vi.fn(async (_runId: string, operationKey: string) => {
+        if (operationKey === 'workflow-tool-start:tc-catalog') {
+          return {
+            runId: 'chat-runtime',
+            operationKey,
+            status: 'started',
+            input: {
+              kind: 'workflow-tool-start',
+              toolName: 'workflow_onboarding',
+              toolCallId: 'tc-catalog',
+              catalogVersion: 'workflow-tool-catalog:v1:old',
+            },
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return null;
+      }),
+      save: vi.fn(async () => undefined),
+    };
+    const steps = new Map<ChatRuntimeStepName, ReturnType<typeof createChatRuntimeStepCommand>>([
+      [
+        'preturn',
+        createChatRuntimeStepCommand('preturn', async () => ({ outcome: 'continue' as const })),
+      ],
+      ['sendTurn', createChatRuntimeStepCommand('sendTurn', sendTurn)],
+      [
+        'postTurnResolution',
+        createChatRuntimeStepCommand('postTurnResolution', async () => ({ outcome: 'normal_complete' as const })),
+      ],
+      ['handoffTransition', createChatRuntimeStepCommand('handoffTransition', async () => ({}))],
+    ]);
+    const runtime = new ChatRuntime(
+      ((step) => steps.get(step)) as ChatRuntimeStepResolver,
+      new WorkflowRunner(
+        createResolver({ workflow_onboarding: workflowTool }, workflowOperationRepository),
+        noOpBackendLogService
+      ),
+      {
+        knownWorkflowToolTargets: ['workflow_onboarding'],
+        knownWorkflowToolCatalogVersion: 'workflow-tool-catalog:v1:new',
+      }
+    );
+
+    const result = await runtime.runAsync({
+      message: 'Run onboarding.',
+      agentId: 'michael',
+      sessionId: 'session-michael',
+    });
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      text: 'Handled catalog mismatch.',
+      hopCount: 1,
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect(sendTurn.mock.calls[1]?.[0]?.userMessage).toContain(
+      'error_code: workflow_tool_catalog_version_mismatch'
+    );
+  });
+
   it('supports sequential foreground workflow-tool children without fan-out', async () => {
     const workflowTool = {
       metadata: {

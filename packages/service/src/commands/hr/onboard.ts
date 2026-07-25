@@ -1,8 +1,8 @@
 /**
- * Onboard command — bootstrap the workspace and create its first CEO.
+ * Onboard command — bootstrap the workspace, create the founding CEO, and
+ * run the business-definition workflow phase.
  *
- * Interactive chat belongs to the invoking adapter. The command returns the
- * created CEO so a CLI, IDE, or web presenter can open its native chat surface.
+ * The command returns onboarding outputs for the next workflow phase.
  */
 
 import type {
@@ -62,7 +62,8 @@ export class OnboardICommand implements ICommand<OnboardICommandParams, Onboardi
         options: (payload.options ?? {}) as OnboardOptions,
       },
       resolvedCtx.signal,
-      resolvedCtx.invocationSurface ?? 'cli'
+      resolvedCtx.invocationSurface ?? 'cli',
+      resolvedCtx
     );
     return { status: 'ok', data };
   }
@@ -70,7 +71,8 @@ export class OnboardICommand implements ICommand<OnboardICommandParams, Onboardi
   async executeOnboarding(
     _params: OnboardCommandParams = {},
     signal?: AbortSignal,
-    invocationSurface: ExecutionContext['invocationSurface'] = 'cli'
+    invocationSurface: ExecutionContext['invocationSurface'] = 'cli',
+    executionContext?: ExecutionContext
   ): Promise<OnboardingWorkflowResult> {
     if (!this.serviceContainer) {
       throw new Error('OnboardICommand requires IServiceContainer to run the onboarding workflow.');
@@ -96,7 +98,9 @@ export class OnboardICommand implements ICommand<OnboardICommandParams, Onboardi
       { workspaceRoot },
       {
         signal,
-        history: [],
+        history: executionContext?.history ?? [],
+        ...(executionContext?.sessionId ? { sessionId: executionContext.sessionId } : {}),
+        ...(executionContext?.agentId ? { agentId: executionContext.agentId } : {}),
         invocationSurface,
       }
     );

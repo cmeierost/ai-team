@@ -95,6 +95,82 @@ describe('WorkflowEventRegistry', () => {
     expect(duplicate).toBeNull();
   });
 
+  it('keeps workflow lifecycle events presentation-only and does not switch active agent', () => {
+    const harness = createHarness();
+    harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'agent_info',
+        timestamp,
+        agentId: 'michael-brown',
+        agentName: 'Michael Brown',
+      },
+      harness.state,
+      harness.extensions
+    );
+
+    const started = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'workflow_started',
+        timestamp,
+        workflowId: 'init_onboarding',
+        workflowInstanceId: 'wf-1',
+        definitionVersion: '1',
+      } as any,
+      harness.state,
+      harness.extensions
+    );
+    const stateEvent = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'workflow_state',
+        timestamp,
+        workflowId: 'init_onboarding',
+        workflowInstanceId: 'wf-1',
+        stateValue: 'chat_waiting',
+        actorStatus: 'active',
+      } as any,
+      harness.state,
+      harness.extensions
+    );
+
+    expect(renderedProjection(started)).toContain('workflow started: init_onboarding');
+    expect(renderedProjection(stateEvent)).toContain('workflow state: chat_waiting');
+    expect(harness.state.currentAgent?.name).toBe('Michael Brown');
+  });
+
+  it('deduplicates workflow_failed and error events that carry the same message', () => {
+    const harness = createHarness();
+    const message = 'workflow.init_onboarding[wf-1].step[ceo_chat] failed: timed out';
+    const structured = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'workflow_failed',
+        timestamp,
+        workflowId: 'init_onboarding',
+        workflowInstanceId: 'wf-1',
+        stepId: 'ceo_chat',
+        message,
+      } as any,
+      harness.state,
+      harness.extensions
+    );
+    const duplicate = harness.registry.handle(
+      {
+        command: 'chat',
+        kind: 'error',
+        timestamp,
+        message,
+      } as any,
+      harness.state,
+      harness.extensions
+    );
+
+    expect(renderedProjection(structured)).toContain(message);
+    expect(duplicate).toBeNull();
+  });
+
   it('renders streamed token chunks as one agent response', () => {
     const harness = createHarness();
     harness.registry.handle(

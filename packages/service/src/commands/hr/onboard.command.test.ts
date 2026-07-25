@@ -10,12 +10,15 @@ describe('OnboardICommand', () => {
 
     await cmd.execute({ options: { force: true } }, undefined, {
       workspaceRoot: 'C:/workspace',
+      sessionId: 'session-1',
+      history: [],
     } as any);
 
     expect(executeOnboarding).toHaveBeenCalledWith(
       { options: { force: true } },
       undefined,
-      'cli'
+      'cli',
+      expect.objectContaining({ sessionId: 'session-1' })
     );
   });
 });

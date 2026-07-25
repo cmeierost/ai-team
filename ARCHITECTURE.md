@@ -293,23 +293,23 @@ The onboarding runtime in `@ai-team/service` is now workflow-first.
 
 - Command entry: `OnboardICommand` in `packages/service/src/commands/hr/onboard.ts`
 - Workflow definition: `createOnboardingWorkflowDefinition()` in `packages/service/src/commands/hr/onboarding-workflow.ts`
-- Sub-workflow: `hire_workflow` in `packages/service/src/commands/hr/hire-workflow.ts`
+- Optional standalone workflow: `hire_workflow` in `packages/service/src/commands/hr/hire-workflow.ts`
 
 `OnboardICommand.executeOnboarding()` resolves `WorkflowRunnerFactory` from DI and runs `onboard_workflow` with the current `ExecutionContext` (including signal + invocation surface). The command no longer embeds the prior hand-written onboarding sequence directly.
 
 The current onboarding workflow composes generic orchestration tools and workflow-defined tools, including:
 
-- `llm_init`
-- `init_bootstrap_files`
-- `init_prepare_onboarding`
-- `hr_name_suggestions`
-- `com_ask`
-- `hr_hire`
-- `access_set_permissions`
-- `chat_phase`
-- `docs_save_transcript`
-- `llm_call`
-- `hire_workflow`
+- `init-bootstrap_files`
+- `init-prepare_onboarding`
+- `hr-name_suggestions`
+- `com-ask`
+- `hr-hire_agent`
+- `access-set_permissions`
+- `init-check_business_definition`
+- `init-approve_business_definition`
+- `init-finalize_business_definition`
+- `init-check_hiring_completion`
+- `init-finalize_hiring_completion`
 
 This keeps onboarding behavior declarative and easier to evolve by editing workflow definitions rather than duplicating orchestration logic in imperative command code.
 
@@ -328,6 +328,9 @@ The workflow runtime (`packages/service/src/workflow/xstate-workflow-runner.ts` 
   workflow frames through `ExecutionContext`.
 - `/return` is a generic shortcut that dispatches the active workflow's return
   command. It does not contain workflow-specific navigation logic.
+- `/back` and `/cancel` route through workflow child/host semantics (`BACK_ATTEMPT`
+  and live-run cancellation), while `/exit` detaches UI participation without
+  terminating durable workflow state.
 
 Declarative arg/result transforms currently include:
 

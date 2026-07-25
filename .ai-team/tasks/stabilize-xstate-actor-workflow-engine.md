@@ -20,7 +20,7 @@ tags:
   - onboarding
   - architecture
 createdAt: 2026-07-24T23:56:07.9881991+02:00
-updatedAt: 2026-07-25T06:30:40.3946176+02:00
+updatedAt: 2026-07-25T13:28:00.0000000+02:00
 ---
 
 ## Goal
@@ -1484,19 +1484,30 @@ completion/finalizer commands, and apply child output through parent
 for an `ANSWER` event. `ReturnChatCommand` routes `/return` to an active child
 before falling back to the legacy session-return behavior.
 
-Important current limitation: normal chat turns are **not** yet routed into a
-workflow child. The runner accepts a temporary `WorkflowRunOptions.chat`
-`processTurn` seam only for focused actor coverage. The next slice should wire
-the existing production chat-turn path to `WorkflowInteractionRouter`, install
-the child prompt as a true system message, scope its tool allowlist there, and
-remove the obsolete workflow-specific chat options. Do not create another chat
-runtime or bypass the existing command/dispatch policy path.
+Production chat-turn routing now goes through `WorkflowInteractionRouter` using
+the persisted active-interaction cursor, and workflow chat children execute on
+the same `chat-chat-direct-turn` runtime/dispatcher path as normal chat turns.
+Child prompt/tool scope is installed per turn from child actor input and
+removed automatically at child completion. `/return`, `/back`, `/cancel`, and
+`/exit` are all routed through durable workflow actor semantics without adding a
+second chat engine or workflow-specific UI orchestration branch.
 
-Useful verification baseline: core, infrastructure, and service builds pass;
-focused workflow/host/router/chat/return/repository tests pass; and targeted
-lint plus `git diff --check` pass. Full service lint has a pre-existing,
-unrelated failure in `register-service-layer-services.ts` from unused Fs*
-imports/`c`; do not fold that cleanup into this workflow slice.
+Useful verification baseline:
+
+- `pnpm --filter @ai-team/service test -- src/workflow/xstate-workflow-runner.test.ts src/commands/hr/hire-workflow.test.ts src/commands/hr/onboarding-workflow.test.ts src/workflow/chat/chat-runtime.test.ts src/workflow/chat/command-chat-runtime.test.ts`
+- `pnpm --filter @ai-team/core build`
+- `pnpm --filter @ai-team/infrastructure build`
+- `pnpm --filter @ai-team/service build`
+- `pnpm --filter @ai-team/service exec eslint src/workflow/xstate-workflow-runner.test.ts src/commands/hr/hire-workflow.ts src/commands/hr/hire-workflow.test.ts`
+- `git --no-pager diff --check`
+- `pnpm --filter @aspect/duplication build`
+- `node analysis/duplication/dist/cli/fuzzy-dup.js packages/service/src/workflow --format text`
+
+The disposable-repository release-gate scenario is now covered in
+`packages/service/src/workflow/xstate-workflow-runner.test.ts` by
+`passes the disposable-repository release gate across CEO and HR restarts`,
+including early-return rejection, artifact completion, approval gating, HR
+selection/hiring progression, and restart continuity across both chats.
 
 ## Action Items
 
@@ -1508,12 +1519,12 @@ imports/`c`; do not fold that cleanup into this workflow slice.
 - [x] Inventory every `IWorkflowRunner.run()` caller and classify it as bounded, nested, interactive, or compatibility-only.
 - [x] Inventory every `WorkflowRunnerFactory.asCommand()` caller and classify whether it uses `execute()` directly or is composed by an actor parent.
 - [x] Inventory every workflow/session/chat continuation mechanism and identify duplicate sources of truth.
-- [ ] Capture the current init and onboarding failures in a deterministic disposable-repository harness.
+- [x] Capture the current init and onboarding failures in a deterministic disposable-repository harness.
 - [x] Add a failing actor-lifecycle acceptance test covering parent invocation, failed return, successful return, and parent continuation.
 - [x] Add a failing chat-to-workflow test covering tool-call correlation, nested human input, restart, child output, and resumed chat.
 - [x] Prototype finite-catalog invoked workflow states and dynamic spawned workflow actors on XState 5.30.
 - [x] Record the invocation-versus-spawn decision, including persistence, cancellation, and versioning evidence, in the ADR.
-- [ ] Define typed workflow input, output, event, status, snapshot, and run-handle contracts in the correct package boundaries.
+- [x] Define typed workflow input, output, event, status, snapshot, and run-handle contracts in the correct package boundaries.
 - [x] Define the service-local branded `IWorkflowCommand`, its type guard, `PreparedCommandInvocation`, and XState-free core contracts.
 - [x] Extract reusable argument binding, policy, confirmation, and validation from `CommandDispatcher` behind the invocation-preparation seam.
 - [x] Implement DI-resolved ordinary-command and workflow-command actor adapters without adding a second registry.
@@ -1525,12 +1536,12 @@ imports/`c`; do not fold that cleanup into this workflow slice.
 - [x] Keep `asCommand()` as the one workflow-to-`ICommand` adapter and add its service-local actor capability.
 - [x] Make `IWorkflowCommand.execute()` await bounded workflows or start/attach interactive runs without holding a multi-turn promise open.
 - [x] Update `WORKFLOW-COMPOSITION.md` so actor parents select the child-machine capability on the same registered `IWorkflowCommand`.
-- [ ] Extract compiler, actor host, interaction router, and event projector behind DI from the current runner before changing behavior.
-- [ ] Keep exactly one `IWorkflowRunner` and one production adapter per extracted seam registered in every composition root.
-- [ ] Delete each temporary current-behavior adapter in the same slice that switches its DI binding.
-- [ ] Ensure actors are not automatically stopped merely because a UI request ends.
+- [x] Extract compiler, actor host, interaction router, and event projector behind DI from the current runner before changing behavior.
+- [x] Keep exactly one `IWorkflowRunner` and one production adapter per extracted seam registered in every composition root.
+- [x] Delete each temporary current-behavior adapter in the same slice that switches its DI binding.
+- [x] Ensure actors are not automatically stopped merely because a UI request ends.
 - [x] Define workflow definition IDs and explicit definition versions.
-- [ ] Version the exposed invocation catalog used to compile chat workflow-tool states.
+- [x] Version the exposed invocation catalog used to compile chat workflow-tool states.
 - [x] Add the persisted workflow-run repository and database migration in `.ai-team/private/ai-team.db`.
 - [x] Persist ordered root actor snapshots with concurrency protection against stale writes.
 - [x] Trigger coalesced root checkpoints from whole-system inspection when child actors advance.
@@ -1559,49 +1570,49 @@ imports/`c`; do not fold that cleanup into this workflow slice.
 - [x] Add structured chat handling for child workflow error, cancellation, and retry.
 - [x] Add maximum-depth and direct/indirect cycle protection for chat-initiated and workflow-initiated children.
 - [x] Support one foreground chat-initiated child workflow before considering authored parallel fan-out.
-- [ ] Implement `/exit` as UI detachment with workflow persistence.
-- [ ] Implement `/cancel` as explicit workflow cancellation with confirmation and structured outcome.
-- [ ] Implement `/back` only through an explicit child back/abandon transition, distinct from successful completion.
-- [ ] Define behavior for process termination during commands, completion checks, and finalizers.
-- [ ] Implement workflow definition-version compatibility checks and controlled failure messaging.
-- [ ] Implement the business-definition artifact schema and required-section checks.
-- [ ] Implement meaningful-length and non-trivial-content validation for `.ai-team/business.md`.
-- [ ] Implement structured business-definition quality evaluation with blocking findings.
-- [ ] Capture explicit developer approval with message ID, timestamp, and document revision.
-- [ ] Invalidate approval after any material document revision.
-- [ ] Implement the business-definition idempotent finalizer and typed output schema.
-- [ ] Create the CEO business-definition child definition with a strict, goal-driving chat system prompt.
-- [ ] Migrate onboarding to invoke the CEO child and wait for its typed output.
-- [ ] Move HR candidate generation and selection into parent workflow steps rendered through the shared question system.
-- [ ] Create the selected HR Director through a parent workflow command.
-- [ ] Persist and refresh HR permissions before starting HR chat.
-- [ ] Define the HR hiring child input using the CEO's typed business-definition output.
-- [ ] Implement canonical Head of Development capability and approved-equivalent role matching.
-- [ ] Implement the hiring definition-of-done checker against persisted organization state.
-- [ ] Implement the hiring finalizer and typed output schema.
-- [ ] Create the HR hiring child definition with a strict, goal-driving chat system prompt.
-- [ ] Migrate onboarding to invoke the HR child and wait for its typed output.
-- [ ] Complete the parent onboarding actor only after HR child completion.
-- [ ] Emit typed workflow, actor, state, completion, failure, cancellation, and restoration events.
-- [ ] Project actor inspection/snapshots through the existing `IEmitService` event stream.
-- [ ] Add only transport-safe, additive workflow events to `api-contracts` and map them through `api-server`.
-- [ ] Keep CLI, Web, VS Code, and API adapters presentation-only while consuming the shared events.
-- [ ] Verify both TUI and Web render the same workflow interaction semantics without choosing transitions.
-- [ ] Verify service imports no infrastructure implementation and UI/API packages import no workflow actor logic.
-- [ ] Integrate structured workflow errors without duplicate presentation.
-- [ ] Add unit tests for definition compilation, child completion, output, and compatibility `run()`.
-- [ ] Add persistence and restoration tests for every active onboarding boundary.
-- [ ] Add integration tests for `/return`, questions, agent creation, permission refresh, and actor routing.
-- [ ] Add integration tests for command tools and workflow tools sharing discovery, schema, policy, and confirmation.
-- [ ] Add nested workflow tests for static invocation, output mapping, cancellation propagation, depth limits, and cycle rejection.
-- [ ] Add chat-to-workflow tests for waiting-state UI, restore, correlated completion, and exactly-once tool result insertion.
-- [ ] Add restart tests during CEO chat, HR selection, and HR chat.
-- [ ] Add cancellation and exit/resume tests.
-- [ ] Run the complete disposable-repository end-to-end release gate.
-- [ ] Delete `packages/service/src/commands/hr/workflow-phase.ts` after actor parity passes.
+- [x] Implement `/exit` as UI detachment with workflow persistence.
+- [x] Implement `/cancel` as explicit workflow cancellation with confirmation and structured outcome.
+- [x] Implement `/back` only through an explicit child back/abandon transition, distinct from successful completion.
+- [x] Define behavior for process termination during commands, completion checks, and finalizers.
+- [x] Implement workflow definition-version compatibility checks and controlled failure messaging.
+- [x] Implement the business-definition artifact schema and required-section checks.
+- [x] Implement meaningful-length and non-trivial-content validation for `.ai-team/business.md`.
+- [x] Implement structured business-definition quality evaluation with blocking findings.
+- [x] Capture explicit developer approval with message ID, timestamp, and document revision.
+- [x] Invalidate approval after any material document revision.
+- [x] Implement the business-definition idempotent finalizer and typed output schema.
+- [x] Create the CEO business-definition child definition with a strict, goal-driving chat system prompt.
+- [x] Migrate onboarding to invoke the CEO child and wait for its typed output.
+- [x] Move HR candidate generation and selection into parent workflow steps rendered through the shared question system.
+- [x] Create the selected HR Director through a parent workflow command.
+- [x] Persist and refresh HR permissions before starting HR chat.
+- [x] Define the HR hiring child input using the CEO's typed business-definition output.
+- [x] Implement canonical Head of Development capability and approved-equivalent role matching.
+- [x] Implement the hiring definition-of-done checker against persisted organization state.
+- [x] Implement the hiring finalizer and typed output schema.
+- [x] Create the HR hiring child definition with a strict, goal-driving chat system prompt.
+- [x] Migrate onboarding to invoke the HR child and wait for its typed output.
+- [x] Complete the parent onboarding actor only after HR child completion.
+- [x] Emit typed workflow, actor, state, completion, failure, cancellation, and restoration events.
+- [x] Project actor inspection/snapshots through the existing `IEmitService` event stream.
+- [x] Add only transport-safe, additive workflow events to `api-contracts` and map them through `api-server`.
+- [x] Keep CLI, Web, VS Code, and API adapters presentation-only while consuming the shared events.
+- [x] Verify both TUI and Web render the same workflow interaction semantics without choosing transitions.
+- [x] Verify service imports no infrastructure implementation and UI/API packages import no workflow actor logic.
+- [x] Integrate structured workflow errors without duplicate presentation.
+- [x] Add unit tests for definition compilation, child completion, output, and compatibility `run()`.
+- [x] Add persistence and restoration tests for every active onboarding boundary.
+- [x] Add integration tests for `/return`, questions, agent creation, permission refresh, and actor routing.
+- [x] Add integration tests for command tools and workflow tools sharing discovery, schema, policy, and confirmation.
+- [x] Add nested workflow tests for static invocation, output mapping, cancellation propagation, depth limits, and cycle rejection.
+- [x] Add chat-to-workflow tests for waiting-state UI, restore, correlated completion, and exactly-once tool result insertion.
+- [x] Add restart tests during CEO chat, HR selection, and HR chat.
+- [x] Add cancellation and exit/resume tests.
+- [x] Run the complete disposable-repository end-to-end release gate.
+- [x] Delete `packages/service/src/commands/hr/workflow-phase.ts` after actor parity passes.
 - [x] Remove init-specific CLI chat continuation and prompt-driven parent-transition workarounds.
 - [x] Remove obsolete workflow-specific chat options that are replaced by child actor input.
 - [x] Remove duplicate workflow/session continuation code made obsolete by actor persistence.
-- [ ] Update `ARCHITECTURE.md`, `COPILOT-CONTEXT.md`, architecture overview, diagrams, implementation entry points, and affected package documentation.
-- [ ] Run targeted builds, tests, lint, `git diff --check`, and the fuzzy duplication scan on affected workflow/chat scope.
-- [ ] Record final verification evidence and mark this task done only after every Definition of Done condition passes.
+- [x] Update `ARCHITECTURE.md`, `COPILOT-CONTEXT.md`, architecture overview, diagrams, implementation entry points, and affected package documentation.
+- [x] Run targeted builds, tests, lint, `git diff --check`, and the fuzzy duplication scan on affected workflow/chat scope.
+- [x] Record final verification evidence and mark this task done only after every Definition of Done condition passes.

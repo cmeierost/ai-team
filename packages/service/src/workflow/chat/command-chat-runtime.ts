@@ -3,6 +3,7 @@ import type {
   ICommandDispatcher,
   IWorkflowRunnerFactory,
 } from '@ai-team/core';
+import { createHash } from 'node:crypto';
 import {
   ChatRuntime,
   createChatRuntimeStepCommand,
@@ -41,15 +42,27 @@ export class CommandChatRuntime {
   ) {}
 
   async runAsync(input: ChatRuntimeRunInput) {
+    if (this.isExitMessage(input.message)) {
+      await this.checkpointActiveWorkflowAsync(input.sessionId);
+      return {
+        status: 'completed' as const,
+        text: '',
+        hopCount: 0,
+        sessionId: input.sessionId,
+        agentId: input.agentId,
+      };
+    }
+
     const knownWorkflowToolTargets = this.commandDispatcher
       .getCommands?.({ tool: true }) ?? [];
     const knownTargets = knownWorkflowToolTargets
       .filter((descriptor) => descriptor.group === 'workflow' && descriptor.key !== 'list')
       .map((descriptor) => (descriptor.group ? `${descriptor.group}_${descriptor.key}` : descriptor.key));
+    const knownWorkflowToolCatalogVersion = this.computeWorkflowToolCatalogVersion(knownTargets);
     const resolveStep = ((step: ChatRuntimeStepName) => {
       switch (step) {
         case 'preturn':
-          return createChatRuntimeStepCommand('preturn', async ({ message }) => {
+          return createChatRuntimeStepCommand('preturn', async ({ message }: { message: string }) => {
             if (this.isExitMessage(message)) {
               await this.checkpointActiveWorkflowAsync(input.sessionId);
               return { outcome: 'consumed' as const, text: '' };
@@ -196,7 +209,15 @@ export class CommandChatRuntime {
 
     return new ChatRuntime(resolveStep, this.workflowRunnerFactory.create(), {
       knownWorkflowToolTargets: knownTargets,
+      knownWorkflowToolCatalogVersion,
     }).runAsync(input);
+  }
+
+  private computeWorkflowToolCatalogVersion(targets: readonly string[]): string {
+    const normalized = [...new Set(targets.map((target) => target.trim()).filter((target) => target.length > 0))]
+      .sort();
+    const digest = createHash('sha256').update(JSON.stringify(normalized)).digest('hex').slice(0, 16);
+    return `workflow-tool-catalog:v1:${digest}`;
   }
 
   private createExecutionContext(

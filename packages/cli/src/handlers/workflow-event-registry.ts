@@ -68,6 +68,13 @@ export class WorkflowEventRegistry {
     this.register('tool', handleTool);
     this.register('handoff', handleHandoff);
     this.register('code_edit_proposal', handleCodeEditProposal);
+    this.register('workflow_started', handleWorkflowLifecycle);
+    this.register('workflow_actor', handleWorkflowLifecycle);
+    this.register('workflow_state', handleWorkflowLifecycle);
+    this.register('workflow_completed', handleWorkflowLifecycle);
+    this.register('workflow_restored', handleWorkflowLifecycle);
+    this.register('workflow_failed', handleWorkflowTerminalError);
+    this.register('workflow_cancelled', handleWorkflowTerminalError);
     this.register('log', handleLog);
     this.register('error', handleError);
     this.register('turn_finished', handleTurnFinished);
@@ -438,6 +445,67 @@ function handleCodeEditProposal(
   const diff = payload.diff ?? payload.patch ?? '';
 
   return new CodeEditProposal(filePath, diff);
+}
+
+function handleWorkflowLifecycle(
+  event: StreamEvent<'chat'>,
+  state: WorkflowEventState,
+  _registry: ExtensionRegistry
+): Component | null {
+  const payload = event as any;
+  if (typeof payload.workflowId === 'string' && payload.workflowId.trim()) {
+    state.workflowName = payload.workflowId;
+  }
+  const log = new PreviousLog();
+  switch (payload.kind) {
+    case 'workflow_started':
+      log.addMessage(
+        'info',
+        `workflow started: ${payload.workflowId ?? 'unknown'} (${payload.workflowInstanceId ?? 'n/a'})`
+      );
+      return log;
+    case 'workflow_restored':
+      log.addMessage(
+        'info',
+        `workflow restored: ${payload.workflowId ?? 'unknown'} (${payload.workflowInstanceId ?? 'n/a'})`
+      );
+      return log;
+    case 'workflow_state':
+      log.addMessage(
+        'info',
+        `workflow state: ${payload.stateValue ?? 'unknown'} (${payload.workflowInstanceId ?? 'n/a'})`
+      );
+      return log;
+    case 'workflow_actor':
+      log.addMessage(
+        'info',
+        `workflow actor: ${payload.actorEvent ?? 'event'} ${payload.actorRef ?? ''}`.trim()
+      );
+      return log;
+    case 'workflow_completed':
+      log.addMessage(
+        'info',
+        `workflow completed: ${payload.workflowId ?? 'unknown'} (${payload.finalState ?? 'done'})`
+      );
+      return log;
+    default:
+      return null;
+  }
+}
+
+function handleWorkflowTerminalError(
+  event: StreamEvent<'chat'>,
+  state: WorkflowEventState,
+  _registry: ExtensionRegistry
+): Component | null {
+  const payload = event as any;
+  const message =
+    typeof payload.message === 'string' && payload.message.trim()
+      ? payload.message
+      : payload.kind === 'workflow_cancelled'
+        ? `Workflow ${payload.workflowId ?? 'unknown'} cancelled.`
+        : `Workflow ${payload.workflowId ?? 'unknown'} failed.`;
+  return renderErrorOnce(message, state);
 }
 
 function handleLog(

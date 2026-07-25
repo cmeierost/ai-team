@@ -220,19 +220,20 @@ Initialization setup is implemented as a workflow-driven orchestration path rath
 
 - Entry command: `OnboardICommand` (`packages/service/src/commands/hr/onboard.ts`)
 - Main workflow: `onboard_workflow` (`packages/service/src/commands/hr/onboarding-workflow.ts`)
-- Hiring sub-workflow: `hire_workflow` (`packages/service/src/commands/hr/hire-workflow.ts`)
+- Optional standalone workflow: `hire_workflow` (`packages/service/src/commands/hr/hire-workflow.ts`)
 
 The init/onboarding setup workflow configures the workspace, asks the developer
-to select a CEO name, creates that CEO, and grants its initial permissions. It
-then returns a typed chat handoff (`agentId` plus new-session intent). The CLI
-adapter consumes that handoff and starts the unchanged shared chat TUI.
+to select a CEO name, creates that CEO, grants permissions, then runs a durable
+CEO chat child for business-definition completion. After CEO completion, the
+same parent workflow runs HR selection/creation/permission steps and a durable
+HR chat child until hiring completion succeeds.
 
 Interactive input is not read from inside a workflow step. Native CLI, IDE, and
 web presenters remain responsible for their chat surfaces; workflow commands
 return presentation-neutral data.
 
-The standalone `hire_workflow` remains available for team expansion after the
-CEO has established direction.
+The standalone `hire_workflow` remains available for post-onboarding expansion
+and now uses the same durable chat-step runtime primitives as onboarding.
 
 ## Workflow engine behavior (current)
 

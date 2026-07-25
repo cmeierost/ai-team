@@ -497,26 +497,37 @@ export interface ICommandDispatcher {
   getCommand(key: string): ICommandDescriptor | undefined;
 }
 
+export type WorkflowHandleStatus = 'active' | 'completed' | 'cancelled' | 'failed';
+
+export interface WorkflowRunnerStartOptions {
+  signal?: AbortSignal;
+  executionContext?: ExecutionContext;
+  commands?: Record<string, { execute(params: unknown, ctx?: unknown): Promise<unknown> }>;
+}
+
+export interface WorkflowRunResult<TState> {
+  state: TState;
+  aborted: boolean;
+}
+
+export interface WorkflowSnapshotView<TState> {
+  state: TState;
+  aborted: boolean;
+  stepId?: string;
+}
+
 export interface IWorkflowRunner {
   start<TState>(
     definition: unknown,
     initialState: TState,
-    options?: {
-      signal?: AbortSignal;
-      executionContext?: ExecutionContext;
-      commands?: Record<string, { execute(params: unknown, ctx?: unknown): Promise<unknown> }>;
-    }
+    options?: WorkflowRunnerStartOptions
   ): Promise<IWorkflowRunHandle<TState>>;
 
   run<TState>(
     definition: unknown,
     initialState: TState,
-    options?: {
-      signal?: AbortSignal;
-      executionContext?: ExecutionContext;
-      commands?: Record<string, { execute(params: unknown, ctx?: unknown): Promise<unknown> }>;
-    }
-  ): Promise<{ state: TState; aborted: boolean }>;
+    options?: WorkflowRunnerStartOptions
+  ): Promise<WorkflowRunResult<TState>>;
 }
 
 /**
@@ -531,15 +542,20 @@ export interface PreparedCommandInvocation {
   idempotencyKey: string;
 }
 
-export interface IWorkflowRunHandle<TState> {
+export interface IWorkflowRunHandle<
+  TState,
+  TEvent = unknown,
+  TPersistedSnapshot = unknown,
+  TSnapshotView extends WorkflowSnapshotView<TState> = WorkflowSnapshotView<TState>,
+> {
   readonly id: string;
-  getStatus(): 'active' | 'completed' | 'cancelled' | 'failed';
-  getSnapshotView(): { state: TState; aborted: boolean; stepId?: string };
-  getPersistedSnapshot(): unknown;
-  dispatch(event: unknown): Promise<void>;
+  getStatus(): WorkflowHandleStatus;
+  getSnapshotView(): TSnapshotView;
+  getPersistedSnapshot(): TPersistedSnapshot;
+  dispatch(event: TEvent): Promise<void>;
   checkpoint(): Promise<unknown>;
   cancel(): Promise<void>;
-  waitForDone(): Promise<{ state: TState; aborted: boolean }>;
+  waitForDone(): Promise<WorkflowRunResult<TState>>;
 }
 
 export interface IWorkflowRunnerFactory {

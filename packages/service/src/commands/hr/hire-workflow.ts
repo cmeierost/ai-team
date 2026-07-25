@@ -7,7 +7,6 @@ import type {
   ICommandDescriptor,
 } from '@ai-team/core';
 import type { WorkflowDefinition, WorkflowStep, IWorkflowRunnerFactory } from '../../workflow/index.js';
-import { runWorkflowPhaseAsync } from './workflow-phase.js';
 
 /**
  * Input parameters for the `hire` sub-workflow.
@@ -37,6 +36,7 @@ export type HireWorkflowParams = z.infer<typeof hireWorkflowParamsSchema>;
 
 export interface HireWorkflowState extends HireWorkflowParams {
   hr_chat?: { messages: ChatMessage[] };
+  openingInstruction?: string;
 }
 
 export interface HireWorkflowResult {
@@ -65,8 +65,112 @@ Your goal: identify what new team members are needed and create them.
 - Permission defaults: list/read \`['**/*']\`, write usually limited (e.g. \`['docs/**/*', '.ai-team/agents/**/*']\`).
 `;
 
-function withHireInstructions(instructions: string): string {
-  return hireSystemPrompt.replace('{{instructions}}', instructions);
+const hireCompletionParamsSchema = z.object({
+  exitWords: z.array(z.string().min(1)).optional(),
+});
+
+export const CheckHireWorkflowCompletionMetadata = {
+  key: 'check_hire_workflow_completion',
+  group: 'hr',
+  description: 'Check whether the HR hire workflow conversation is ready to return.',
+  availableIn: { tool: true },
+  parameters: hireCompletionParamsSchema,
+  permissionCheck: { type: 'none' as const },
+  tags: ['orchestration', 'hr', 'workflow'],
+} satisfies ICommandDescriptor;
+
+const finalizeHireWorkflowParamsSchema = z.object({});
+
+export const FinalizeHireWorkflowMetadata = {
+  key: 'finalize_hire_workflow',
+  group: 'hr',
+  description: 'Finalize the HR hire workflow and return the full conversation transcript.',
+  availableIn: { tool: true },
+  parameters: finalizeHireWorkflowParamsSchema,
+  permissionCheck: { type: 'none' as const },
+  tags: ['orchestration', 'hr', 'workflow'],
+} satisfies ICommandDescriptor;
+
+function isAssistantMessage(message: ChatMessage): boolean {
+  return message.isHuman !== true && message.from !== 'human';
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasCompletionWord(text: string, words: string[]): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return words.some((word) => {
+    const normalized = word.trim();
+    if (!normalized) return false;
+    const matcher = new RegExp(`\\b${escapeRegExp(normalized)}[.!?]*$`, 'i');
+    return matcher.test(trimmed);
+  });
+}
+
+export class CheckHireWorkflowCompletionCommand implements ICommand<
+  z.infer<typeof hireCompletionParamsSchema>,
+  { done: boolean; feedback?: string }
+> {
+  readonly metadata = CheckHireWorkflowCompletionMetadata;
+
+  constructor(
+    private readonly getSessionMessages: (sessionId: string) => Promise<ChatMessage[]>
+  ) {}
+
+  async execute(
+    params: z.infer<typeof hireCompletionParamsSchema>,
+    ctx: ExecutionContext
+  ): Promise<CommandResponse<{ done: boolean; feedback?: string }>> {
+    if (!ctx.sessionId) {
+      return {
+        status: 'ok',
+        data: {
+          done: false,
+          feedback: 'No active workflow chat session is available yet.',
+        },
+      };
+    }
+    const messages = await this.getSessionMessages(ctx.sessionId);
+    const lastAssistant = [...messages].reverse().find(isAssistantMessage);
+    const exitWords = params.exitWords?.length ? params.exitWords : ['done'];
+    const done = Boolean(lastAssistant?.content && hasCompletionWord(lastAssistant.content, exitWords));
+    return {
+      status: 'ok',
+      data: done
+        ? { done: true }
+        : {
+            done: false,
+            feedback:
+              `Return was rejected. Finish hiring, apply permissions, then end the HR response with ` +
+              `'${exitWords[0] ?? 'done'}'.`,
+          },
+    };
+  }
+}
+
+export class FinalizeHireWorkflowCommand implements ICommand<
+  z.infer<typeof finalizeHireWorkflowParamsSchema>,
+  { messages: ChatMessage[] }
+> {
+  readonly metadata = FinalizeHireWorkflowMetadata;
+
+  constructor(
+    private readonly getSessionMessages: (sessionId: string) => Promise<ChatMessage[]>
+  ) {}
+
+  async execute(
+    _params: z.infer<typeof finalizeHireWorkflowParamsSchema>,
+    ctx: ExecutionContext
+  ): Promise<CommandResponse<{ messages: ChatMessage[] }>> {
+    if (!ctx.sessionId) {
+      return { status: 'error', message: 'Cannot finalize hire workflow without an active session.' };
+    }
+    const messages = await this.getSessionMessages(ctx.sessionId);
+    return { status: 'ok', data: { messages } };
+  }
 }
 
 export const HireWorkflowMetadata = {
@@ -116,7 +220,12 @@ export class HireWorkflow {
 
   protected prepare(params: unknown): HireWorkflowState {
     const validated = hireWorkflowParamsSchema.parse(params);
-    return validated as HireWorkflowState;
+    return {
+      ...(validated as HireWorkflowState),
+      openingInstruction: validated.openingMessage?.trim()
+        ? `If this is the first turn, start your first response with: "${validated.openingMessage.trim()}".`
+        : '',
+    };
   }
 
   protected toResult(state: HireWorkflowState): HireWorkflowResult {
@@ -131,25 +240,24 @@ export class HireWorkflow {
 
   protected createHrChatStep(): WorkflowStep<HireWorkflowState> {
     return {
+      kind: 'chat',
       id: 'hr_chat',
-      execute: async (state, ctx, services) => {
-        const messages = await runWorkflowPhaseAsync(
-          {
-            agentId: state.hrAgentId,
-            systemPrompt: withHireInstructions(state.instructions),
-            exitWords: ['done'],
-            toolAllowlist: ['hr_hire', 'com_ask', 'access_set_permissions'],
-            openingMessage: state.openingMessage,
-          },
-          ctx,
-          services
-        );
-
-        return {
-          ...state,
-          hr_chat: { messages },
-        };
+      agentId: '{{hrAgentId}}',
+      chat: {
+        systemPrompt: `${hireSystemPrompt}\n\n{{openingInstruction}}`,
+        toolPolicy: { allow: ['hr-hire_agent', 'com-ask', 'access-set_permissions'] },
       },
+      done: {
+        command: 'hr-check_hire_workflow_completion',
+        args: { exitWords: ['done'] },
+      },
+      finalize: {
+        command: 'hr-finalize_hire_workflow',
+      },
+      applyResult: (state, output) => ({
+        ...state,
+        hr_chat: output as { messages: ChatMessage[] },
+      }),
     };
   }
 

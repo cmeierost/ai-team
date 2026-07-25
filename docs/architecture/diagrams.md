@@ -209,7 +209,7 @@ sequenceDiagram
   Orch->>Turn: sendTurn(...)
   Turn-->>Invoke: runtime events via emitService.emit
   Invoke-->>Service: runtime events queued
-  Service-->>Surface: status / log / token / tool / question / handoff
+  Service-->>Surface: status / log / token / tool / question / handoff / workflow_*
   Invoke-->>Service: result or error
   Service-->>Surface: result
   Service-->>Surface: done or error

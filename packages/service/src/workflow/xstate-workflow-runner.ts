@@ -15,6 +15,7 @@ import {
   type IToolManager,
   type IWorkflowRunRepository,
   type WorkflowRunRecord,
+  type IEmitService,
   CORE_SERVICE_TOKENS,
 } from '@ai-team/core';
 import type {
@@ -39,7 +40,6 @@ import { WorkflowActorHost } from './workflow-actor-host.js';
 import { isWorkflowCommand, workflowCommand, type IWorkflowCommand } from './workflow-command.js';
 import { CommandActorAdapterResolver } from './command-actor-adapter-resolver.js';
 import { WORKFLOW_SERVICE_TOKENS } from './workflow-service-tokens.js';
-import type { DurableChatActorServices } from './durable-chat-actor.js';
 import {
   createWorkflowChatActor,
   type WorkflowChatActorInput,
@@ -55,8 +55,6 @@ export interface WorkflowRunOptions {
   emit?: (event: RuntimeStreamEvent) => void;
   executionContext?: ExecutionContext;
   commands?: Record<string, IWorkflowLocalCommand>;
-  /** Optional test seam for overriding workflow-owned child chat turns. */
-  chat?: Pick<DurableChatActorServices<unknown>, 'processTurn'>;
 }
 
 export interface IWorkflowRunner {
@@ -158,6 +156,8 @@ export class WorkflowRunner implements IWorkflowRunner {
     options?: WorkflowRunOptions
   ): Promise<WorkflowRunHandle<TState>> {
     const workflowInstanceId = `${definition.id}:${randomUUID()}`;
+    const emitRuntimeEvent = this.resolveRuntimeEventEmitter(options);
+    let terminalWorkflowEventEmitted = false;
 
     this.logWorkflowRunDebug({
       phase: 'run-start',
@@ -184,6 +184,13 @@ export class WorkflowRunner implements IWorkflowRunner {
           workflowInstanceId,
           actorRef: (event as any).actorRef?.id ?? 'root',
         });
+        emitRuntimeEvent?.({
+          kind: 'workflow_actor',
+          workflowId: definition.id,
+          workflowInstanceId,
+          actorEvent: 'spawned',
+          actorRef: (event as any).actorRef?.id ?? 'root',
+        } as RuntimeStreamEvent);
       }
     };
 
@@ -207,6 +214,26 @@ export class WorkflowRunner implements IWorkflowRunner {
         status: snapshot.status,
         loopIterations: { ...context.loopIterations },
       });
+      const deepest = this.resolveDeepestActiveInteraction(snapshot);
+      emitRuntimeEvent?.({
+        kind: 'workflow_state',
+        workflowId: definition.id,
+        workflowInstanceId,
+        stateValue: currentStateValue,
+        actorStatus: snapshot.status,
+        ...(context.abortedStepId ? { stepId: context.abortedStepId } : {}),
+        ...(deepest
+          ? {
+              interaction: {
+                sessionId: deepest.sessionId,
+                actorPath: deepest.actorPath,
+                ...(deepest.metadata ? { metadata: deepest.metadata } : {}),
+              },
+            }
+          : context.activeInteraction
+            ? { interaction: context.activeInteraction }
+            : {}),
+      } as RuntimeStreamEvent);
       previousStateValue = currentStateValue;
     };
 
@@ -242,6 +269,12 @@ export class WorkflowRunner implements IWorkflowRunner {
       inspect,
       onSnapshot,
     });
+    emitRuntimeEvent?.({
+      kind: 'workflow_started',
+      workflowId: definition.id,
+      workflowInstanceId,
+      definitionVersion: definition.version ?? '1',
+    } as RuntimeStreamEvent);
 
     const signalWasAlreadyAborted = options?.signal?.aborted === true;
 
@@ -331,6 +364,16 @@ export class WorkflowRunner implements IWorkflowRunner {
           ...(context.abortedStepId ? { stepId: context.abortedStepId } : {}),
           error: abortDetail,
         });
+        if (!terminalWorkflowEventEmitted) {
+          emitRuntimeEvent?.({
+            kind: 'workflow_failed',
+            workflowId: definition.id,
+            workflowInstanceId,
+            ...(context.abortedStepId ? { stepId: context.abortedStepId } : {}),
+            message: abortDetail,
+          } as RuntimeStreamEvent);
+          terminalWorkflowEventEmitted = true;
+        }
         return {
           state: context.state,
           aborted: true,
@@ -339,6 +382,15 @@ export class WorkflowRunner implements IWorkflowRunner {
           workflowInstanceId,
           stepId: context.abortedStepId,
         };
+      }
+      if (!terminalWorkflowEventEmitted) {
+        emitRuntimeEvent?.({
+          kind: 'workflow_completed',
+          workflowId: definition.id,
+          workflowInstanceId,
+          finalState: this.serializeStateValue(snapshot.value),
+        } as RuntimeStreamEvent);
+        terminalWorkflowEventEmitted = true;
       }
 
       return {
@@ -374,6 +426,15 @@ export class WorkflowRunner implements IWorkflowRunner {
           recoveredStateAvailable: lastState !== initialState,
           error: abortDetail,
         });
+        if (!terminalWorkflowEventEmitted) {
+          emitRuntimeEvent?.({
+            kind: 'workflow_cancelled',
+            workflowId: definition.id,
+            workflowInstanceId,
+            message: abortDetail,
+          } as RuntimeStreamEvent);
+          terminalWorkflowEventEmitted = true;
+        }
         return {
           state: lastState,
           aborted: true,
@@ -393,6 +454,16 @@ export class WorkflowRunner implements IWorkflowRunner {
       const ctx = snapshot.context as WorkflowMachineContext<TState>;
       if (ctx.aborted && ctx.abortedError) {
         this.logWorkflowAbortError(ctx, ctx.abortedError);
+        if (!terminalWorkflowEventEmitted) {
+          emitRuntimeEvent?.({
+            kind: 'workflow_failed',
+            workflowId: definition.id,
+            workflowInstanceId,
+            ...(ctx.abortedStepId ? { stepId: ctx.abortedStepId } : {}),
+            message: ctx.abortedError,
+          } as RuntimeStreamEvent);
+          terminalWorkflowEventEmitted = true;
+        }
         return {
           state: ctx.state,
           aborted: true,
@@ -445,7 +516,18 @@ export class WorkflowRunner implements IWorkflowRunner {
       getPersistedSnapshot: () => actorHandle.getPersistedSnapshot(),
       dispatch: (event) => actorHandle.dispatch(event),
       checkpoint: () => actorHandle.checkpoint(),
-      cancel: () => actorHandle.cancel(),
+      cancel: async () => {
+        await actorHandle.cancel();
+        if (!terminalWorkflowEventEmitted) {
+          emitRuntimeEvent?.({
+            kind: 'workflow_cancelled',
+            workflowId: definition.id,
+            workflowInstanceId,
+            message: 'Workflow cancelled by caller.',
+          } as RuntimeStreamEvent);
+          terminalWorkflowEventEmitted = true;
+        }
+      },
       waitForDone,
     };
   }
@@ -684,12 +766,11 @@ export class WorkflowRunner implements IWorkflowRunner {
     actors[this.getWorkflowChatActorSource(step.id)] = createWorkflowChatActor({
       processTurn: async (input) => {
         const chatInput = input as WorkflowChatActorInput & { message: string };
-        const customProcessTurn = dependencies.options?.chat?.processTurn;
-        if (customProcessTurn) {
-          return customProcessTurn(chatInput);
-        }
-
         const dispatcher = dependencies.container.resolve(CORE_SERVICE_TOKENS.CommandDispatcher);
+        const runtimeCtx = this.withRuntimeSignal(
+          chatInput.executionContext ?? { history: [], sessionId: chatInput.sessionId },
+          dependencies.options?.signal
+        );
         const result = await dispatcher.dispatch(
           'chat-chat-direct-turn',
           {
@@ -702,7 +783,7 @@ export class WorkflowRunner implements IWorkflowRunner {
               skipWorkflowInteractionRouting: true,
             },
           },
-          chatInput.executionContext ?? { history: [], sessionId: chatInput.sessionId }
+          runtimeCtx
         );
 
         if (result.status !== 'ok') {
@@ -723,7 +804,11 @@ export class WorkflowRunner implements IWorkflowRunner {
         if (!cmd) {
           throw new Error(`WorkflowRunner: command '${command}' not registered`);
         }
-        const execute = () => cmd.execute(args ?? {}, executionContext);
+        const runtimeExecutionContext = this.withRuntimeSignal(
+          executionContext ?? { history: [] },
+          dependencies.options?.signal
+        );
+        const execute = () => cmd.execute(args ?? {}, runtimeExecutionContext);
         const runId = executionContext?.workflowInstanceId;
         if (kind === 'finalize' && this.operationJournal && runId) {
           return this.operationJournal.execute(
@@ -971,18 +1056,32 @@ export class WorkflowRunner implements IWorkflowRunner {
             executionContext: persistedExecutionContext,
           };
         },
-        onDone: {
-          target: nextStepId,
-          actions: assign(({ context, event }: any) => {
-            const newState = this.applyStepResult(step, context.state, event.output);
-            return {
+        onDone: [
+          {
+            guard: ({ event }: any) => this.isAbandonedChatOutput(event.output),
+            target: '#aborted',
+            actions: assign(({ context, event }: any) => ({
               ...context,
-              state: newState,
-              workflowLastResult: event.output,
+              aborted: true,
+              abortedStepId: step.id,
+              abortedError: `Workflow chat step '${step.id}' was abandoned via /back.`,
               activeInteraction: undefined,
-            };
-          }),
-        },
+              workflowLastResult: event.output,
+            })),
+          },
+          {
+            target: nextStepId,
+            actions: assign(({ context, event }: any) => {
+              const newState = this.applyStepResult(step, context.state, event.output);
+              return {
+                ...context,
+                state: newState,
+                workflowLastResult: event.output,
+                activeInteraction: undefined,
+              };
+            }),
+          },
+        ],
         onError: {
           target: '#aborted',
           actions: assign({
@@ -1004,6 +1103,9 @@ export class WorkflowRunner implements IWorkflowRunner {
           actions: sendTo(this.getWorkflowChatInvocationId(step.id), ({ event }) => event),
         },
         RETURN_ATTEMPT: {
+          actions: sendTo(this.getWorkflowChatInvocationId(step.id), ({ event }) => event),
+        },
+        BACK_ATTEMPT: {
           actions: sendTo(this.getWorkflowChatInvocationId(step.id), ({ event }) => event),
         },
       },
@@ -1359,6 +1461,14 @@ export class WorkflowRunner implements IWorkflowRunner {
     };
   }
 
+  private isAbandonedChatOutput(output: unknown): boolean {
+    return (
+      typeof output === 'object' &&
+      output !== null &&
+      (output as { abandoned?: unknown }).abandoned === true
+    );
+  }
+
   private resolveParams<TState>(
     step: WorkflowCommandStep<TState>,
     state: TState,
@@ -1434,6 +1544,19 @@ export class WorkflowRunner implements IWorkflowRunner {
         ? { workflowLastResult: context.workflowLastResult }
         : {}),
       ...(workflowStack.length > 0 ? { workflowStack } : {}),
+    };
+  }
+
+  private withRuntimeSignal(
+    executionContext: ExecutionContext,
+    signal: AbortSignal | undefined
+  ): ExecutionContext {
+    if (!signal || executionContext.signal) {
+      return executionContext;
+    }
+    return {
+      ...executionContext,
+      signal,
     };
   }
 
@@ -1558,6 +1681,18 @@ export class WorkflowRunner implements IWorkflowRunner {
     } catch {
       return String(value);
     }
+  }
+
+  private resolveRuntimeEventEmitter(
+    options?: WorkflowRunOptions
+  ): ((event: RuntimeStreamEvent) => void) | undefined {
+    if (options?.emit) {
+      return options.emit;
+    }
+    const emitService = this.container.tryResolve(CORE_SERVICE_TOKENS.EmitService) as
+      | IEmitService
+      | undefined;
+    return emitService?.emit?.bind(emitService);
   }
 
   private resolveDeepestActiveInteraction(snapshot: unknown): {
@@ -1739,6 +1874,7 @@ export class WorkflowRunnerFactory implements IWorkflowRunnerFactory {
     if (this.#hasInteractiveChatStep(definition.steps)) {
       const existingRun = await this.#findActiveInteractiveRun(definition, ctx);
       if (existingRun) {
+        this.#emitWorkflowRestoredEvent(definition, existingRun);
         return {
           status: 'ok',
           data: {
@@ -1772,6 +1908,21 @@ export class WorkflowRunnerFactory implements IWorkflowRunnerFactory {
     }
 
     return { status: 'ok', data };
+  }
+
+  #emitWorkflowRestoredEvent<TState>(
+    definition: WorkflowDefinition<TState>,
+    run: WorkflowRunRecord
+  ): void {
+    const emitService = this.container.tryResolve(CORE_SERVICE_TOKENS.EmitService) as
+      | IEmitService
+      | undefined;
+    emitService?.emit({
+      kind: 'workflow_restored',
+      workflowId: definition.id,
+      workflowInstanceId: run.id,
+      definitionVersion: run.definitionVersion,
+    } as RuntimeStreamEvent);
   }
 
   #hasInteractiveChatStep<TState>(steps: WorkflowStep<TState>[]): boolean {

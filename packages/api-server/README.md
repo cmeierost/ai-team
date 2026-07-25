@@ -8,6 +8,8 @@ HTTP and WebSocket transport adapter for the AI Team web UI. This package expose
 - WebSocket chat streaming transport
 - Swagger UI / OpenAPI JSON surfacing
 - CORS and runtime configuration
+- Transport-safe pass-through of shared runtime events, including workflow
+  lifecycle events (`workflow_*`) defined in `@ai-team/api-contracts`
 
 ## Key technologies
 

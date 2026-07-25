@@ -61,6 +61,10 @@ The full-screen chat is a projection of shared runtime events:
   falls back to Inquirer elsewhere.
 - Chat startup sends agent/session/new intent to the service. The CLI must not
   traverse thread state or select the active session itself.
+- Workflow lifecycle events (`workflow_started`, `workflow_state`,
+  `workflow_completed`, `workflow_failed`, `workflow_cancelled`,
+  `workflow_restored`) are rendered as presentation signals only; the CLI must
+  never choose workflow transitions.
 
 Do not move these UI concepts into `@ai-team/core` or add a separate command,
 tool, or workflow execution path for the TUI.

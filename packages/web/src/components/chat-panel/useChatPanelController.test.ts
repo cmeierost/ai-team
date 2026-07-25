@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { awaitUnlessCancelled, shouldSkipDuplicateGreetingSpeech } from './useChatPanelController';
+import {
+  awaitUnlessCancelled,
+  isWorkflowRuntimeEventKind,
+  resolveWorkflowRuntimeErrorMessage,
+  shouldSkipDuplicateGreetingSpeech,
+} from './useChatPanelController';
 
 describe('awaitUnlessCancelled', () => {
   it('returns resolved value when token is active', async () => {
@@ -38,5 +43,38 @@ describe('shouldSkipDuplicateGreetingSpeech', () => {
     expect(
       shouldSkipDuplicateGreetingSpeech('agent-a::hello', 'agent-a::different', 1000, 1500, 2000)
     ).toBe(false);
+  });
+});
+
+describe('workflow runtime event helpers', () => {
+  it('classifies workflow lifecycle/runtime event kinds as non-chat transitions', () => {
+    expect(isWorkflowRuntimeEventKind('workflow_started')).toBe(true);
+    expect(isWorkflowRuntimeEventKind('workflow_state')).toBe(true);
+    expect(isWorkflowRuntimeEventKind('token')).toBe(false);
+  });
+
+  it('resolves structured workflow terminal errors with fallback messaging', () => {
+    expect(
+      resolveWorkflowRuntimeErrorMessage({
+        kind: 'workflow_failed',
+        workflowId: 'init_onboarding',
+        stepId: 'ceo_chat',
+        message: 'workflow failed: timeout',
+      })
+    ).toBe('workflow failed: timeout');
+
+    expect(
+      resolveWorkflowRuntimeErrorMessage({
+        kind: 'workflow_cancelled',
+        workflowId: 'init_onboarding',
+      })
+    ).toBe('Workflow init_onboarding was cancelled.');
+
+    expect(
+      resolveWorkflowRuntimeErrorMessage({
+        kind: 'workflow_state',
+        workflowId: 'init_onboarding',
+      })
+    ).toBeNull();
   });
 });

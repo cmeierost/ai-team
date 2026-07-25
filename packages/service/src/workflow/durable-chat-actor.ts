@@ -30,7 +30,8 @@ export interface DurableChatActorContext extends DurableChatActorInput {
 
 export type DurableChatActorEvent =
   | { type: 'CHAT_TURN'; message: string }
-  | { type: 'RETURN_ATTEMPT' };
+  | { type: 'RETURN_ATTEMPT' }
+  | { type: 'BACK_ATTEMPT' };
 
 /**
  * Durable child-machine primitive for multi-request chat. All prompt and tool
@@ -73,6 +74,16 @@ export function createDurableChatActor<TOutput>(
             actions: assign({ pendingMessage: ({ event }) => event.message }),
           },
           RETURN_ATTEMPT: 'checkingCompletion',
+          BACK_ATTEMPT: {
+            target: 'abandoned',
+            actions: assign({
+              output: () => ({
+                outcome: 'abandoned',
+                abandoned: true,
+              }),
+              pendingMessage: undefined,
+            }),
+          },
         },
       },
       processingTurn: {
@@ -123,6 +134,7 @@ export function createDurableChatActor<TOutput>(
           },
         },
       },
+      abandoned: { type: 'final' },
       complete: { type: 'final' },
     },
   });

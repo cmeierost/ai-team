@@ -42,6 +42,8 @@ pnpm --filter @ai-team/web storybook:build
 - **TanStack Query** for API-backed server state
 - **Zustand** for live runtime client state (chat streaming, pending events)
 - Prefer **presentational components** that are Storybook-friendly
+- Chat and workflow lifecycle events are service-owned contracts; web components
+  render them but do not choose workflow transitions.
 
 See `docs/implementation/web-state-architecture.md` for full guidance.
 
