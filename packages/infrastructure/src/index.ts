@@ -19,6 +19,7 @@ import { MessagesRepository } from './repositories/messages-repository.js';
 import { SessionsRepository } from './repositories/sessions-repository.js';
 import { PlanningRepository } from './repositories/planning-repository.js';
 import { WorkflowRunRepository } from './repositories/workflow-run-repository.js';
+import { WorkflowOperationRepository } from './repositories/workflow-operation-repository.js';
 import { LlmService } from './llm/index.js';
 import { ConfigurationStorage } from './agent/configuration-storage.js';
 import { PathPermissionChecker } from './context/path-permission-checker.js';
@@ -144,6 +145,10 @@ export function registerInfrastructureCoreServices(
   container.registerSingleton(tokens.WorkflowRunRepository, (c) => {
     const b = c.resolve(tokens.MessageStorage) as SqliteBackend;
     return new WorkflowRunRepository(b.ensureReadyAsync, b.getDb);
+  });
+  container.registerSingleton(tokens.WorkflowOperationRepository, (c) => {
+    const b = c.resolve(tokens.MessageStorage) as SqliteBackend;
+    return new WorkflowOperationRepository(b.ensureReadyAsync, b.getDb);
   });
   container.registerSingleton(
     tokens.LlmSettingsResolver,

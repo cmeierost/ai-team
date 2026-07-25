@@ -377,6 +377,9 @@ export interface IToolSerializationService {
 export interface IToolSchemaService {
   getToolSchema(tool: ICommand): ILlmToolDefinition;
   buildToolDefinitions(tools: ICommand[]): ILlmToolDefinition[];
+  buildToolDefinitionsFromDescriptors(
+    descriptors: Array<Pick<ICommandDescriptor, 'key' | 'group' | 'description'>>
+  ): ILlmToolDefinition[];
 }
 
 export interface IToolDispatchSupportService {

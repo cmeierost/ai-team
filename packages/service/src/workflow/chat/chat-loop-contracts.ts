@@ -88,6 +88,7 @@ export function parseChatPreturnResult(value: unknown): ChatPreturnResult {
  * Tool call payload flowing from send-turn into tool-round handling.
  */
 export const chatToolCallSchema = z.object({
+  toolCallId: z.string().optional(),
   toolName: z.string(),
   args: z.unknown().optional(),
 });
@@ -119,6 +120,9 @@ export type ChatToolRoundOutcome = z.infer<typeof chatToolRoundOutcomeSchema>;
 export const chatToolRoundResultSchema = z.object({
   outcome: chatToolRoundOutcomeSchema,
   error: z.string().optional(),
+  resumeMessage: z.string().optional(),
+  toolCallId: z.string().optional(),
+  toolName: z.string().optional(),
 });
 
 export type ChatToolRoundResult = z.infer<typeof chatToolRoundResultSchema>;

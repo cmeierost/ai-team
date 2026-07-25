@@ -488,11 +488,8 @@ export async function renderChat(
           options: {
             sessionId: options.sessionId,
             createNewSession: options.createNewSession,
-            introduction:
-              options.suppressAutoIntroduction !== true || Boolean(options.introductionText),
+            introduction: true,
             introductionText: options.introductionText,
-            workflowMode: options.workflowMode,
-            workflowExitWords: options.workflowExitWords,
           },
         },
         workspaceRoot,
@@ -617,12 +614,6 @@ function buildTurnPayload(
       agentId: ctx.eventState.currentAgentId ?? servicePayload['agentId'],
       sessionId: ctx.sessionId ?? servicePayload['sessionId'],
       message,
-      ...(options.workflowSystemPrompt
-        ? { workflowSystemPrompt: options.workflowSystemPrompt }
-        : {}),
-      ...(options.workflowToolAllowlist
-        ? { workflowToolAllowlist: options.workflowToolAllowlist }
-        : {}),
     };
   }
   return {
@@ -630,9 +621,5 @@ function buildTurnPayload(
     message,
     sessionId: ctx.sessionId ?? options.sessionId,
     createNewSession: options.createNewSession,
-    ...(options.workflowSystemPrompt ? { workflowSystemPrompt: options.workflowSystemPrompt } : {}),
-    ...(options.workflowToolAllowlist
-      ? { workflowToolAllowlist: options.workflowToolAllowlist }
-      : {}),
   };
 }

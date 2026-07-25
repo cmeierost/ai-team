@@ -16,6 +16,7 @@ import type {
 } from '@ai-team/core';
 import { CORE_SERVICE_TOKENS } from '@ai-team/core';
 import { CONTRACT_SERVICE_TOKENS } from '@ai-team/api-contracts';
+import { WORKFLOW_SERVICE_TOKENS } from '../workflow/workflow-service-tokens.js';
 import {
   AccessCanCommand,
   AccessCanCommandMetadata,
@@ -724,7 +725,8 @@ export function registerBuiltInCommands(
       >,
       plugins,
       r.resolve(CORE_SERVICE_TOKENS.SessionManager),
-      r.resolve(CORE_SERVICE_TOKENS.EmitService)
+      r.resolve(CORE_SERVICE_TOKENS.EmitService),
+      r.tryResolve(WORKFLOW_SERVICE_TOKENS.WorkflowInteractionRouter)
     );
   });
 
@@ -830,7 +832,11 @@ export function registerBuiltInCommands(
 
   registry.register(
     ReturnChatCommandMetadata,
-    (r) => new ReturnChatCommand(r.resolve(CORE_SERVICE_TOKENS.CommandDispatcher))
+    (r) =>
+      new ReturnChatCommand(
+        r.resolve(CORE_SERVICE_TOKENS.CommandDispatcher),
+        r.tryResolve(WORKFLOW_SERVICE_TOKENS.WorkflowInteractionRouter)
+      )
   );
 
   registry.register(

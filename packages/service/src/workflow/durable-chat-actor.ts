@@ -79,9 +79,7 @@ export function createDurableChatActor<TOutput>(
         invoke: {
           src: 'processTurn',
           input: ({ context }) => ({
-            sessionId: context.sessionId,
-            systemPrompt: context.systemPrompt,
-            toolAllowlist: context.toolAllowlist,
+            ...context,
             message: context.pendingMessage ?? '',
           }),
           onDone: {
@@ -103,11 +101,7 @@ export function createDurableChatActor<TOutput>(
       checkingCompletion: {
         invoke: {
           src: 'checkCompletion',
-          input: ({ context }) => ({
-            sessionId: context.sessionId,
-            systemPrompt: context.systemPrompt,
-            toolAllowlist: context.toolAllowlist,
-          }),
+          input: ({ context }) => ({ ...context }),
           onDone: [
             { guard: 'completionAccepted', target: 'finalizing' },
             {
@@ -122,11 +116,7 @@ export function createDurableChatActor<TOutput>(
       finalizing: {
         invoke: {
           src: 'finalize',
-          input: ({ context }) => ({
-            sessionId: context.sessionId,
-            systemPrompt: context.systemPrompt,
-            toolAllowlist: context.toolAllowlist,
-          }),
+          input: ({ context }) => ({ ...context }),
           onDone: {
             target: 'complete',
             actions: assign({ output: ({ event }) => event.output }),

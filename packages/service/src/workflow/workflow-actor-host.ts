@@ -9,6 +9,11 @@ export interface WorkflowActorHostStartOptions<TInput> {
   input: TInput;
   rootSessionId?: string;
   activeSessionId?: string;
+  activeActorPath?: string;
+  resolveAssociation?: (snapshot: unknown) => Pick<
+    WorkflowRunRecord,
+    'activeSessionId' | 'activeActorPath'
+  >;
   inspect?: (event: InspectionEvent) => void;
   onSnapshot?: (snapshot: unknown) => void;
 }
@@ -27,6 +32,10 @@ export interface WorkflowActorRunHandle<TOutput> {
 interface LiveRun<TOutput> {
   record: WorkflowRunRecord;
   actor: ReturnType<typeof createActor>;
+  resolveAssociation?: (snapshot: unknown) => Pick<
+    WorkflowRunRecord,
+    'activeSessionId' | 'activeActorPath'
+  >;
   checkpointQueue: Promise<WorkflowRunRecord>;
   cancelled: boolean;
   done: Promise<TOutput>;
@@ -59,6 +68,7 @@ export class WorkflowActorHost {
       snapshotSequence: 0,
       rootSessionId: options.rootSessionId,
       activeSessionId: options.activeSessionId,
+      activeActorPath: options.activeActorPath,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -70,9 +80,15 @@ export class WorkflowActorHost {
         requestInspectionCheckpoint?.();
       },
     });
-    return this.createHandle<TOutput>(record, actor, options.onSnapshot, (checkpoint) => {
+    return this.createHandle<TOutput>(
+      record,
+      actor,
+      options.onSnapshot,
+      options.resolveAssociation,
+      (checkpoint) => {
       requestInspectionCheckpoint = checkpoint;
-    });
+      }
+    );
   }
 
   async restore<TOutput>(
@@ -99,20 +115,31 @@ export class WorkflowActorHost {
         requestInspectionCheckpoint?.();
       },
     });
-    return this.createHandle<TOutput>(record, actor, options.onSnapshot, (checkpoint) => {
+    return this.createHandle<TOutput>(
+      record,
+      actor,
+      options.onSnapshot,
+      options.resolveAssociation,
+      (checkpoint) => {
       requestInspectionCheckpoint = checkpoint;
-    });
+      }
+    );
   }
 
   private async createHandle<TOutput>(
     record: WorkflowRunRecord,
     actor: ReturnType<typeof createActor>,
     onSnapshot?: (snapshot: unknown) => void,
+    resolveAssociation?: (snapshot: unknown) => Pick<
+      WorkflowRunRecord,
+      'activeSessionId' | 'activeActorPath'
+    >,
     registerInspectionCheckpoint?: (checkpoint: () => void) => void
   ): Promise<WorkflowActorRunHandle<TOutput>> {
     const live: LiveRun<TOutput> = {
       record,
       actor,
+      resolveAssociation,
       checkpointQueue: Promise.resolve(record),
       cancelled: false,
       done: Promise.resolve(undefined as TOutput),
@@ -182,6 +209,7 @@ export class WorkflowActorHost {
 
   private enqueueCheckpoint<TOutput>(live: LiveRun<TOutput>): Promise<WorkflowRunRecord> {
     live.checkpointQueue = live.checkpointQueue.then(async () => {
+      Object.assign(live.record, live.resolveAssociation?.(live.actor.getSnapshot()));
       live.record.snapshot = live.actor.getPersistedSnapshot();
       live.record.snapshotSequence += 1;
       live.record.updatedAt = new Date().toISOString();

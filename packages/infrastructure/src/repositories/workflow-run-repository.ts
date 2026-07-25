@@ -1,5 +1,5 @@
 import type { IWorkflowRunRepository, WorkflowRunRecord } from '@ai-team/core';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { SqliteDrizzleDatabase } from '../storage/sqlite/connection.js';
 import * as dbSchema from '../storage/sqlite/schema.js';
 
@@ -20,6 +20,9 @@ export class WorkflowRunRepository implements IWorkflowRunRepository {
       .onConflictDoUpdate({
         target: dbSchema.workflowRuns.id,
         set: this.toRow(record),
+        // A delayed checkpoint from another process must never overwrite a
+        // newer persisted actor snapshot or session cursor.
+        where: sql`${dbSchema.workflowRuns.snapshotSequence} < excluded.snapshot_sequence`,
       })
       .run();
   }
@@ -56,6 +59,7 @@ export class WorkflowRunRepository implements IWorkflowRunRepository {
       snapshotSequence: record.snapshotSequence,
       rootSessionId: record.rootSessionId ?? null,
       activeSessionId: record.activeSessionId ?? null,
+      activeActorPath: record.activeActorPath ?? null,
       outputJson: record.output === undefined ? null : JSON.stringify(record.output),
       failureJson: record.failure === undefined ? null : JSON.stringify(record.failure),
       createdAt: record.createdAt,
@@ -76,6 +80,7 @@ export class WorkflowRunRepository implements IWorkflowRunRepository {
       snapshotSequence: row.snapshotSequence,
       rootSessionId: row.rootSessionId ?? undefined,
       activeSessionId: row.activeSessionId ?? undefined,
+      activeActorPath: row.activeActorPath ?? undefined,
       output: row.outputJson ? JSON.parse(row.outputJson) : undefined,
       failure: row.failureJson ? JSON.parse(row.failureJson) : undefined,
       createdAt: row.createdAt,

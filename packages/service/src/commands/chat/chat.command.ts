@@ -18,8 +18,6 @@ const chatParamsSchema = z.object({
   message: z.string().min(1).optional(),
   maxHops: z.number().int().nonnegative().optional(),
   autoReactMessage: z.string().optional(),
-  workflowSystemPrompt: z.string().optional(),
-  workflowToolAllowlist: z.array(z.string()).optional(),
 });
 
 export type ChatParams = z.infer<typeof chatParamsSchema>;
@@ -61,8 +59,6 @@ export class ChatCommand implements ICommand<ChatParams, string> {
       message,
       maxHops: params.maxHops,
       autoReactMessage: params.autoReactMessage,
-      workflowSystemPrompt: params.workflowSystemPrompt,
-      workflowToolAllowlist: params.workflowToolAllowlist,
       invocationSurface: ctx.invocationSurface,
       calledByHuman: ctx.calledByHuman,
       callerType: ctx.callerType,

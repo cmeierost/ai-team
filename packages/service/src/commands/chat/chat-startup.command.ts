@@ -23,8 +23,6 @@ const chatStartupParamsSchema = z.object({
     createNewSession: z.boolean().optional(),
     introduction: z.boolean().optional(),
     introductionText: z.string().optional(),
-    workflowMode: z.boolean().optional(),
-    workflowExitWords: z.array(z.string()).optional(),
   }),
 });
 
@@ -86,8 +84,6 @@ export class ChatStartupCommand implements ICommand<ChatStartupParams, string> {
     this.chatInfoService.showSessionIntro({
       agent,
       developerName,
-      workflowMode: payload.options.workflowMode,
-      workflowExitWords: payload.options.workflowExitWords,
     });
 
     const startup: ChatSessionStartupResult = await runChatSessionStartup(

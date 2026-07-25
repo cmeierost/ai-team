@@ -56,6 +56,9 @@ function createStepService(overrides?: {
       buildToolDefinitions: vi.fn((tools: any[]) =>
         tools.map((t) => ({ name: `${t.metadata.group}_${t.metadata.key}` }))
       ),
+      buildToolDefinitionsFromDescriptors: vi.fn((tools: any[]) =>
+        tools.map((t) => ({ name: `${t.group}_${t.key}` }))
+      ),
     } as any);
   const runtimeHooks = overrides?.runtimeHooks ?? ({} as any);
   const emitService =
@@ -180,6 +183,9 @@ describe('SendTurnStepService.resolveSkillsAndToolsAsync', () => {
       buildToolDefinitions: vi.fn((tools: any[]) =>
         tools.map((tool) => ({ name: `${tool.metadata.group}_${tool.metadata.key}` }))
       ),
+      buildToolDefinitionsFromDescriptors: vi.fn((tools: any[]) =>
+        tools.map((tool) => ({ name: `${tool.group}_${tool.key}` }))
+      ),
     } as any;
 
     const plugins = {
@@ -191,6 +197,9 @@ describe('SendTurnStepService.resolveSkillsAndToolsAsync', () => {
       },
       llmSelector: {
         select: vi.fn(async () => undefined),
+      },
+      commandDispatcher: {
+        getCommands: vi.fn(() => []),
       },
     } as any;
 
@@ -231,6 +240,7 @@ describe('SendTurnStepService.resolveSkillsAndToolsAsync', () => {
       toolResolver: { resolve: vi.fn(async () => [makeTool('fs_read')]) },
       mcpGateway: { discover: vi.fn(async () => []) },
       llmSelector: { select: vi.fn(async () => undefined) },
+      commandDispatcher: { getCommands: vi.fn(() => []) },
     } as any;
 
     const { stepService } = createStepService({
@@ -244,6 +254,112 @@ describe('SendTurnStepService.resolveSkillsAndToolsAsync', () => {
     await stepService.resolveSkillsAndToolsAsync('turn-2', plugins, ctx);
 
     expect(chatSkillService.resolveSkillsForTurnAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it('adds workflow descriptors from the command catalog without resolving workflow commands', async () => {
+    const agent = {
+      id: 'michael-brown',
+      name: 'Michael Brown',
+      role: 'ceo',
+      tools: ['fs_*'],
+      disallowedTools: [],
+    } as unknown as Agent;
+    const ctx = {
+      agent,
+      workspaceRoot: '/workspace',
+      sessionId: 'session-1',
+      history: [],
+    } as unknown as ExecutionContext;
+    const plugins = {
+      toolResolver: { resolve: vi.fn(async () => [makeTool('fs_read')]) },
+      mcpGateway: { discover: vi.fn(async () => []) },
+      llmSelector: { select: vi.fn(async () => undefined) },
+      commandDispatcher: {
+        getCommands: vi.fn(() => [
+          { key: 'list', group: 'workflow', description: 'List workflows', availableIn: { tool: true } },
+          {
+            key: 'onboarding',
+            group: 'workflow',
+            description: 'Run onboarding workflow',
+            availableIn: { tool: true },
+          },
+        ]),
+      },
+    } as any;
+    const toolSchemaService = {
+      buildToolDefinitions: vi.fn((tools: any[]) =>
+        tools.map((tool) => ({ name: `${tool.metadata.group}_${tool.metadata.key}` }))
+      ),
+      buildToolDefinitionsFromDescriptors: vi.fn((descriptors: any[]) =>
+        descriptors.map((descriptor) => ({ name: `${descriptor.group}_${descriptor.key}` }))
+      ),
+    } as any;
+
+    const { stepService } = createStepService({
+      chatSkillService: {
+        resolveSkillsForTurnAsync: vi.fn(async () => ({ skills: [] })),
+      } as any,
+      agentManager: {
+        getAllAgentsAsync: vi.fn(async () => [agent]),
+        recordInteractionAsync: vi.fn(async () => undefined),
+      } as any,
+      toolSchemaService,
+    });
+    const resolved = await stepService.resolveSkillsAndToolsAsync('start onboarding', plugins, ctx);
+
+    expect(resolved.toolDefs.map((tool) => tool.name)).toEqual(['fs_read', 'workflow_onboarding']);
+    expect(toolSchemaService.buildToolDefinitionsFromDescriptors).toHaveBeenCalledWith([
+      { key: 'onboarding', group: 'workflow', description: 'Run onboarding workflow' },
+    ]);
+  });
+
+  it('does not duplicate workflow tools already exposed as command tool definitions', async () => {
+    const agent = {
+      id: 'michael-brown',
+      name: 'Michael Brown',
+      role: 'ceo',
+      tools: ['workflow_*'],
+      disallowedTools: [],
+    } as unknown as Agent;
+    const ctx = {
+      agent,
+      workspaceRoot: '/workspace',
+      sessionId: 'session-1',
+      history: [],
+    } as unknown as ExecutionContext;
+    const onboardingTool = makeTool('workflow_onboarding');
+    const plugins = {
+      toolResolver: { resolve: vi.fn(async () => [onboardingTool]) },
+      mcpGateway: { discover: vi.fn(async () => []) },
+      llmSelector: { select: vi.fn(async () => undefined) },
+      commandDispatcher: {
+        getCommands: vi.fn(() => [
+          {
+            key: 'onboarding',
+            group: 'workflow',
+            description: 'Run onboarding workflow',
+            availableIn: { tool: true },
+          },
+        ]),
+      },
+    } as any;
+
+    const { stepService } = createStepService({
+      chatSkillService: {
+        resolveSkillsForTurnAsync: vi.fn(async () => ({ skills: [] })),
+      } as any,
+      agentManager: {
+        getAllAgentsAsync: vi.fn(async () => [agent]),
+        recordInteractionAsync: vi.fn(async () => undefined),
+      } as any,
+      toolSchemaService: {
+        buildToolDefinitions: vi.fn(() => [{ name: 'workflow_onboarding' }]),
+        buildToolDefinitionsFromDescriptors: vi.fn(() => [{ name: 'workflow_onboarding' }]),
+      } as any,
+    });
+
+    const resolved = await stepService.resolveSkillsAndToolsAsync('start onboarding', plugins, ctx);
+    expect(resolved.toolDefs.map((tool) => tool.name)).toEqual(['workflow_onboarding']);
   });
 });
 

@@ -65,18 +65,7 @@ describe('init command', () => {
             chat: {
               agentId: 'elena-rodriguez',
               createNewSession: true,
-              workflowMode: true,
-              workflowSystemPrompt: 'Define the business with the developer.',
-              workflowExitWords: ['done', 'clear', 'finished'],
-              workflowToolAllowlist: [
-                'com_ask',
-                'hr_name_suggestions',
-                'hr_hire_agent',
-                'access_set_permissions',
-                'com_handoff',
-              ],
               introductionText: 'Elena: Let us define the business.',
-              suppressAutoIntroduction: true,
             },
           },
         },
@@ -95,18 +84,7 @@ describe('init command', () => {
       chat: {
         agentId: 'elena-rodriguez',
         createNewSession: true,
-        workflowMode: true,
-        workflowSystemPrompt: 'Define the business with the developer.',
-        workflowExitWords: ['done', 'clear', 'finished'],
-        workflowToolAllowlist: [
-          'com_ask',
-          'hr_name_suggestions',
-          'hr_hire_agent',
-          'access_set_permissions',
-          'com_handoff',
-        ],
         introductionText: 'Elena: Let us define the business.',
-        suppressAutoIntroduction: true,
       },
     });
   });

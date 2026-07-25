@@ -9,6 +9,7 @@ import type {
   ICommandDescriptor,
   IThreadManager,
 } from '@ai-team/core';
+import type { WorkflowInteractionRouter } from '../../workflow/workflow-interaction-router.js';
 
 const _returnCommandSchema = z.object({
   developerSignal: z
@@ -38,7 +39,13 @@ export class ReturnChatCommand implements ICommand<ReturnCommandParams, unknown>
   static readonly schema = _returnCommandSchema;
   readonly metadata = ReturnChatCommandMetadata;
 
-  constructor(private readonly commandDispatcher: ICommandDispatcher) {}
+  constructor(
+    private readonly commandDispatcher: ICommandDispatcher,
+    private readonly workflowInteractions?: Pick<
+      WorkflowInteractionRouter,
+      'resolveActiveInteraction' | 'dispatch'
+    >
+  ) {}
 
   async execute(
     args: ReturnCommandParams,
@@ -47,6 +54,43 @@ export class ReturnChatCommand implements ICommand<ReturnCommandParams, unknown>
     const signalError = this.validateAgentReturnSignal(args, ctx);
     if (signalError) {
       return { status: 'error', message: signalError };
+    }
+
+    const interaction = ctx.sessionId
+      ? await this.workflowInteractions?.resolveActiveInteraction(ctx.sessionId)
+      : null;
+    if (interaction && ctx.sessionId) {
+      let routedInteraction = interaction;
+      const dispatchReturnAttempt = async (
+        expected: { sessionId: string; cursor: string }
+      ): Promise<void> => {
+        await this.workflowInteractions?.dispatch(
+          expected.sessionId,
+          { type: 'RETURN_ATTEMPT' },
+          expected.cursor
+        );
+      };
+      try {
+        await dispatchReturnAttempt(interaction);
+      } catch (error) {
+        if (!this.isCursorMismatchError(error)) {
+          throw error;
+        }
+        const refreshed = await this.workflowInteractions?.resolveActiveInteraction(ctx.sessionId);
+        if (!refreshed) {
+          throw error;
+        }
+        routedInteraction = refreshed;
+        await dispatchReturnAttempt(refreshed);
+      }
+      return {
+        status: 'ok',
+        message: 'Workflow completion is being checked.',
+        data: {
+          workflowRunId: routedInteraction.runId,
+          interactionCursor: routedInteraction.cursor,
+        },
+      };
     }
 
     const returnCommand = ctx.workflowReturn;
@@ -127,6 +171,10 @@ export class ReturnChatCommand implements ICommand<ReturnCommandParams, unknown>
     return isCurrentDeveloperMessage
       ? undefined
       : 'The /return developerSignal must quote the latest visible developer message.';
+  }
+
+  private isCursorMismatchError(error: unknown): boolean {
+    return error instanceof Error && /interaction cursor mismatch/i.test(error.message);
   }
 }
 

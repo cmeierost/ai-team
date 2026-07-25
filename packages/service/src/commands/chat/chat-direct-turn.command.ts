@@ -16,6 +16,7 @@ import type { CommandResponse as ContractCommandResponse } from '@ai-team/api-co
 import type { ResolvedPlugins, TurnResult } from '../../workflow/runtime/pipeline.js';
 import { SendTurnResolvedSkillsAndTools } from '../../workflow/chat/send-turn-step-service.js';
 import { HANDOFF_AUTO_REACT_MESSAGE } from '../../workflow/chat/handoff-auto-react.js';
+import type { WorkflowInteractionRouter } from '../../workflow/workflow-interaction-router.js';
 import {
   parseSlashInvocation,
   resolveSlashInvocation,
@@ -35,6 +36,7 @@ const chatDirectTurnParamsSchema = z.object({
     createNewSession: z.boolean().optional(),
     workflowSystemPrompt: z.string().optional(),
     workflowToolAllowlist: z.array(z.string()).optional(),
+    skipWorkflowInteractionRouting: z.boolean().optional(),
   }),
 });
 
@@ -79,7 +81,11 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     >,
     private readonly plugins: ResolvedPlugins,
     private readonly sessionManager: ISessionManager,
-    private readonly emitService: IEmitService
+    private readonly emitService: IEmitService,
+    private readonly workflowInteractions?: Pick<
+      WorkflowInteractionRouter,
+      'resolveActiveInteraction' | 'dispatchChatTurn'
+    >
   ) {}
 
   async execute(
@@ -102,6 +108,7 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
     const turnContext = this.toExecutionContext(ctx, bootstrap.sessionId, bootstrap.agent);
     turnContext.history.push(...bootstrap.sessionHistory);
     const isInternal = payload.options.messageOrigin === 'internal';
+    const shouldRouteThroughWorkflowActor = !payload.options.skipWorkflowInteractionRouting;
     const slashHandled = isInternal
       ? null
       : await this.tryHandleSlashCommandAsync(payload.options.message, turnContext);
@@ -127,6 +134,58 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
           ...(slashHandled.followUpMessage
             ? { followUpMessage: slashHandled.followUpMessage }
             : {}),
+        },
+        message: 'completed',
+      };
+    }
+
+    const activeInteraction =
+      shouldRouteThroughWorkflowActor && bootstrap.sessionId
+        ? await this.workflowInteractions?.resolveActiveInteraction(bootstrap.sessionId)
+        : null;
+    if (activeInteraction) {
+      const dispatchRoutedTurn = async (
+        interaction: { sessionId: string; cursor: string }
+      ): Promise<{ routed: { assistantMessage?: string } | null; sessionId: string }> => {
+        const sessionId = interaction.sessionId || bootstrap.sessionId;
+        const routed = await this.workflowInteractions?.dispatchChatTurn(
+          sessionId,
+          payload.options.message,
+          interaction.cursor
+        ) ?? null;
+        return { routed, sessionId };
+      };
+      let routedTurn: {
+        routed: { assistantMessage?: string } | null;
+        sessionId: string;
+      };
+      try {
+        routedTurn = await dispatchRoutedTurn(activeInteraction);
+      } catch (error) {
+        if (!this.isCursorMismatchError(error)) {
+          throw error;
+        }
+        const refreshed = await this.workflowInteractions?.resolveActiveInteraction(bootstrap.sessionId);
+        if (!refreshed) {
+          throw error;
+        }
+        routedTurn = await dispatchRoutedTurn(refreshed);
+      }
+
+      const history = await this.sessionManager.getSessionMessages(routedTurn.sessionId);
+      this.bootstrapResolver.updateCachedRuntimeState(ctx, {
+        agentId: turnContext.agent?.id ?? bootstrap.agent.id,
+        sessionId: routedTurn.sessionId,
+        history,
+        navStack: turnContext.navStack,
+      });
+
+      return {
+        status: 'ok',
+        data: {
+          text: routedTurn.routed?.assistantMessage ?? '',
+          agentId: turnContext.agent?.id ?? bootstrap.agent.id,
+          sessionId: routedTurn.sessionId,
         },
         message: 'completed',
       };
@@ -342,6 +401,10 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
 
   private isEmptyLlmResponse(error: unknown): boolean {
     return error instanceof Error && /LLM returned an empty response/i.test(error.message);
+  }
+
+  private isCursorMismatchError(error: unknown): boolean {
+    return error instanceof Error && /interaction cursor mismatch/i.test(error.message);
   }
 
   private async tryHandleSlashCommandAsync(

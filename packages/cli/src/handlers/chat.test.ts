@@ -473,11 +473,6 @@ describe('new chat TUI projection', () => {
       {
         message: 'We serve small teams.',
         createNewSession: true,
-        workflowMode: true,
-        workflowSystemPrompt: 'Ask one focused business question at a time.',
-        workflowExitWords: ['done'],
-        workflowToolAllowlist: ['com_ask'],
-        suppressAutoIntroduction: true,
         introductionText: "Hi Clemens, let's define the business.",
       },
       false,
@@ -493,15 +488,11 @@ describe('new chat TUI projection', () => {
         options: {
           introduction: true,
           introductionText: "Hi Clemens, let's define the business.",
-          workflowMode: true,
-          workflowExitWords: ['done'],
         },
       },
     });
     expect(requests[1]?.payload).toMatchObject({
       message: 'We serve small teams.',
-      workflowSystemPrompt: 'Ask one focused business question at a time.',
-      workflowToolAllowlist: ['com_ask'],
     });
   });
 

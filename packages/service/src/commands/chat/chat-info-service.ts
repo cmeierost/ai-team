@@ -6,8 +6,6 @@ export interface IChatInfoService {
   showSessionIntro(args: {
     agent: Agent;
     developerName: string | undefined;
-    workflowMode?: boolean;
-    workflowExitWords?: string[];
   }): void;
   showLoadedInstructions(instructionCount: number): void;
   showWorkspaceInfo(args: { workspace: string; gitBranch?: string | null }): void;
@@ -28,10 +26,8 @@ export class ChatInfoService implements IChatInfoService {
   showSessionIntro(args: {
     agent: Agent;
     developerName: string | undefined;
-    workflowMode?: boolean;
-    workflowExitWords?: string[];
   }): void {
-    const { agent, developerName, workflowMode, workflowExitWords } = args;
+    const { agent, developerName } = args;
 
     this.emitService.emit({
       kind: 'agent_info',
@@ -44,12 +40,6 @@ export class ChatInfoService implements IChatInfoService {
       message: 'exit · /help · /handoff <name>',
     });
 
-    if (workflowMode && (workflowExitWords?.length ?? 0) > 0) {
-      const exitWords = workflowExitWords?.filter(Boolean).join(', ');
-      if (exitWords) {
-        this.emitService.log('info', `Type ${exitWords} to continue to the next workflow step`);
-      }
-    }
   }
 
   showLoadedInstructions(instructionCount: number): void {

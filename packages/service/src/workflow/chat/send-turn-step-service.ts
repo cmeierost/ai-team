@@ -197,7 +197,7 @@ export class SendTurnStepService implements ISendTurnStepService {
 
     await plugins.llmSelector.select(ctx);
 
-    const toolDefs = this.buildToolDefinitions(allTools);
+    const toolDefs = this.buildToolDefinitions(allTools, plugins);
 
     return {
       skills,
@@ -331,8 +331,21 @@ export class SendTurnStepService implements ISendTurnStepService {
     return turnResult;
   }
 
-  private buildToolDefinitions(tools: ICommand[]): LlmToolDefinition[] {
-    return this.toolSchemaService.buildToolDefinitions(tools);
+  private buildToolDefinitions(tools: ICommand[], plugins: ResolvedPlugins): LlmToolDefinition[] {
+    const commandToolDefs = this.toolSchemaService.buildToolDefinitions(tools);
+    const commandNames = new Set(commandToolDefs.map((tool) => tool.name));
+    const workflowDescriptors = plugins.commandDispatcher
+      .getCommands({ tool: true })
+      .filter((descriptor) => descriptor.group === 'workflow' && descriptor.key !== 'list')
+      .map((descriptor) => ({
+        key: descriptor.key,
+        group: descriptor.group,
+        description: descriptor.description,
+      }));
+    const workflowToolDefs = this.toolSchemaService
+      .buildToolDefinitionsFromDescriptors(workflowDescriptors)
+      .filter((tool) => !commandNames.has(tool.name));
+    return [...commandToolDefs, ...workflowToolDefs];
   }
 
   private filterDiscoveredToolsForAgent(agent: Agent, discoveredTools: ICommand[]): ICommand[] {

@@ -266,15 +266,7 @@ export interface ChatOptions {
   createNewSession?: boolean; // Force create new session instead of resuming latest
   addAgentToSession?: string; // Add another agent to this session (multi-agent mode)
 
-  /**
-   * Workflow mode: keeps normal chat runtime/orchestrator, but allows tailored onboarding prompts
-   * and workflow-aware exit behavior.
-   */
-  workflowMode?: boolean;
-  workflowSystemPrompt?: string;
-  workflowExitWords?: string[];
-  workflowToolAllowlist?: string[];
-  suppressAutoIntroduction?: boolean;
+  /** Optional custom first-turn introduction text for startup. */
   introductionText?: string;
   disableProcessExit?: boolean;
 }
@@ -301,12 +293,7 @@ export interface InitResult {
   chat?: {
     agentId: string;
     createNewSession: true;
-    workflowMode: true;
-    workflowSystemPrompt: string;
-    workflowExitWords: string[];
-    workflowToolAllowlist: string[];
     introductionText: string;
-    suppressAutoIntroduction: true;
   };
 }
 

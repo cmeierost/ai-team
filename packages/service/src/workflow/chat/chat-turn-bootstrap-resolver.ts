@@ -10,13 +10,6 @@ import type {
   IThreadManager,
 } from '@ai-team/core';
 
-interface ChatRuntimeWorkflowStateSnapshot {
-  agentId: string;
-  sessionId: string;
-  history: ChatMessage[];
-  navStack: ExecutionContext['navStack'];
-}
-
 export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
   constructor(
     private readonly agentManager: IAgentManager,
@@ -35,12 +28,9 @@ export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
   ): Promise<ChatTurnBootstrapResolution> {
     const developerName = this.developerIdentityService.getUserName() ?? 'developer';
     const developerId = this.developerIdentityService.toDeveloperId(developerName);
-    const cachedState = this.getCachedRuntimeState(ctx);
 
-    const requestedSessionId = input.sessionId ?? ctx.sessionId ?? cachedState?.sessionId;
-    let requestedSession = requestedSessionId
-      ? await this.resolveRequestedSessionAsync(requestedSessionId, cachedState)
-      : null;
+    const requestedSessionId = input.sessionId ?? ctx.sessionId;
+    let requestedSession = requestedSessionId ? await this.sessionManager.getSession(requestedSessionId) : null;
 
     if (requestedSessionId && !requestedSession) {
       return {
@@ -69,7 +59,7 @@ export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
 
     const agent = await this.resolveAgentForTurnAsync(
       {
-        agentQuery: input.agentQuery ?? ctx.agentId ?? ctx.agent?.id ?? cachedState?.agentId,
+        agentQuery: input.agentQuery ?? ctx.agentId ?? ctx.agent?.id,
         requestedSession,
         developerId,
       },
@@ -90,7 +80,6 @@ export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
       sessionId: requestedSession?.id ?? requestedSessionId,
       createNewSession: input.createNewSession,
       developerId,
-      cachedState,
     });
 
     return {
@@ -111,33 +100,7 @@ export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
       navStack: ExecutionContext['navStack'];
     }
   ): void {
-    if (!ctx.workflowState || typeof ctx.workflowState !== 'object' || Array.isArray(ctx.workflowState)) {
-      ctx.workflowState = {};
-    }
-
-    const bag = ctx.workflowState as Record<string, unknown>;
-    bag['chatRuntime'] = {
-      agentId: state.agentId,
-      sessionId: state.sessionId,
-      history: [...state.history],
-      navStack: [...(state.navStack ?? [])],
-    } satisfies ChatRuntimeWorkflowStateSnapshot;
-
     ctx.navStack = [...(state.navStack ?? [])];
-  }
-
-  private async resolveRequestedSessionAsync(
-    sessionId: string,
-    cachedState: ChatRuntimeWorkflowStateSnapshot | null
-  ): Promise<Awaited<ReturnType<ISessionManager['getSession']>>> {
-    if (cachedState?.sessionId === sessionId) {
-      return {
-        id: cachedState.sessionId,
-        agentId: cachedState.agentId,
-      } as unknown as Awaited<ReturnType<ISessionManager['getSession']>>;
-    }
-
-    return this.sessionManager.getSession(sessionId);
   }
 
   private async resolveAgentForTurnAsync(
@@ -191,19 +154,8 @@ export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
       sessionId?: string;
       createNewSession?: boolean;
       developerId: string;
-      cachedState: ChatRuntimeWorkflowStateSnapshot | null;
     }
   ): Promise<{ sessionId: string; history: ChatMessage[] }> {
-    if (
-      options.cachedState &&
-      options.createNewSession !== true &&
-      options.sessionId &&
-      options.cachedState.sessionId === options.sessionId &&
-      options.cachedState.agentId === agent.id
-    ) {
-      return { sessionId: options.cachedState.sessionId, history: [...options.cachedState.history] };
-    }
-
     if (options.sessionId) {
       const history = await this.sessionManager.getSessionMessages(options.sessionId);
       return { sessionId: options.sessionId, history };
@@ -222,36 +174,5 @@ export class ChatTurnBootstrapResolver implements IChatTurnBootstrapResolver {
 
     const created = await this.sessionManager.createSession(agent.id, options.developerId);
     return { sessionId: created.id, history: [] };
-  }
-
-  private getCachedRuntimeState(ctx: ExecutionContext): ChatRuntimeWorkflowStateSnapshot | null {
-    if (!ctx.workflowState || typeof ctx.workflowState !== 'object' || Array.isArray(ctx.workflowState)) {
-      return null;
-    }
-
-    const bag = ctx.workflowState as Record<string, unknown>;
-    const raw = bag['chatRuntime'];
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-      return null;
-    }
-
-    const candidate = raw as Partial<ChatRuntimeWorkflowStateSnapshot>;
-    if (
-      typeof candidate.agentId !== 'string' ||
-      typeof candidate.sessionId !== 'string' ||
-      !Array.isArray(candidate.history) ||
-      !Array.isArray(candidate.navStack)
-    ) {
-      return null;
-    }
-
-    ctx.navStack = candidate.navStack as ExecutionContext['navStack'];
-
-    return {
-      agentId: candidate.agentId,
-      sessionId: candidate.sessionId,
-      history: candidate.history as ChatMessage[],
-      navStack: candidate.navStack as ExecutionContext['navStack'],
-    };
   }
 }

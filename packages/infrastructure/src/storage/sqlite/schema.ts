@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 export const schemaVersion = sqliteTable('schema_version', {
   version: integer('version').primaryKey(),
@@ -257,6 +257,7 @@ export const workflowRuns = sqliteTable('workflow_runs', {
   snapshotSequence: integer('snapshot_sequence').notNull().default(0),
   rootSessionId: text('root_session_id'),
   activeSessionId: text('active_session_id'),
+  activeActorPath: text('active_actor_path'),
   outputJson: text('output_json'),
   failureJson: text('failure_json'),
   createdAt: text('created_at').notNull(),
@@ -264,3 +265,14 @@ export const workflowRuns = sqliteTable('workflow_runs', {
   completedAt: text('completed_at'),
   cancelledAt: text('cancelled_at'),
 });
+
+export const workflowOperations = sqliteTable('workflow_operations', {
+  runId: text('run_id').notNull(),
+  operationKey: text('operation_key').notNull(),
+  status: text('status').notNull(),
+  inputJson: text('input_json').notNull(),
+  outputJson: text('output_json'),
+  failureJson: text('failure_json'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [primaryKey({ columns: [table.runId, table.operationKey] })]);

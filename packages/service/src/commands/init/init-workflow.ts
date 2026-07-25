@@ -225,26 +225,14 @@ export async function runInitWorkflowAsync(
   }
 
   const agentId = result.state.onboarding?.ceoAgentId;
-  const workflowSystemPrompt = result.state.onboarding?.businessSystemPrompt;
   const introductionText = result.state.onboarding?.businessOpeningMessage;
   return {
-    ...(agentId && workflowSystemPrompt && introductionText
+    ...(agentId && introductionText
       ? {
           chat: {
             agentId,
             createNewSession: true as const,
-            workflowMode: true as const,
-            workflowSystemPrompt,
-            workflowExitWords: ['done', 'clear', 'finished'],
-            workflowToolAllowlist: [
-              'com_ask',
-              'hr_name_suggestions',
-              'hr_hire_agent',
-              'access_set_permissions',
-              'com_handoff',
-            ],
             introductionText,
-            suppressAutoIntroduction: true as const,
           },
         }
       : {}),

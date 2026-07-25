@@ -8,6 +8,7 @@ import type {
 } from '@ai-team/core';
 import { CORE_SERVICE_TOKENS } from '@ai-team/core';
 import { CommandActorAdapterResolver } from './command-actor-adapter-resolver.js';
+import { WorkflowActorHost } from './workflow-actor-host.js';
 import { WORKFLOW_SERVICE_TOKENS } from './workflow-service-tokens.js';
 import { WorkflowRunner, WorkflowRunnerFactory } from './xstate-workflow-runner.js';
 import type { WorkflowDefinition } from './workflow-types.js';
@@ -45,7 +46,8 @@ function createResolver(
   backendLogService?: IBackendLogService,
   workflowRunRepository?: IWorkflowRunRepository,
   commands: Record<string, unknown> = {},
-  commandActorAdapters?: CommandActorAdapterResolver
+  commandActorAdapters?: CommandActorAdapterResolver,
+  commandDispatcher?: { dispatch: (key: string, params: unknown, ctx: unknown) => Promise<unknown> }
 ): IServiceContainer {
   const toolManager = {
     get: (key: string) => commands[key],
@@ -59,6 +61,9 @@ function createResolver(
       if (token === CORE_SERVICE_TOKENS.BackendLogService) {
         return backendLogService ?? noOpBackendLogService;
       }
+      if (token === CORE_SERVICE_TOKENS.CommandDispatcher && commandDispatcher) {
+        return commandDispatcher;
+      }
       if (token === CORE_SERVICE_TOKENS.WorkflowRunRepository && workflowRunRepository) {
         return workflowRunRepository;
       }
@@ -70,6 +75,9 @@ function createResolver(
       }
       if (token === CORE_SERVICE_TOKENS.ToolManager) {
         return toolManager;
+      }
+      if (token === CORE_SERVICE_TOKENS.CommandDispatcher) {
+        return commandDispatcher;
       }
       if (token === CORE_SERVICE_TOKENS.WorkflowRunRepository) {
         return workflowRunRepository;
@@ -130,6 +138,19 @@ function createLoopDefinition(): WorkflowDefinition<LoopState> {
 }
 
 describe('WorkflowRunner logging', () => {
+  async function waitForCondition(
+    check: () => boolean,
+    timeoutMs = 1_000
+  ): Promise<void> {
+    const started = Date.now();
+    while (!check()) {
+      if (Date.now() - started > timeoutMs) {
+        throw new Error('Timed out waiting for condition.');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
   it('starts a durable run through the factory and keeps run() as its completion wrapper', async () => {
     const repository = new MemoryWorkflowRunRepository();
     const runner = new WorkflowRunnerFactory(createResolver(undefined, repository)).create();
@@ -208,6 +229,81 @@ describe('WorkflowRunner logging', () => {
 
     expect(result).toEqual({ state: { child: { completed: 'from-child' } }, aborted: false });
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('persists the deepest nested active interaction path for interactive child workflows', async () => {
+    const repository = new MemoryWorkflowRunRepository();
+    const actorHost = new WorkflowActorHost(repository);
+    const commandActorAdapters = new CommandActorAdapterResolver();
+    const commands: Record<string, unknown> = {};
+    const factory = new WorkflowRunnerFactory(
+      createResolver(undefined, repository, commands, commandActorAdapters)
+    );
+    const childCommand = factory.asCommand({
+      id: 'interactive-child-workflow',
+      version: '1',
+      description: 'Interactive child workflow',
+      availableIn: { cli: false, chat: false, tool: true },
+      toResult: (state: { leader?: string }) => ({ leader: state.leader }),
+      steps: [
+        {
+          kind: 'question',
+          id: 'choose-role',
+          prompt: 'Who should lead?',
+          interaction: {
+            type: 'select',
+            options: [
+              { value: 'alex', label: 'Alex' },
+              { value: 'sam', label: 'Sam' },
+            ],
+          },
+          applyResult: (state, answer) => ({ ...state, leader: String(answer) }),
+        },
+      ],
+    });
+    commands.child_workflow = childCommand;
+    const runner = new WorkflowRunner(
+      createResolver(undefined, repository, commands, commandActorAdapters),
+      noOpBackendLogService,
+      actorHost,
+      commandActorAdapters
+    );
+    const handle = await runner.start(
+      {
+        id: 'parent-with-interactive-child',
+        version: '1',
+        description: 'Parent workflow with interactive child command',
+        availableIn: { cli: false, chat: false, tool: false },
+        steps: [
+          {
+            id: 'invoke-child',
+            command: 'child_workflow',
+            applyResult: (state, raw) => ({ ...state, child: raw }),
+          },
+        ],
+      },
+      {},
+      { executionContext: { history: [], sessionId: 'nested-session' } }
+    );
+
+    let activePath = '';
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const active = await repository.findActiveBySession('nested-session');
+      activePath = active?.activeActorPath ?? '';
+      if (activePath.includes('.')) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(activePath).toContain('.');
+
+    expect(handle.getSnapshotView().interaction).toEqual(
+      expect.objectContaining({
+        sessionId: 'nested-session',
+        actorPath: expect.stringMatching(/invoke-child\.workflow$/),
+        metadata: expect.objectContaining({ kind: 'question', prompt: 'Who should lead?' }),
+      })
+    );
   });
 
   it('keeps host dependencies out of persisted workflow context', () => {
@@ -571,5 +667,248 @@ describe('WorkflowRunner logging', () => {
     expect(result.abortedError).toMatch(
       /^Could not start workflow 'already-aborted-workflow' \(run .+\): the request signal was already aborted\.$/
     );
+  });
+
+  it('invokes a workflow chat child and applies its typed final output to the parent state', async () => {
+    const check = vi.fn(async () => ({ done: true }));
+    const finalize = vi.fn(async () => ({ approved: true, documentPath: 'business.md' }));
+    const processTurn = vi.fn(async () => ({ assistantMessage: 'Ready when you are.' }));
+    const operationJournal = {
+      execute: vi.fn(async (_runId, _operationKey, _input, operation) => operation()),
+    };
+    const runner = new WorkflowRunner(
+      createResolver(undefined),
+      noOpBackendLogService,
+      undefined,
+      undefined,
+      operationJournal as any
+    );
+
+    const handle = await runner.start(
+      {
+        id: 'workflow-chat-child',
+        version: '1',
+        description: 'Workflow-owned chat child test',
+        availableIn: { cli: false, chat: false, tool: false },
+        steps: [
+          {
+            kind: 'chat',
+            id: 'business',
+            chat: {
+              systemPrompt: 'Define {{documentPath}}',
+              toolPolicy: { allow: ['docs_write'] },
+            },
+            done: { command: 'check-business', args: { path: '{{documentPath}}' } },
+            finalize: { command: 'finalize-business', args: { path: '{{documentPath}}' } },
+            applyResult: (state, output) => ({ ...state, business: output }),
+          },
+        ],
+      },
+      { documentPath: 'business.md' },
+      {
+        executionContext: { history: [], sessionId: 'ceo-session' },
+        chat: { processTurn },
+        commands: {
+          'check-business': { execute: check },
+          'finalize-business': { execute: finalize },
+        },
+      }
+    );
+
+    await handle.dispatch({ type: 'RETURN_ATTEMPT' });
+
+    await expect(handle.waitForDone()).resolves.toEqual({
+      state: {
+        documentPath: 'business.md',
+        business: { approved: true, documentPath: 'business.md' },
+      },
+      aborted: false,
+    });
+
+    expect(check).toHaveBeenCalledWith(
+      { path: 'business.md' },
+      expect.objectContaining({ sessionId: 'ceo-session', stepId: 'business' })
+    );
+    expect(finalize).toHaveBeenCalledWith(
+      { path: 'business.md' },
+      expect.objectContaining({ sessionId: 'ceo-session', stepId: 'business' })
+    );
+    expect(processTurn).not.toHaveBeenCalled();
+    expect(operationJournal.execute).toHaveBeenCalledWith(
+      expect.stringMatching(/^workflow-chat-child:/),
+      'finalize:business',
+      { command: 'finalize-business', args: { path: 'business.md' } },
+      expect.any(Function)
+    );
+  });
+
+  it('routes child chat turns through chat-direct-turn with child prompt and allowlist on every turn', async () => {
+    const dispatch = vi.fn(async (_key: string, params: any) => ({
+      status: 'ok',
+      data: { text: `assistant:${params?.options?.message ?? ''}` },
+      message: 'completed',
+    }));
+    const runner = new WorkflowRunner(
+      createResolver(undefined, undefined, {}, undefined, { dispatch }),
+      noOpBackendLogService
+    );
+    const handle = await runner.start(
+      {
+        id: 'workflow-chat-child-routing',
+        version: '1',
+        description: 'Workflow child routing test',
+        availableIn: { cli: false, chat: false, tool: false },
+        steps: [
+          {
+            kind: 'chat',
+            id: 'business',
+            chat: {
+              systemPrompt: 'Define {{documentPath}}',
+              toolPolicy: { allow: ['com_ask', 'docs_write'] },
+            },
+            done: { command: 'check-business' },
+            finalize: { command: 'finalize-business' },
+          },
+        ],
+      },
+      { documentPath: '.ai-team/business.md' },
+      {
+        executionContext: { history: [], sessionId: 'ceo-session' },
+        commands: {
+          'check-business': { execute: vi.fn(async () => ({ done: false })) },
+          'finalize-business': { execute: vi.fn(async () => ({ approved: true })) },
+        },
+      }
+    );
+
+    await handle.dispatch({ type: 'CHAT_TURN', message: 'First draft ready.' });
+    await handle.dispatch({ type: 'CHAT_TURN', message: 'Added market analysis.' });
+    await waitForCondition(() => dispatch.mock.calls.length === 2);
+
+    expect(dispatch).toHaveBeenNthCalledWith(
+      1,
+      'chat-chat-direct-turn',
+      {
+        options: {
+          message: 'First draft ready.',
+          messageOrigin: 'developer',
+          sessionId: 'ceo-session',
+          workflowSystemPrompt: 'Define .ai-team/business.md',
+          workflowToolAllowlist: ['com_ask', 'docs_write'],
+          skipWorkflowInteractionRouting: true,
+        },
+      },
+      expect.objectContaining({ sessionId: 'ceo-session', stepId: 'business' })
+    );
+    expect(dispatch).toHaveBeenNthCalledWith(
+      2,
+      'chat-chat-direct-turn',
+      {
+        options: {
+          message: 'Added market analysis.',
+          messageOrigin: 'developer',
+          sessionId: 'ceo-session',
+          workflowSystemPrompt: 'Define .ai-team/business.md',
+          workflowToolAllowlist: ['com_ask', 'docs_write'],
+          skipWorkflowInteractionRouting: true,
+        },
+      },
+      expect.objectContaining({ sessionId: 'ceo-session', stepId: 'business' })
+    );
+    expect(handle.getSnapshotView().interaction).toMatchObject({
+      sessionId: 'ceo-session',
+      actorPath: 'workflowChatInvocation_business',
+    });
+  });
+
+  it('persists typed question interaction metadata until an ANSWER event advances the workflow', async () => {
+    const runner = new WorkflowRunner(createResolver(undefined), noOpBackendLogService);
+    const handle = await runner.start(
+      {
+        id: 'workflow-question',
+        version: '1',
+        description: 'Durable workflow question test',
+        availableIn: { cli: false, chat: false, tool: false },
+        steps: [
+          {
+            kind: 'question',
+            id: 'choose-role',
+            prompt: 'Who should lead {{team}}?',
+            interaction: {
+              type: 'select',
+              options: [
+                { value: 'alex', label: 'Alex' },
+                { value: 'sam', label: 'Sam' },
+              ],
+            },
+            applyResult: (state, answer) => ({ ...state, leader: String(answer) }),
+          },
+        ],
+      },
+      { team: 'engineering' }
+    );
+
+    expect(handle.getSnapshotView().interaction).toEqual({
+      sessionId: handle.id,
+      actorPath: 'workflowQuestion_choose-role',
+      metadata: {
+        kind: 'question',
+        prompt: 'Who should lead engineering?',
+        response: {
+          type: 'select',
+          options: [
+            { value: 'alex', label: 'Alex' },
+            { value: 'sam', label: 'Sam' },
+          ],
+        },
+      },
+    });
+
+    await handle.dispatch({ type: 'ANSWER', answer: 'sam' });
+    await expect(handle.waitForDone()).resolves.toEqual({
+      state: { team: 'engineering', leader: 'sam' },
+      aborted: false,
+    });
+  });
+
+  it('returns an active run reference when an interactive workflow is executed as a command', async () => {
+    const repository = new MemoryWorkflowRunRepository();
+    const factory = new WorkflowRunnerFactory(createResolver(undefined, repository));
+    const command = factory.asCommand({
+      id: 'interactive-workflow-command',
+      version: '1',
+      description: 'Interactive workflow command test',
+      availableIn: { cli: false, chat: true, tool: true },
+      steps: [
+        {
+          kind: 'chat',
+          id: 'interactive-chat',
+          chat: { systemPrompt: 'Work with the developer.', toolPolicy: { allow: [] } },
+          done: { command: 'check' },
+          finalize: { command: 'finalize' },
+        },
+      ],
+    });
+
+    const response = await command.execute({}, { history: [], sessionId: 'interactive-session' });
+
+    expect(response).toEqual({
+      status: 'ok',
+      data: {
+        workflowRunId: expect.stringMatching(/^interactive-workflow-command:/),
+        status: 'active',
+      },
+    });
+    expect(await repository.findActiveBySession('interactive-session')).toEqual(
+      expect.objectContaining({
+        definitionId: 'interactive-workflow-command',
+        activeActorPath: 'workflowChatInvocation_interactive-chat',
+      })
+    );
+
+    await expect(command.execute({}, { history: [], sessionId: 'interactive-session' })).resolves.toEqual(
+      response
+    );
+    expect([...repository.records.values()]).toHaveLength(1);
   });
 });

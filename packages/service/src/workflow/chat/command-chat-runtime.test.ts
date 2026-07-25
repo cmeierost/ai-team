@@ -26,6 +26,66 @@ function workflowRunner() {
 }
 
 describe('CommandChatRuntime', () => {
+  it('consumes /exit without dispatching a chat turn and checkpoints active workflow state', async () => {
+    const dispatch = vi.fn();
+    const checkpoint = vi.fn(async () => ({}));
+    const resolveActiveRun = vi.fn(async () => ({ id: 'run-1' }));
+    const getLiveRun = vi.fn(() => ({ checkpoint }));
+    const runtime = new CommandChatRuntime(
+      { dispatch } as any,
+      { create: workflowRunner } as any,
+      { resolveActiveRun } as any,
+      { getLiveRun } as any
+    );
+
+    const result = await runtime.runAsync({
+      message: '/exit',
+      agentId: 'michael-brown',
+      sessionId: 'session-michael',
+      invocationSurface: 'cli',
+      calledByHuman: true,
+    });
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      text: '',
+      hopCount: 0,
+    });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(resolveActiveRun).toHaveBeenCalledWith('session-michael');
+    expect(getLiveRun).toHaveBeenCalledWith('run-1');
+    expect(checkpoint).toHaveBeenCalledTimes(1);
+  });
+
+  it('consumes /exit even when no active workflow run is associated with the session', async () => {
+    const dispatch = vi.fn();
+    const resolveActiveRun = vi.fn(async () => null);
+    const getLiveRun = vi.fn();
+    const runtime = new CommandChatRuntime(
+      { dispatch } as any,
+      { create: workflowRunner } as any,
+      { resolveActiveRun } as any,
+      { getLiveRun } as any
+    );
+
+    const result = await runtime.runAsync({
+      message: '/exit',
+      agentId: 'michael-brown',
+      sessionId: 'session-michael',
+      invocationSurface: 'cli',
+      calledByHuman: true,
+    });
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      text: '',
+      hopCount: 0,
+    });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(resolveActiveRun).toHaveBeenCalledWith('session-michael');
+    expect(getLiveRun).not.toHaveBeenCalled();
+  });
+
   it('continues an already-applied tool handoff without dispatching it twice', async () => {
     const dispatch = vi
       .fn()

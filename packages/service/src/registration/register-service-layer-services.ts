@@ -138,6 +138,7 @@ import {
   CommandChatRuntime,
   WorkflowActorHost,
   WorkflowInteractionRouter,
+  WorkflowOperationJournal,
   WorkflowRunnerFactory,
   WORKFLOW_SERVICE_TOKENS,
 } from '../workflow/index.js';
@@ -277,6 +278,10 @@ export function registerServiceLayerServices(
         c.resolve(WORKFLOW_SERVICE_TOKENS.WorkflowActorHost)
       )
   );
+  container.registerSingleton(
+    WORKFLOW_SERVICE_TOKENS.WorkflowOperationJournal,
+    (c) => new WorkflowOperationJournal(c.resolve(CORE_SERVICE_TOKENS.WorkflowOperationRepository))
+  );
 
   container.registerScoped(
     CORE_SERVICE_TOKENS.WorkflowRunnerFactory,
@@ -292,7 +297,9 @@ export function registerServiceLayerServices(
     (c): IChatRuntime =>
       new CommandChatRuntime(
         c.resolve(CORE_SERVICE_TOKENS.CommandDispatcher),
-        c.resolve(CORE_SERVICE_TOKENS.WorkflowRunnerFactory)
+        c.resolve(CORE_SERVICE_TOKENS.WorkflowRunnerFactory),
+        c.resolve(WORKFLOW_SERVICE_TOKENS.WorkflowInteractionRouter),
+        c.resolve(WORKFLOW_SERVICE_TOKENS.WorkflowActorHost)
       )
   );
 

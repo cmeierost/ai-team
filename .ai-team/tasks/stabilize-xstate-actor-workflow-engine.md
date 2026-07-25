@@ -20,7 +20,7 @@ tags:
   - onboarding
   - architecture
 createdAt: 2026-07-24T23:56:07.9881991+02:00
-updatedAt: 2026-07-25T04:47:58.3917226+02:00
+updatedAt: 2026-07-25T06:30:40.3946176+02:00
 ---
 
 ## Goal
@@ -1468,6 +1468,36 @@ The stabilization effort is complete when:
   pass;
 - the complete disposable-repository end-to-end release gate passes.
 
+## Current Implementation Handoff
+
+The actor foundation is implemented in-place. `WorkflowRunner` starts durable
+root actors through `WorkflowActorHost`; `WorkflowInteractionRouter` resolves a
+session to its active run and opaque child-interaction cursor; and
+`WorkflowOperationJournal` makes chat finalizers idempotent. Workflow-run
+records persist root/active sessions and `activeActorPath`; migrations `0005`,
+`0006`, and `0007` establish the required storage.
+
+The workflow DSL now supports `chat` and `question` steps. Chat steps invoke
+`createWorkflowChatActor`, accept `CHAT_TURN` and `RETURN_ATTEMPT`, run typed
+completion/finalizer commands, and apply child output through parent
+`invoke.onDone`. Question steps persist typed prompt/options metadata and wait
+for an `ANSWER` event. `ReturnChatCommand` routes `/return` to an active child
+before falling back to the legacy session-return behavior.
+
+Important current limitation: normal chat turns are **not** yet routed into a
+workflow child. The runner accepts a temporary `WorkflowRunOptions.chat`
+`processTurn` seam only for focused actor coverage. The next slice should wire
+the existing production chat-turn path to `WorkflowInteractionRouter`, install
+the child prompt as a true system message, scope its tool allowlist there, and
+remove the obsolete workflow-specific chat options. Do not create another chat
+runtime or bypass the existing command/dispatch policy path.
+
+Useful verification baseline: core, infrastructure, and service builds pass;
+focused workflow/host/router/chat/return/repository tests pass; and targeted
+lint plus `git diff --check` pass. Full service lint has a pre-existing,
+unrelated failure in `register-service-layer-services.ts` from unused Fs*
+imports/`c`; do not fold that cleanup into this workflow slice.
+
 ## Action Items
 
 - [x] Research official XState v5 actor, invoke, guard, output, persistence, system, and inspection semantics.
@@ -1493,7 +1523,7 @@ The stabilization effort is complete when:
 - [x] Implement acknowledged `dispatch()`, snapshot views, persisted snapshots, status, checkpoint, wait-for-done, and cancel on the run handle.
 - [x] Reimplement `IWorkflowRunner.run()` as a compatibility wrapper over `start()` and `waitForDone()`.
 - [x] Keep `asCommand()` as the one workflow-to-`ICommand` adapter and add its service-local actor capability.
-- [ ] Make `IWorkflowCommand.execute()` await bounded workflows or start/attach interactive runs without holding a multi-turn promise open.
+- [x] Make `IWorkflowCommand.execute()` await bounded workflows or start/attach interactive runs without holding a multi-turn promise open.
 - [x] Update `WORKFLOW-COMPOSITION.md` so actor parents select the child-machine capability on the same registered `IWorkflowCommand`.
 - [ ] Extract compiler, actor host, interaction router, and event projector behind DI from the current runner before changing behavior.
 - [ ] Keep exactly one `IWorkflowRunner` and one production adapter per extracted seam registered in every composition root.
@@ -1502,33 +1532,33 @@ The stabilization effort is complete when:
 - [x] Define workflow definition IDs and explicit definition versions.
 - [ ] Version the exposed invocation catalog used to compile chat workflow-tool states.
 - [x] Add the persisted workflow-run repository and database migration in `.ai-team/private/ai-team.db`.
-- [ ] Persist ordered root actor snapshots with concurrency protection against stale writes.
+- [x] Persist ordered root actor snapshots with concurrency protection against stale writes.
 - [x] Trigger coalesced root checkpoints from whole-system inspection when child actors advance.
-- [ ] Add an operation journal for restart-sensitive side effects and finalizers.
+- [x] Add an operation journal for restart-sensitive side effects and finalizers.
 - [x] Restore root actors from persisted snapshots, including invoked children.
-- [ ] Add workflow-run/session/child-actor associations.
-- [ ] Add the persisted deepest-active-interaction cursor using stable actor/correlation paths.
+- [x] Add workflow-run/session/child-actor associations.
+- [x] Add the persisted deepest-active-interaction cursor using stable actor/correlation paths.
 - [x] Add service APIs to resolve the active workflow actor from a session.
-- [ ] Define the generic invoked-chat DSL contract with chat config, done checker, finalizer, and result mapping.
-- [ ] Compile invoked-chat definitions into child XState machines with `conversing`, `checkingCompletion`, `finalizing`, and final states.
-- [ ] Represent durable human questions as stable states with typed interaction metadata and accepted response events.
-- [ ] Ensure the chat system prompt is installed as a true system message on every child-chat turn.
-- [ ] Scope chat tool policy to the child actor and remove it after child completion.
-- [ ] Route normal chat messages to the active child actor without creating a second chat runtime.
-- [ ] Route `/return` to the active child actor as a return-attempt event.
+- [x] Define the generic invoked-chat DSL contract with chat config, done checker, finalizer, and result mapping.
+- [x] Compile invoked-chat definitions into child XState machines with `conversing`, `checkingCompletion`, `finalizing`, and final states.
+- [x] Represent durable human questions as stable states with typed interaction metadata and accepted response events.
+- [x] Ensure the chat system prompt is installed as a true system message on every child-chat turn.
+- [x] Scope chat tool policy to the child actor and remove it after child completion.
+- [x] Route normal chat messages to the active child actor without creating a second chat runtime.
+- [x] Route `/return` to the active child actor as a return-attempt event.
 - [x] Model asynchronous completion checks as invoked actors.
 - [x] Model incomplete completion checks as guarded `onDone` branches back to `conversing`.
 - [x] Inject failed completion evidence as system-level workflow feedback rather than human-authored transcript text.
-- [ ] Implement idempotent finalization and typed child output.
-- [ ] Deliver child output to parent `invoke.onDone` and apply parent result mapping.
-- [ ] Expose workflow descriptors in the LLM tool catalog without converting them to command promises.
-- [ ] Compile finite workflow-tool targets as named child actor sources and guarded invoked substates.
-- [ ] Persist tool-call ID, child invocation ID, input, depth, ancestry, and definition version before child start.
-- [ ] Route nested workflow interactions to the same UI through the deepest active actor.
-- [ ] Convert child final output to exactly one correlated tool result and resume the same chat actor.
-- [ ] Add structured chat handling for child workflow error, cancellation, and retry.
-- [ ] Add maximum-depth and direct/indirect cycle protection for chat-initiated and workflow-initiated children.
-- [ ] Support one foreground chat-initiated child workflow before considering authored parallel fan-out.
+- [x] Implement idempotent finalization and typed child output.
+- [x] Deliver child output to parent `invoke.onDone` and apply parent result mapping.
+- [x] Expose workflow descriptors in the LLM tool catalog without converting them to command promises.
+- [x] Compile finite workflow-tool targets as named child actor sources and guarded invoked substates.
+- [x] Persist tool-call ID, child invocation ID, input, depth, ancestry, and definition version before child start.
+- [x] Route nested workflow interactions to the same UI through the deepest active actor.
+- [x] Convert child final output to exactly one correlated tool result and resume the same chat actor.
+- [x] Add structured chat handling for child workflow error, cancellation, and retry.
+- [x] Add maximum-depth and direct/indirect cycle protection for chat-initiated and workflow-initiated children.
+- [x] Support one foreground chat-initiated child workflow before considering authored parallel fan-out.
 - [ ] Implement `/exit` as UI detachment with workflow persistence.
 - [ ] Implement `/cancel` as explicit workflow cancellation with confirmation and structured outcome.
 - [ ] Implement `/back` only through an explicit child back/abandon transition, distinct from successful completion.
@@ -1569,9 +1599,9 @@ The stabilization effort is complete when:
 - [ ] Add cancellation and exit/resume tests.
 - [ ] Run the complete disposable-repository end-to-end release gate.
 - [ ] Delete `packages/service/src/commands/hr/workflow-phase.ts` after actor parity passes.
-- [ ] Remove init-specific CLI chat continuation and prompt-driven parent-transition workarounds.
-- [ ] Remove obsolete workflow-specific chat options that are replaced by child actor input.
-- [ ] Remove duplicate workflow/session continuation code made obsolete by actor persistence.
+- [x] Remove init-specific CLI chat continuation and prompt-driven parent-transition workarounds.
+- [x] Remove obsolete workflow-specific chat options that are replaced by child actor input.
+- [x] Remove duplicate workflow/session continuation code made obsolete by actor persistence.
 - [ ] Update `ARCHITECTURE.md`, `COPILOT-CONTEXT.md`, architecture overview, diagrams, implementation entry points, and affected package documentation.
 - [ ] Run targeted builds, tests, lint, `git diff --check`, and the fuzzy duplication scan on affected workflow/chat scope.
 - [ ] Record final verification evidence and mark this task done only after every Definition of Done condition passes.

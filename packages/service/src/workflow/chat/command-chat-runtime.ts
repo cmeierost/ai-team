@@ -1,4 +1,8 @@
-import type { ExecutionContext, ICommandDispatcher, IWorkflowRunnerFactory } from '@ai-team/core';
+import type {
+  ExecutionContext,
+  ICommandDispatcher,
+  IWorkflowRunnerFactory,
+} from '@ai-team/core';
 import {
   ChatRuntime,
   createChatRuntimeStepCommand,
@@ -7,6 +11,10 @@ import {
   type ChatRuntimeStepResolver,
   type ChatRuntimeTurnInput,
 } from './chat-runtime.js';
+import type { WorkflowActorHost } from '../workflow-actor-host.js';
+import type { WorkflowInteractionRouter } from '../workflow-interaction-router.js';
+
+const EXIT_MESSAGES = new Set(['exit', '/exit', 'quit', '/quit', 'q', '/q']);
 
 interface SuccessfulHandoffTransition {
   targetAgentId?: string;
@@ -27,16 +35,27 @@ interface HandoffTransitionResponse {
 export class CommandChatRuntime {
   constructor(
     private readonly commandDispatcher: ICommandDispatcher,
-    private readonly workflowRunnerFactory: IWorkflowRunnerFactory
+    private readonly workflowRunnerFactory: IWorkflowRunnerFactory,
+    private readonly workflowInteractions?: Pick<WorkflowInteractionRouter, 'resolveActiveRun'>,
+    private readonly workflowActorHost?: Pick<WorkflowActorHost, 'getLiveRun'>
   ) {}
 
   async runAsync(input: ChatRuntimeRunInput) {
+    const knownWorkflowToolTargets = this.commandDispatcher
+      .getCommands?.({ tool: true }) ?? [];
+    const knownTargets = knownWorkflowToolTargets
+      .filter((descriptor) => descriptor.group === 'workflow' && descriptor.key !== 'list')
+      .map((descriptor) => (descriptor.group ? `${descriptor.group}_${descriptor.key}` : descriptor.key));
     const resolveStep = ((step: ChatRuntimeStepName) => {
       switch (step) {
         case 'preturn':
-          return createChatRuntimeStepCommand('preturn', async () => ({
-            outcome: 'continue' as const,
-          }));
+          return createChatRuntimeStepCommand('preturn', async ({ message }) => {
+            if (this.isExitMessage(message)) {
+              await this.checkpointActiveWorkflowAsync(input.sessionId);
+              return { outcome: 'consumed' as const, text: '' };
+            }
+            return { outcome: 'continue' as const };
+          });
         case 'sendTurn':
           return createChatRuntimeStepCommand(
             'sendTurn',
@@ -175,7 +194,9 @@ export class CommandChatRuntime {
       }
     }) as ChatRuntimeStepResolver;
 
-    return new ChatRuntime(resolveStep, this.workflowRunnerFactory.create()).runAsync(input);
+    return new ChatRuntime(resolveStep, this.workflowRunnerFactory.create(), {
+      knownWorkflowToolTargets: knownTargets,
+    }).runAsync(input);
   }
 
   private createExecutionContext(
@@ -231,5 +252,24 @@ export class CommandChatRuntime {
         ? { targetSessionId: data['targetSessionId'] }
         : {}),
     };
+  }
+
+  private isExitMessage(message: string): boolean {
+    return EXIT_MESSAGES.has(message.trim().toLowerCase());
+  }
+
+  private async checkpointActiveWorkflowAsync(sessionId: string | undefined): Promise<void> {
+    if (!sessionId || !this.workflowInteractions || !this.workflowActorHost) {
+      return;
+    }
+    const run = await this.workflowInteractions.resolveActiveRun(sessionId);
+    if (!run) {
+      return;
+    }
+    const liveRun = this.workflowActorHost.getLiveRun(run.id);
+    if (!liveRun) {
+      return;
+    }
+    await liveRun.checkpoint();
   }
 }

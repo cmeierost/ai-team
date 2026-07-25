@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { setup, fromPromise, assign, type AnyActorLogic, type InspectionEvent } from 'xstate';
+import { setup, fromPromise, assign, sendTo, type AnyActorLogic, type InspectionEvent } from 'xstate';
 import type {
   RuntimeStreamEvent,
   WorkflowDefinitionApiResponse,
@@ -24,6 +24,8 @@ import type {
   WorkflowStep,
   WorkflowLoopStep,
   WorkflowExecuteStep,
+  WorkflowChatStep,
+  WorkflowQuestionStep,
   WorkflowReturnDefinition,
 } from './workflow-types.js';
 import { WorkflowAbortError } from './workflow-types.js';
@@ -37,6 +39,12 @@ import { WorkflowActorHost } from './workflow-actor-host.js';
 import { isWorkflowCommand, workflowCommand, type IWorkflowCommand } from './workflow-command.js';
 import { CommandActorAdapterResolver } from './command-actor-adapter-resolver.js';
 import { WORKFLOW_SERVICE_TOKENS } from './workflow-service-tokens.js';
+import type { DurableChatActorServices } from './durable-chat-actor.js';
+import {
+  createWorkflowChatActor,
+  type WorkflowChatActorInput,
+} from './workflow-chat-compiler.js';
+import type { WorkflowOperationJournal } from './workflow-operation-journal.js';
 
 export interface IWorkflowLocalCommand {
   execute(params: any, ctx?: any): Promise<unknown>;
@@ -47,6 +55,8 @@ export interface WorkflowRunOptions {
   emit?: (event: RuntimeStreamEvent) => void;
   executionContext?: ExecutionContext;
   commands?: Record<string, IWorkflowLocalCommand>;
+  /** Optional test seam for overriding workflow-owned child chat turns. */
+  chat?: Pick<DurableChatActorServices<unknown>, 'processTurn'>;
 }
 
 export interface IWorkflowRunner {
@@ -66,7 +76,12 @@ export interface IWorkflowRunner {
 export interface WorkflowRunHandle<TState> {
   readonly id: string;
   getStatus(): 'active' | 'completed' | 'cancelled' | 'failed';
-  getSnapshotView(): { state: TState; aborted: boolean; stepId?: string };
+  getSnapshotView(): {
+    state: TState;
+    aborted: boolean;
+    stepId?: string;
+    interaction?: WorkflowMachineContext<TState>['activeInteraction'];
+  };
   getPersistedSnapshot(): unknown;
   dispatch(event: unknown): Promise<void>;
   checkpoint(): Promise<unknown>;
@@ -104,6 +119,15 @@ interface WorkflowMachineContext<TState> {
   loopIterations: Record<string, number>;
   workflowReturn?: WorkflowReturnDefinition;
   workflowLastResult?: ExecutionContext['workflowLastResult'];
+  activeInteraction?: {
+    sessionId: string;
+    actorPath: string;
+    metadata?: {
+      kind: 'chat' | 'question';
+      prompt?: string;
+      response?: { type: 'text' | 'select'; options?: Array<{ value: string; label: string }> };
+    };
+  };
 }
 
 interface CommandExecutionInput {
@@ -121,7 +145,8 @@ export class WorkflowRunner implements IWorkflowRunner {
     private readonly container: IServiceContainer,
     private readonly backendLogService: IBackendLogService,
     actorHost?: WorkflowActorHost,
-    commandActorAdapters?: CommandActorAdapterResolver
+    commandActorAdapters?: CommandActorAdapterResolver,
+    private readonly operationJournal?: WorkflowOperationJournal
   ) {
     this.actorHost = actorHost ?? new WorkflowActorHost(new EphemeralWorkflowRunRepository());
     this.commandActorAdapters = commandActorAdapters ?? new CommandActorAdapterResolver();
@@ -200,6 +225,20 @@ export class WorkflowRunner implements IWorkflowRunner {
       },
       rootSessionId: options?.executionContext?.sessionId,
       activeSessionId: options?.executionContext?.sessionId,
+      resolveAssociation: (snapshot) => {
+        const deepest = this.resolveDeepestActiveInteraction(snapshot);
+        if (deepest) {
+          return {
+            activeSessionId: deepest.sessionId,
+            activeActorPath: deepest.actorPath,
+          };
+        }
+        const context = (snapshot as { context?: WorkflowMachineContext<TState> }).context;
+        return {
+          activeSessionId: context?.activeInteraction?.sessionId ?? options?.executionContext?.sessionId,
+          activeActorPath: context?.activeInteraction?.actorPath,
+        };
+      },
       inspect,
       onSnapshot,
     });
@@ -385,10 +424,22 @@ export class WorkflowRunner implements IWorkflowRunner {
         const snapshot = actorHandle.getSnapshot() as {
           context: WorkflowMachineContext<TState>;
         };
+        const deepest = this.resolveDeepestActiveInteraction(snapshot);
         return {
           state: snapshot.context.state,
           aborted: snapshot.context.aborted,
           ...(snapshot.context.abortedStepId ? { stepId: snapshot.context.abortedStepId } : {}),
+          ...(deepest
+            ? {
+                interaction: {
+                  sessionId: deepest.sessionId,
+                  actorPath: deepest.actorPath,
+                  ...(deepest.metadata ? { metadata: deepest.metadata } : {}),
+                },
+              }
+            : snapshot.context.activeInteraction
+              ? { interaction: snapshot.context.activeInteraction }
+              : {}),
         };
       },
       getPersistedSnapshot: () => actorHandle.getPersistedSnapshot(),
@@ -542,6 +593,10 @@ export class WorkflowRunner implements IWorkflowRunner {
         );
       }
 
+      if ('kind' in step && step.kind === 'chat') {
+        this.addWorkflowChatActor(actors, step as WorkflowChatStep<TState>, dependencies);
+      }
+
       // Handle loop steps recursively
       if ('kind' in step && step.kind === 'loop') {
         const loopStep = step as WorkflowLoopStep<TState>;
@@ -621,6 +676,68 @@ export class WorkflowRunner implements IWorkflowRunner {
       );
   }
 
+  private addWorkflowChatActor<TState>(
+    actors: Record<string, AnyActorLogic>,
+    step: WorkflowChatStep<TState>,
+    dependencies: WorkflowRuntimeDependencies
+  ): void {
+    actors[this.getWorkflowChatActorSource(step.id)] = createWorkflowChatActor({
+      processTurn: async (input) => {
+        const chatInput = input as WorkflowChatActorInput & { message: string };
+        const customProcessTurn = dependencies.options?.chat?.processTurn;
+        if (customProcessTurn) {
+          return customProcessTurn(chatInput);
+        }
+
+        const dispatcher = dependencies.container.resolve(CORE_SERVICE_TOKENS.CommandDispatcher);
+        const result = await dispatcher.dispatch(
+          'chat-chat-direct-turn',
+          {
+            options: {
+              message: chatInput.message,
+              messageOrigin: 'developer',
+              sessionId: chatInput.sessionId,
+              workflowSystemPrompt: chatInput.systemPrompt,
+              workflowToolAllowlist: chatInput.toolAllowlist,
+              skipWorkflowInteractionRouting: true,
+            },
+          },
+          chatInput.executionContext ?? { history: [], sessionId: chatInput.sessionId }
+        );
+
+        if (result.status !== 'ok') {
+          throw new Error(
+            result.message
+              || `Workflow chat step '${step.id}' failed to process child chat turn in session '${chatInput.sessionId}'.`
+          );
+        }
+        const data = result.data as { text?: unknown } | undefined;
+        return {
+          ...(typeof data?.text === 'string' ? { assistantMessage: data.text } : {}),
+        };
+      },
+      invoke: async (command, args, executionContext, kind) => {
+        const cmd =
+          dependencies.options?.commands?.[command] ??
+          this.getToolManager(dependencies.container).get(command);
+        if (!cmd) {
+          throw new Error(`WorkflowRunner: command '${command}' not registered`);
+        }
+        const execute = () => cmd.execute(args ?? {}, executionContext);
+        const runId = executionContext?.workflowInstanceId;
+        if (kind === 'finalize' && this.operationJournal && runId) {
+          return this.operationJournal.execute(
+            runId,
+            `finalize:${step.id}`,
+            { command, args: args ?? {} },
+            execute
+          );
+        }
+        return execute();
+      },
+    });
+  }
+
   private getCommandActorSource(
     commandToken: string,
     stepId: string,
@@ -633,6 +750,22 @@ export class WorkflowRunner implements IWorkflowRunner {
 
   private getWorkflowCommandActorSource(stepId: string): string {
     return `workflowCommand_${stepId}`;
+  }
+
+  private getWorkflowChatActorSource(stepId: string): string {
+    return `workflowChat_${stepId}`;
+  }
+
+  private getWorkflowChatInvocationId(stepId: string): string {
+    return `workflowChatInvocation_${stepId}`;
+  }
+
+  private getWorkflowChatSessionId<TState>(
+    context: WorkflowMachineContext<TState>,
+    stepId: string,
+    options?: WorkflowRunOptions
+  ): string {
+    return options?.executionContext?.sessionId ?? `${context.workflowInstanceId}:${stepId}`;
   }
 
   private resolveWorkflowCommand(
@@ -716,6 +849,18 @@ export class WorkflowRunner implements IWorkflowRunner {
           nextStepId,
           dependencies
         );
+      } else if ('kind' in step && step.kind === 'chat') {
+        states[step.id] = this.compileChatState(
+          step as WorkflowChatStep<TState>,
+          nextStepId,
+          dependencies
+        );
+      } else if ('kind' in step && step.kind === 'question') {
+        states[step.id] = this.compileQuestionState(
+          step as WorkflowQuestionStep<TState>,
+          nextStepId,
+          dependencies
+        );
       } else if ('execute' in step) {
         states[step.id] = this.compileExecuteState(
           step as WorkflowExecuteStep<TState>,
@@ -741,6 +886,130 @@ export class WorkflowRunner implements IWorkflowRunner {
     return states;
   }
 
+  private compileQuestionState<TState>(
+    step: WorkflowQuestionStep<TState>,
+    nextStepId: string,
+    dependencies: WorkflowRuntimeDependencies
+  ): any {
+    const hasConditions = this.hasStepConditions(step);
+    return {
+      always: hasConditions
+        ? [{ target: nextStepId, guard: { type: this.getStepSkipGuardType(step.id) } }]
+        : undefined,
+      entry: assign(({ context }: { context: WorkflowMachineContext<TState> }) => ({
+        activeInteraction: {
+          sessionId: dependencies.options?.executionContext?.sessionId ?? context.workflowInstanceId,
+          actorPath: `workflowQuestion_${step.id}`,
+          metadata: {
+            kind: 'question' as const,
+            prompt: String(
+              resolveTemplateData(step.prompt, context.state as Record<string, unknown>) ?? ''
+            ),
+            response: {
+              type: step.interaction.type,
+              ...(step.interaction.options ? { options: step.interaction.options } : {}),
+            },
+          },
+        },
+      })),
+      on: {
+        ANSWER: {
+          target: nextStepId,
+          actions: assign(({ context, event }: any) => {
+            const answer = event.answer;
+            return {
+              ...context,
+              state: this.applyStepResult(step, context.state, answer),
+              workflowLastResult: answer,
+              activeInteraction: undefined,
+            };
+          }),
+        },
+      },
+    };
+  }
+
+  private compileChatState<TState>(
+    step: WorkflowChatStep<TState>,
+    nextStepId: string,
+    dependencies: WorkflowRuntimeDependencies
+  ): any {
+    const hasConditions = this.hasStepConditions(step);
+
+    return {
+      always: hasConditions
+        ? [
+            {
+              target: nextStepId,
+              guard: { type: this.getStepSkipGuardType(step.id) },
+            },
+          ]
+        : undefined,
+      invoke: {
+        id: this.getWorkflowChatInvocationId(step.id),
+        src: this.getWorkflowChatActorSource(step.id),
+        input: ({ context }: { context: WorkflowMachineContext<TState> }): WorkflowChatActorInput => {
+          const state = context.state as Record<string, unknown>;
+          const sessionId = this.getWorkflowChatSessionId(context, step.id, dependencies.options);
+          const resolve = (value: unknown) =>
+            resolveTemplateData(value as never, state) as Record<string, unknown> | undefined;
+          const executionContext = this.createExecutionContext(context, step.id, dependencies.options);
+          const { signal: _signal, ...persistedExecutionContext } = executionContext;
+
+          return {
+            sessionId,
+            systemPrompt: String(resolve(step.chat.systemPrompt) ?? ''),
+            toolAllowlist: [...step.chat.toolPolicy.allow],
+            done: {
+              command: step.done.command,
+              ...(step.done.args ? { args: resolve(step.done.args) } : {}),
+            },
+            finalize: {
+              command: step.finalize.command,
+              ...(step.finalize.args ? { args: resolve(step.finalize.args) } : {}),
+            },
+            executionContext: persistedExecutionContext,
+          };
+        },
+        onDone: {
+          target: nextStepId,
+          actions: assign(({ context, event }: any) => {
+            const newState = this.applyStepResult(step, context.state, event.output);
+            return {
+              ...context,
+              state: newState,
+              workflowLastResult: event.output,
+              activeInteraction: undefined,
+            };
+          }),
+        },
+        onError: {
+          target: '#aborted',
+          actions: assign({
+            aborted: true,
+            abortedStepId: step.id,
+            abortedError: ({ event }: any) => this.toErrorMessage(event.error),
+            activeInteraction: undefined,
+          }),
+        },
+      },
+      entry: assign(({ context }: { context: WorkflowMachineContext<TState> }) => ({
+        activeInteraction: {
+          sessionId: this.getWorkflowChatSessionId(context, step.id, dependencies.options),
+          actorPath: this.getWorkflowChatInvocationId(step.id),
+        },
+      })),
+      on: {
+        CHAT_TURN: {
+          actions: sendTo(this.getWorkflowChatInvocationId(step.id), ({ event }) => event),
+        },
+        RETURN_ATTEMPT: {
+          actions: sendTo(this.getWorkflowChatInvocationId(step.id), ({ event }) => event),
+        },
+      },
+    };
+  }
+
   private compileCommandState<TState>(
     step: WorkflowCommandStep<TState>,
     nextStepId: string,
@@ -758,6 +1027,7 @@ export class WorkflowRunner implements IWorkflowRunner {
           ]
         : undefined,
       invoke: {
+        id: this.getWorkflowCommandActorSource(step.id),
         src: this.getCommandActorSource(step.command, step.id, dependencies),
         input: ({ context }: { context: WorkflowMachineContext<TState> }) => ({
           commandToken: step.command,
@@ -1104,7 +1374,7 @@ export class WorkflowRunner implements IWorkflowRunner {
   }
 
   private applyStepResult<TState>(
-    step: WorkflowCommandStep<TState>,
+    step: Pick<WorkflowCommandStep<TState>, 'id' | 'applyResult'>,
     state: TState,
     result: unknown
   ): TState {
@@ -1290,6 +1560,65 @@ export class WorkflowRunner implements IWorkflowRunner {
     }
   }
 
+  private resolveDeepestActiveInteraction(snapshot: unknown): {
+    sessionId: string;
+    actorPath: string;
+    metadata?: {
+      kind: 'chat' | 'question';
+      prompt?: string;
+      response?: { type: 'text' | 'select'; options?: Array<{ value: string; label: string }> };
+    };
+  } | undefined {
+    type Interaction = WorkflowMachineContext<unknown>['activeInteraction'];
+    type Candidate = { path: string; interaction: NonNullable<Interaction>; depth: number };
+
+    const visit = (node: unknown, path: string, depth: number): Candidate | undefined => {
+      const snapshotRecord =
+        node && typeof node === 'object' ? (node as Record<string, unknown>) : undefined;
+      const contextRecord =
+        snapshotRecord?.['context'] && typeof snapshotRecord['context'] === 'object'
+          ? (snapshotRecord['context'] as Record<string, unknown>)
+          : undefined;
+      const interaction =
+        contextRecord?.['activeInteraction']
+        && typeof contextRecord['activeInteraction'] === 'object'
+        && !Array.isArray(contextRecord['activeInteraction'])
+          ? (contextRecord['activeInteraction'] as NonNullable<Interaction>)
+          : undefined;
+      const children =
+        snapshotRecord?.['children'] && typeof snapshotRecord['children'] === 'object'
+          ? (snapshotRecord['children'] as Record<string, { getSnapshot?: () => unknown }>)
+          : undefined;
+      let best = interaction ? { path, interaction, depth } : undefined;
+      if (!children) return best;
+      for (const [childId, childRef] of Object.entries(children)) {
+        if (!childRef || typeof childRef.getSnapshot !== 'function') continue;
+        const childSnapshot = childRef.getSnapshot();
+        const actorId =
+          typeof (childRef as { id?: unknown }).id === 'string'
+            ? ((childRef as { id: string }).id as string)
+            : childId;
+        const childPath = path ? `${path}.${actorId}` : actorId;
+        const candidate = visit(childSnapshot, childPath, depth + 1);
+        if (!candidate) continue;
+        if (!best || candidate.depth >= best.depth) {
+          best = candidate;
+        }
+      }
+      return best;
+    };
+
+    const deepest = visit(snapshot, '', 0);
+    if (!deepest) return undefined;
+    const actorPath = deepest.path || deepest.interaction.actorPath;
+    if (!actorPath) return undefined;
+    return {
+      sessionId: deepest.interaction.sessionId,
+      actorPath,
+      ...(deepest.interaction.metadata ? { metadata: deepest.interaction.metadata } : {}),
+    };
+  }
+
   private toErrorMessage(error: unknown): string {
     if (error instanceof Error) {
       return error.message;
@@ -1358,8 +1687,17 @@ export class WorkflowRunnerFactory implements IWorkflowRunnerFactory {
     const commandActorAdapters = this.container.tryResolve(
       WORKFLOW_SERVICE_TOKENS.CommandActorAdapterResolver
     ) as CommandActorAdapterResolver | undefined;
+    const operationJournal = this.container.tryResolve(
+      WORKFLOW_SERVICE_TOKENS.WorkflowOperationJournal
+    ) as WorkflowOperationJournal | undefined;
 
-    return new WorkflowRunner(this.container, backendLogService, actorHost, commandActorAdapters);
+    return new WorkflowRunner(
+      this.container,
+      backendLogService,
+      actorHost,
+      commandActorAdapters,
+      operationJournal
+    );
   }
 
   asCommand<TState>(definition: WorkflowDefinition<TState>): IWorkflowCommand {
@@ -1397,7 +1735,29 @@ export class WorkflowRunnerFactory implements IWorkflowRunnerFactory {
     ctx: ExecutionContext
   ): Promise<CommandResponse<unknown>> {
     const initialState = definition.prepare ? definition.prepare(params) : (params as TState);
-    const runResult = await this.create().run(definition, initialState, { executionContext: ctx });
+    const runner = this.create();
+    if (this.#hasInteractiveChatStep(definition.steps)) {
+      const existingRun = await this.#findActiveInteractiveRun(definition, ctx);
+      if (existingRun) {
+        return {
+          status: 'ok',
+          data: {
+            workflowRunId: existingRun.id,
+            status: existingRun.status,
+          },
+        };
+      }
+      const handle = await runner.start(definition, initialState, { executionContext: ctx });
+      return {
+        status: 'ok',
+        data: {
+          workflowRunId: handle.id,
+          status: handle.getStatus(),
+        },
+      };
+    }
+
+    const runResult = await runner.run(definition, initialState, { executionContext: ctx });
     if (runResult.aborted) {
       const detail = runResult.abortedError ? `: ${runResult.abortedError}` : '';
       return { status: 'error', message: `Workflow aborted${detail}` };
@@ -1412,6 +1772,37 @@ export class WorkflowRunnerFactory implements IWorkflowRunnerFactory {
     }
 
     return { status: 'ok', data };
+  }
+
+  #hasInteractiveChatStep<TState>(steps: WorkflowStep<TState>[]): boolean {
+    return steps.some(
+      (step) =>
+        ('kind' in step && step.kind === 'chat') ||
+        ('kind' in step && step.kind === 'loop' && this.#hasInteractiveChatStep(step.steps))
+    );
+  }
+
+  async #findActiveInteractiveRun<TState>(
+    definition: WorkflowDefinition<TState>,
+    ctx: ExecutionContext
+  ): Promise<WorkflowRunRecord | undefined> {
+    if (!ctx.sessionId) return undefined;
+
+    const repository = this.container.tryResolve(
+      CORE_SERVICE_TOKENS.WorkflowRunRepository
+    ) as IWorkflowRunRepository | undefined;
+    const activeRun = await repository?.findActiveBySession(ctx.sessionId);
+    if (!activeRun) return undefined;
+
+    if (
+      activeRun.definitionId !== definition.id ||
+      activeRun.definitionVersion !== (definition.version ?? '1')
+    ) {
+      throw new Error(
+        `Session '${ctx.sessionId}' already has active workflow '${activeRun.definitionId}'.`
+      );
+    }
+    return activeRun;
   }
 }
 

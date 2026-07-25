@@ -13,10 +13,16 @@ import type {
   ExecutionContext,
   ICommand,
   ICommandDescriptor,
+  IServiceContainer,
+  IWorkflowOperationRepository,
 } from '@ai-team/core';
+import { CORE_SERVICE_TOKENS } from '@ai-team/core';
 import type { IWorkflowRunner } from '../index.js';
 import type { WorkflowDefinition } from '../workflow-types.js';
 import { HANDOFF_AUTO_REACT_MESSAGE } from './handoff-auto-react.js';
+import { isWorkflowCommand } from '../workflow-command.js';
+
+const WORKFLOW_TOOL_MAX_DEPTH = 4;
 
 export interface ChatRuntimeTurnInput {
   userMessage: string;
@@ -26,8 +32,6 @@ export interface ChatRuntimeTurnInput {
   createNewSession?: boolean;
   options: {
     messageOrigin: 'developer' | 'internal';
-    workflowSystemPrompt?: string;
-    workflowToolAllowlist?: string[];
   };
 }
 
@@ -131,11 +135,12 @@ export interface ChatRuntimeRunInput extends ChatLoopInput {
   signal?: AbortSignal;
   /** Depth counter for handoff subworkflows. Passed through to ExecutionContext to prevent nested handoffs. */
   subworkflowDepth?: number;
+  workflowStack?: ExecutionContext['workflowStack'];
+  workflowId?: string;
+  workflowInstanceId?: string;
   invocationSurface?: ExecutionContext['invocationSurface'];
   calledByHuman?: boolean;
   callerType?: ExecutionContext['callerType'];
-  workflowSystemPrompt?: string;
-  workflowToolAllowlist?: string[];
 }
 
 export interface IChatRuntime {
@@ -162,16 +167,25 @@ interface ChatRuntimeState {
   postTurn?: ChatLoopPostTurnResolutionResult;
   handoff?: ChatLoopHandoffTransitionResult;
   shouldRunToolRound?: boolean;
+  shouldRunDefaultToolRound?: boolean;
   shouldRunPostTurnResolution?: boolean;
   shouldRunHandoffTransition?: boolean;
   shouldContinueAppliedTransition?: boolean;
+  selectedWorkflowTool?: string;
+  workflowToolRawResult?: unknown;
 }
 
 export class ChatRuntime implements IChatRuntime {
+  private readonly knownWorkflowToolTargets: readonly string[];
+
   constructor(
     private readonly resolveStep: ChatRuntimeStepResolver,
-    private readonly workflowRunner: IWorkflowRunner
-  ) {}
+    private readonly workflowRunner: IWorkflowRunner,
+    options?: { knownWorkflowToolTargets?: string[] }
+  ) {
+    const knownTargets = options?.knownWorkflowToolTargets ?? [];
+    this.knownWorkflowToolTargets = [...new Set(knownTargets)].filter((target) => target.length > 0);
+  }
 
   async runAsync(input: ChatRuntimeRunInput): Promise<ChatLoopOutput> {
     const preturnCommand = this.resolveRequired('preturn');
@@ -214,7 +228,7 @@ export class ChatRuntime implements IChatRuntime {
       );
 
       const runResult = await this.workflowRunner.run(definition, initialState, {
-        executionContext: this.createStepExecutionContext('sendTurn', input.signal),
+        executionContext: this.createRunExecutionContext(input),
         signal: input.signal,
         commands,
       });
@@ -271,6 +285,9 @@ export class ChatRuntime implements IChatRuntime {
     handoffTransitionCommand: ChatRuntimeStepContractMap['handoffTransition'],
     toolRoundCommand: ChatRuntimeStepContractMap['toolRound'] | undefined
   ): WorkflowDefinition<ChatRuntimeState> {
+    const workflowToolPersistenceSteps = this.createWorkflowToolPersistenceSteps();
+    const workflowToolSteps = this.createWorkflowToolInvocationSteps();
+    const workflowToolResultSteps = this.createWorkflowToolResultSteps();
     return {
       id: 'chat-runtime-loop',
       version: '1',
@@ -328,8 +345,6 @@ export class ChatRuntime implements IChatRuntime {
                 createNewSession: state.createNewSession,
                 options: {
                   messageOrigin: state.currentMessageOrigin,
-                  workflowSystemPrompt: state.input.workflowSystemPrompt,
-                  workflowToolAllowlist: state.input.workflowToolAllowlist,
                 },
               }),
               applyResult: (state, raw) => {
@@ -341,9 +356,11 @@ export class ChatRuntime implements IChatRuntime {
                   postTurn: undefined,
                   handoff: undefined,
                   shouldRunToolRound: undefined,
+                  shouldRunDefaultToolRound: undefined,
                   shouldRunPostTurnResolution: undefined,
                   shouldRunHandoffTransition: undefined,
                   shouldContinueAppliedTransition: Boolean(sendTurn.followUpMessage),
+                  selectedWorkflowTool: undefined,
                   lastText: sendTurn.text,
                   currentMessage: sendTurn.followUpMessage ?? state.currentMessage,
                   currentMessageOrigin: sendTurn.followUpMessage
@@ -377,20 +394,33 @@ export class ChatRuntime implements IChatRuntime {
                   !state.done &&
                   state.sendTurn?.toolRoundNeeded === true &&
                   Boolean(state.sendTurn?.pendingToolCall);
+               const pendingToolName = state.sendTurn?.pendingToolCall?.toolName;
+               const selectedWorkflowTool =
+                 shouldRunToolRound &&
+                 typeof pendingToolName === 'string' &&
+                 this.knownWorkflowToolTargets.includes(pendingToolName)
+                   ? pendingToolName
+                   : undefined;
 
-                return {
-                  ...state,
-                  shouldRunToolRound,
-                };
+               return {
+                 ...state,
+                 shouldRunToolRound,
+                 shouldRunDefaultToolRound: shouldRunToolRound && !selectedWorkflowTool,
+                 selectedWorkflowTool,
+               };
               },
             },
+            ...this.createWorkflowToolPolicyGuardSteps(),
+            ...workflowToolPersistenceSteps,
+            ...workflowToolSteps,
+            ...workflowToolResultSteps,
             {
               id: 'toolRound',
               command: toolRoundCommand?.metadata.key ?? 'chat-runtime-step:toolRound',
-              skipWhen: 'shouldRunToolRound != true',
+              skipWhen: 'shouldRunDefaultToolRound != true',
               params: (state) => ({
-                toolCall: state.sendTurn!.pendingToolCall!,
-                hop: state.hop,
+               toolCall: state.sendTurn!.pendingToolCall!,
+               hop: state.hop,
                 lastText: state.lastText,
               }),
               applyResult: (state, raw) => {
@@ -411,26 +441,31 @@ export class ChatRuntime implements IChatRuntime {
                   return state;
                 }
 
-                if (!toolRoundCommand) {
-                  return {
-                    ...state,
-                    done: true,
-                    status: 'failed',
-                    error: 'No tool round service configured.',
-                  };
-                }
-
                 const toolRound = state.toolRound;
                 if (!toolRound) {
+                  if (!toolRoundCommand) {
+                    return {
+                      ...state,
+                      done: true,
+                      status: 'failed',
+                      error: 'No tool round service configured.',
+                    };
+                  }
                   return state;
                 }
 
                 if (toolRound.outcome === 'resume_llm') {
+                  const resumeMessage = toolRound.resumeMessage ?? state.currentMessage;
                   return {
                     ...state,
                     sendTurn: undefined,
                     toolRound: undefined,
                     postTurn: undefined,
+                    shouldContinueAppliedTransition: true,
+                    currentMessage: resumeMessage,
+                    currentMessageOrigin: 'internal',
+                    hop: state.hop + 1,
+                    workflowToolRawResult: undefined,
                   };
                 }
 
@@ -557,9 +592,11 @@ export class ChatRuntime implements IChatRuntime {
                   toolRound: undefined,
                   postTurn: undefined,
                   shouldRunToolRound: undefined,
+                  shouldRunDefaultToolRound: undefined,
                   shouldRunPostTurnResolution: undefined,
                   shouldRunHandoffTransition: undefined,
                   shouldContinueAppliedTransition: undefined,
+                  selectedWorkflowTool: undefined,
                 };
               },
             },
@@ -631,6 +668,16 @@ export class ChatRuntime implements IChatRuntime {
     };
   }
 
+  private createRunExecutionContext(input: ChatRuntimeRunInput): ExecutionContext {
+    return {
+      ...this.createStepExecutionContext('sendTurn', input.signal),
+      ...(input.subworkflowDepth !== undefined ? { subworkflowDepth: input.subworkflowDepth } : {}),
+      ...(input.workflowStack ? { workflowStack: [...input.workflowStack] } : {}),
+      ...(input.workflowId ? { workflowId: input.workflowId } : {}),
+      ...(input.workflowInstanceId ? { workflowInstanceId: input.workflowInstanceId } : {}),
+    };
+  }
+
   private toErrorMessage(error: unknown): string {
     if (error instanceof Error) {
       return error.message;
@@ -659,5 +706,337 @@ export class ChatRuntime implements IChatRuntime {
     if (lower.includes('tool')) return 'toolRound';
     if (lower.includes('abort')) return 'aborted';
     return 'sendTurn';
+  }
+
+  private createWorkflowToolInvocationSteps(): WorkflowDefinition<ChatRuntimeState>['steps'] {
+    return this.knownWorkflowToolTargets.map((toolName) => ({
+      id: `workflowTool_${this.toWorkflowToolStepSuffix(toolName)}`,
+      command: toolName,
+      skipWhen: `selectedWorkflowTool != "${toolName}"`,
+      params: (state: ChatRuntimeState) => ({
+        toolCall: state.sendTurn!.pendingToolCall!,
+        hop: state.hop,
+        lastText: state.lastText,
+      }),
+      applyResult: (state: ChatRuntimeState, raw: unknown) => ({
+        ...state,
+        workflowToolRawResult: raw,
+      }),
+    }));
+  }
+
+  private createWorkflowToolPolicyGuardSteps(): WorkflowDefinition<ChatRuntimeState>['steps'] {
+    return this.knownWorkflowToolTargets.map((toolName) => ({
+      id: `validateWorkflowToolPolicy_${this.toWorkflowToolStepSuffix(toolName)}`,
+      skipWhen: `selectedWorkflowTool != "${toolName}"`,
+      execute: async (state: ChatRuntimeState, ctx: ExecutionContext, services: IServiceContainer) => {
+        const rejection = this.evaluateWorkflowToolPolicy(toolName, ctx, services);
+        if (!rejection) {
+          return state;
+        }
+        const toolCallId = this.resolveToolCallId(state, toolName);
+        return {
+          ...state,
+          selectedWorkflowTool: undefined,
+          toolRound: this.toWorkflowToolRoundResult(
+            {
+              status: 'error',
+              message: rejection.message,
+              error: {
+                code: rejection.code,
+                details: {
+                  policy: rejection.policy,
+                  toolName,
+                },
+              },
+            } as CommandResponse<unknown>,
+            toolName,
+            toolCallId
+          ),
+          workflowToolRawResult: undefined,
+        };
+      },
+    }));
+  }
+
+  private createWorkflowToolResultSteps(): WorkflowDefinition<ChatRuntimeState>['steps'] {
+    return this.knownWorkflowToolTargets.map((toolName) => ({
+      id: `persistWorkflowToolResult_${this.toWorkflowToolStepSuffix(toolName)}`,
+      skipWhen: `selectedWorkflowTool != "${toolName}"`,
+      execute: async (state: ChatRuntimeState, ctx: ExecutionContext, services: IServiceContainer) =>
+        this.persistWorkflowToolResultAsync(toolName, state, ctx, services),
+    }));
+  }
+
+  private createWorkflowToolPersistenceSteps(): WorkflowDefinition<ChatRuntimeState>['steps'] {
+    return this.knownWorkflowToolTargets.map((toolName) => ({
+      id: `persistWorkflowToolStart_${this.toWorkflowToolStepSuffix(toolName)}`,
+      skipWhen: `selectedWorkflowTool != "${toolName}"`,
+      execute: async (state: ChatRuntimeState, ctx: ExecutionContext, services: IServiceContainer) => {
+        await this.persistWorkflowToolStartAsync(toolName, state, ctx, services);
+        return state;
+      },
+    }));
+  }
+
+  private toWorkflowToolStepSuffix(toolName: string): string {
+    return toolName.replace(/[^a-zA-Z0-9]+/g, '_');
+  }
+
+  private toWorkflowToolRoundResult(
+    raw: unknown,
+    toolName: string,
+    toolCallId: string
+  ): ChatLoopToolRoundResult {
+    const maybeResponse = raw as Partial<CommandResponse<unknown>> | null;
+    if (maybeResponse && typeof maybeResponse === 'object' && typeof maybeResponse.status === 'string') {
+      if (maybeResponse.status === 'error' || maybeResponse.status === 'cancelled') {
+        return {
+          outcome: 'resume_llm',
+          toolCallId,
+          toolName,
+          resumeMessage: this.buildWorkflowToolResumeMessage({
+            toolName,
+            toolCallId,
+            status: maybeResponse.status,
+            output: maybeResponse.data,
+            message: maybeResponse.message,
+            error: maybeResponse.error,
+          }),
+        };
+      }
+      return {
+        outcome: 'resume_llm',
+        toolCallId,
+        toolName,
+        resumeMessage: this.buildWorkflowToolResumeMessage({
+          toolName,
+          toolCallId,
+          status: 'ok',
+          output: maybeResponse.data,
+        }),
+      };
+    }
+    return {
+      outcome: 'resume_llm',
+      toolCallId,
+      toolName,
+      resumeMessage: this.buildWorkflowToolResumeMessage({
+        toolName,
+        toolCallId,
+        status: 'ok',
+        output: raw,
+      }),
+    };
+  }
+
+  private resolveToolCallId(state: ChatRuntimeState, toolName: string): string {
+    const toolCall = state.sendTurn?.pendingToolCall;
+    return typeof toolCall?.toolCallId === 'string' && toolCall.toolCallId.trim().length > 0
+      ? toolCall.toolCallId
+      : `missing-tool-call-id:${state.hop}:${toolName}`;
+  }
+
+  private async persistWorkflowToolStartAsync(
+    toolName: string,
+    state: ChatRuntimeState,
+    ctx: ExecutionContext,
+    services: IServiceContainer
+  ): Promise<void> {
+    const operations = services.tryResolve(
+      CORE_SERVICE_TOKENS.WorkflowOperationRepository
+    ) as IWorkflowOperationRepository | undefined;
+    if (!operations) {
+      return;
+    }
+
+    const toolCallId = this.resolveToolCallId(state, toolName);
+    const runId = ctx.workflowInstanceId ?? 'chat-runtime';
+    const operationKey = `workflow-tool-start:${toolCallId}`;
+    const childStepId = `workflowTool_${this.toWorkflowToolStepSuffix(toolName)}`;
+    const childInvocationId = `workflowCommand_${childStepId}`;
+    const toolManager = services.resolve(CORE_SERVICE_TOKENS.ToolManager);
+    const command = toolManager.get(toolName);
+    const definitionVersion =
+      command && isWorkflowCommand(command) ? command.definitionVersion : undefined;
+    const ancestry = (ctx.workflowStack ?? []).map((entry) => ({
+      workflowId: entry.workflowId,
+      workflowInstanceId: entry.workflowInstanceId,
+      agentId: entry.agentId,
+      sessionId: entry.sessionId,
+    }));
+    const existing = await operations.get(runId, operationKey);
+    const now = new Date().toISOString();
+
+    await operations.save({
+      runId,
+      operationKey,
+      status: 'started',
+      input: {
+        kind: 'workflow-tool-start',
+        toolName,
+        toolCallId,
+        childInvocationId,
+        input: {
+          toolCall: state.sendTurn?.pendingToolCall,
+          hop: state.hop,
+          lastText: state.lastText,
+        },
+        depth: typeof ctx.subworkflowDepth === 'number' ? ctx.subworkflowDepth : 0,
+        ancestry,
+        ...(definitionVersion ? { definitionVersion } : {}),
+      },
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    });
+  }
+
+  private async persistWorkflowToolResultAsync(
+    toolName: string,
+    state: ChatRuntimeState,
+    ctx: ExecutionContext,
+    services: IServiceContainer
+  ): Promise<ChatRuntimeState> {
+    const toolCallId = this.resolveToolCallId(state, toolName);
+    const workflowToolRound = this.toWorkflowToolRoundResult(
+      state.workflowToolRawResult,
+      toolName,
+      toolCallId
+    );
+    const operations = services.tryResolve(
+      CORE_SERVICE_TOKENS.WorkflowOperationRepository
+    ) as IWorkflowOperationRepository | undefined;
+    if (!operations) {
+      return {
+        ...state,
+        toolRound: workflowToolRound,
+        workflowToolRawResult: undefined,
+      };
+    }
+
+    const runId = ctx.workflowInstanceId ?? 'chat-runtime';
+    const operationKey = `workflow-tool-result:${toolCallId}`;
+    const now = new Date().toISOString();
+    const existing = await operations.get(runId, operationKey);
+    if (existing?.status === 'completed' && existing.output) {
+      return {
+        ...state,
+        toolRound: existing.output as ChatLoopToolRoundResult,
+        workflowToolRawResult: undefined,
+      };
+    }
+
+    await operations.save({
+      runId,
+      operationKey,
+      status: 'completed',
+      input: {
+        kind: 'workflow-tool-result',
+        toolName,
+        toolCallId,
+      },
+      output: workflowToolRound,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    });
+
+    const startOperationKey = `workflow-tool-start:${toolCallId}`;
+    const start = await operations.get(runId, startOperationKey);
+    if (start && start.status !== 'completed') {
+      await operations.save({
+        ...start,
+        status: 'completed',
+        output: workflowToolRound,
+        updatedAt: now,
+      });
+    }
+
+    return {
+      ...state,
+      toolRound: workflowToolRound,
+      workflowToolRawResult: undefined,
+    };
+  }
+
+  private buildWorkflowToolResumeMessage(input: {
+    toolName: string;
+    toolCallId: string;
+    status: 'ok' | 'error' | 'cancelled';
+    output?: unknown;
+    message?: string;
+    error?: { code?: string; details?: unknown };
+  }): string {
+    const { toolName, toolCallId, status, output, message, error } = input;
+    return [
+      '[Internal workflow tool result]',
+      `tool_call_id: ${toolCallId}`,
+      `tool_name: ${toolName}`,
+      `status: ${
+        status === 'ok' ? 'completed'
+          : status === 'cancelled' ? 'cancelled'
+          : 'failed'
+      }`,
+      ...(status !== 'ok' && message ? [`reason: ${message}`] : []),
+      ...(status !== 'ok' && error?.code ? [`error_code: ${error.code}`] : []),
+      ...(status !== 'ok' ? ['retry_allowed: true'] : []),
+      'output:',
+      this.serializeWorkflowToolOutput(
+        status === 'ok'
+          ? output
+          : {
+              message,
+              ...(error?.code ? { code: error.code } : {}),
+              ...(error?.details !== undefined ? { details: error.details } : {}),
+              ...(output !== undefined ? { data: output } : {}),
+            }
+      ),
+    ].join('\n');
+  }
+
+  private serializeWorkflowToolOutput(value: unknown): string {
+    try {
+      return JSON.stringify(value ?? null);
+    } catch {
+      return String(value);
+    }
+  }
+
+  private evaluateWorkflowToolPolicy(
+    toolName: string,
+    ctx: ExecutionContext,
+    services: IServiceContainer
+  ): { policy: 'max_depth' | 'cycle'; code: string; message: string } | undefined {
+    const depth = typeof ctx.subworkflowDepth === 'number'
+      ? ctx.subworkflowDepth
+      : (ctx.workflowStack?.length ?? 0);
+    if (depth >= WORKFLOW_TOOL_MAX_DEPTH) {
+      return {
+        policy: 'max_depth',
+        code: 'workflow_tool_max_depth_exceeded',
+        message: `Workflow tool call rejected: maximum depth ${WORKFLOW_TOOL_MAX_DEPTH} reached.`,
+      };
+    }
+
+    const toolManager = services.resolve(CORE_SERVICE_TOKENS.ToolManager);
+    const command = toolManager.get(toolName);
+    if (!command || !isWorkflowCommand(command)) {
+      return undefined;
+    }
+
+    const activeLineage = new Set<string>(
+      [
+        ...(ctx.workflowId ? [ctx.workflowId] : []),
+        ...(ctx.workflowStack ?? []).map((entry) => entry.workflowId).filter(Boolean),
+      ]
+    );
+    if (!activeLineage.has(command.definitionId)) {
+      return undefined;
+    }
+
+    return {
+      policy: 'cycle',
+      code: 'workflow_tool_cycle_detected',
+      message: `Workflow tool call rejected: '${command.definitionId}' would create a workflow cycle.`,
+    };
   }
 }

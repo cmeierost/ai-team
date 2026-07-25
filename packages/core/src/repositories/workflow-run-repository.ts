@@ -14,6 +14,8 @@ export interface WorkflowRunRecord {
   snapshotSequence: number;
   rootSessionId?: string;
   activeSessionId?: string;
+  /** Stable path of the invoked child actor currently owning interaction, if any. */
+  activeActorPath?: string;
   output?: unknown;
   failure?: {
     message: string;

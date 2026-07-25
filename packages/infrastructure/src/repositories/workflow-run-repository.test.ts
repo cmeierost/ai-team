@@ -31,6 +31,7 @@ describe('WorkflowRunRepository', () => {
       snapshotSequence: 1,
       rootSessionId: 'root-session',
       activeSessionId: 'ceo-session',
+      activeActorPath: 'workflowChatInvocation_business',
       createdAt: '2026-07-25T00:00:00.000Z',
       updatedAt: '2026-07-25T00:00:00.000Z',
     });
@@ -44,6 +45,7 @@ describe('WorkflowRunRepository', () => {
       snapshotSequence: 2,
       rootSessionId: 'root-session',
       activeSessionId: 'hr-session',
+      activeActorPath: 'workflowChatInvocation_hiring',
       createdAt: '2026-07-25T00:00:00.000Z',
       updatedAt: '2026-07-25T00:01:00.000Z',
     });
@@ -52,11 +54,51 @@ describe('WorkflowRunRepository', () => {
       snapshot: { value: 'selectingHr' },
       snapshotSequence: 2,
       activeSessionId: 'hr-session',
+      activeActorPath: 'workflowChatInvocation_hiring',
     });
     await expect(repository.findActiveBySession('hr-session')).resolves.toMatchObject({
       id: 'run-1',
       snapshotSequence: 2,
     });
     await expect(repository.findActiveBySession('ceo-session')).resolves.toBeNull();
+  });
+
+  it('rejects a delayed checkpoint whose snapshot sequence is stale', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'ai-team-workflow-runs-'));
+    workspaces.push(workspace);
+    const backend = new SqliteBackend(workspace);
+    backends.push(backend);
+    const repository = new WorkflowRunRepository(backend.ensureReadyAsync, backend.getDb);
+    const initial = {
+      id: 'run-stale',
+      definitionId: 'onboarding',
+      definitionVersion: '1',
+      status: 'active' as const,
+      input: {},
+      rootSessionId: 'root-session',
+      createdAt: '2026-07-25T00:00:00.000Z',
+    };
+
+    await repository.save({
+      ...initial,
+      snapshot: { value: 'newer' },
+      snapshotSequence: 2,
+      activeSessionId: 'new-session',
+      updatedAt: '2026-07-25T00:02:00.000Z',
+    });
+    await repository.save({
+      ...initial,
+      snapshot: { value: 'older' },
+      snapshotSequence: 1,
+      activeSessionId: 'old-session',
+      updatedAt: '2026-07-25T00:01:00.000Z',
+    });
+
+    await expect(repository.get('run-stale')).resolves.toMatchObject({
+      snapshot: { value: 'newer' },
+      snapshotSequence: 2,
+      activeSessionId: 'new-session',
+    });
+    await expect(repository.findActiveBySession('old-session')).resolves.toBeNull();
   });
 });

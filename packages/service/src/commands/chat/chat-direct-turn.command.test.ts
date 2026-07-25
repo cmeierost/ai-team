@@ -22,6 +22,8 @@ function createDeps(overrides: {
     phase: string,
     timestamp: string
   ) => Promise<void>;
+  resolveActiveInteraction?: (sessionId: string) => Promise<any>;
+  dispatchChatTurn?: (sessionId: string, message: string, cursor?: string) => Promise<any>;
 }) {
   const agentManager = {
     getAgentAsync: vi.fn(overrides.getAgentAsync ?? (async (_id: string) => undefined)),
@@ -117,12 +119,9 @@ function createDeps(overrides: {
       const developerName = developerIdentityService.getUserName() ?? 'developer';
       const developerId = developerIdentityService.toDeveloperId(developerName);
 
-      const cached = (ctx?.workflowState as any)?.chatRuntime;
-      const requestedSessionId = input.sessionId ?? ctx?.sessionId ?? cached?.sessionId;
+      const requestedSessionId = input.sessionId ?? ctx?.sessionId;
       const requestedSession = requestedSessionId
-        ? cached?.sessionId === requestedSessionId
-          ? ({ id: cached.sessionId, agentId: cached.agentId } as any)
-          : await sessionManager.getSession(requestedSessionId)
+        ? await sessionManager.getSession(requestedSessionId)
         : null;
 
       if (requestedSessionId && !requestedSession) {
@@ -130,7 +129,7 @@ function createDeps(overrides: {
       }
 
       let agent = ctx?.agent;
-      const query = input.agentQuery ?? ctx?.agentId ?? ctx?.agent?.id ?? cached?.agentId;
+      const query = input.agentQuery ?? ctx?.agentId ?? ctx?.agent?.id;
 
       if (!agent) {
         if (requestedSession?.agentId) {
@@ -156,22 +155,6 @@ function createDeps(overrides: {
 
       if (!agent) {
         return { ok: false as const, message: 'Unable to resolve agent for chat turn' };
-      }
-
-      if (
-        cached &&
-        requestedSessionId &&
-        cached.sessionId === requestedSessionId &&
-        cached.agentId === agent.id &&
-        input.createNewSession !== true
-      ) {
-        return {
-          ok: true as const,
-          agent,
-          sessionId: cached.sessionId,
-          sessionHistory: [...cached.history],
-          developerId,
-        };
       }
 
       if (input.createNewSession) {
@@ -218,12 +201,7 @@ function createDeps(overrides: {
       };
     }),
     updateCachedRuntimeState: vi.fn((ctx: any, state: any) => {
-      ctx.workflowState = ctx.workflowState ?? {};
-      ctx.workflowState.chatRuntime = {
-        agentId: state.agentId,
-        sessionId: state.sessionId,
-        history: [...state.history],
-      };
+      ctx.navStack = [...(state.navStack ?? [])];
     }),
   };
 
@@ -232,8 +210,17 @@ function createDeps(overrides: {
     stepService,
     plugins,
     sessionManager,
-    emitService
+    emitService,
+    {
+      resolveActiveInteraction: vi.fn(
+        overrides.resolveActiveInteraction ?? (async () => null)
+      ),
+      dispatchChatTurn: vi.fn(
+        overrides.dispatchChatTurn ?? (async () => null)
+      ),
+    } as any
   );
+  const workflowInteractions = (command as any).workflowInteractions;
 
   return {
     command,
@@ -244,6 +231,7 @@ function createDeps(overrides: {
     bootstrapResolver,
     emitService,
     commandDispatcher,
+    workflowInteractions,
   };
 }
 
@@ -290,6 +278,149 @@ describe('ChatDirectTurnCommand bootstrap', () => {
       }),
       expect.anything()
     );
+  });
+
+  it('routes a normal chat turn through the active workflow interaction cursor', async () => {
+    const { command, stepService, workflowInteractions, sessionManager } = createDeps({
+      resolveLatestSessionForResume: async () => ({
+        id: 'sess-latest',
+        agentId: 'elena-rostova',
+      }),
+      getAgentAsync: async (id: string) => ({ id, name: 'Elena Rostova', role: 'ceo' }),
+      getLatestSession: async () => ({ id: 'sess-latest', agentId: 'elena-rostova' }),
+      getSessionMessages: async () => [
+        { content: 'prior' } as any,
+        { content: 'Workflow child reply', isHuman: false } as any,
+      ],
+      resolveActiveInteraction: async () => ({
+        runId: 'workflow:1',
+        sessionId: 'sess-latest',
+        actorPath: 'workflowChatInvocation_business',
+        cursor: 'workflow:1:workflowChatInvocation_business',
+      }),
+      dispatchChatTurn: async () => ({ assistantMessage: 'Workflow child reply' }),
+    });
+
+    const response = await command.execute(
+      {
+        options: {
+          message: 'Please refine the business scope.',
+        },
+      } as any,
+      { history: [] } as any
+    );
+
+    expect(response).toMatchObject({
+      status: 'ok',
+      data: {
+        text: 'Workflow child reply',
+        sessionId: 'sess-latest',
+      },
+    });
+    expect(workflowInteractions.resolveActiveInteraction).toHaveBeenCalledWith('sess-latest');
+    expect(workflowInteractions.dispatchChatTurn).toHaveBeenCalledWith(
+      'sess-latest',
+      'Please refine the business scope.',
+      'workflow:1:workflowChatInvocation_business'
+    );
+    expect(sessionManager.getSessionMessages).toHaveBeenCalledWith('sess-latest');
+    expect(stepService.ensureTurnStartAsync).not.toHaveBeenCalled();
+    expect(stepService.invokeTurnLlmAsync).not.toHaveBeenCalled();
+  });
+
+  it('re-resolves and retries routed chat turn once when the cursor changed concurrently', async () => {
+    const resolveActiveInteraction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        runId: 'workflow:1',
+        sessionId: 'sess-latest',
+        actorPath: 'workflowChatInvocation_business',
+        cursor: 'workflow:1:workflowChatInvocation_old',
+      })
+      .mockResolvedValueOnce({
+        runId: 'workflow:1',
+        sessionId: 'sess-latest',
+        actorPath: 'workflowChatInvocation_business',
+        cursor: 'workflow:1:workflowChatInvocation_new',
+      });
+    const dispatchChatTurn = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error(
+          "Workflow interaction cursor mismatch for session 'sess-latest': expected 'workflow:1:workflowChatInvocation_old', current 'workflow:1:workflowChatInvocation_new'."
+        )
+      )
+      .mockResolvedValueOnce({ assistantMessage: 'Recovered response' });
+    const { command, workflowInteractions } = createDeps({
+      resolveLatestSessionForResume: async () => ({
+        id: 'sess-latest',
+        agentId: 'elena-rostova',
+      }),
+      getAgentAsync: async (id: string) => ({ id, name: 'Elena Rostova', role: 'ceo' }),
+      getLatestSession: async () => ({ id: 'sess-latest', agentId: 'elena-rostova' }),
+      resolveActiveInteraction,
+      dispatchChatTurn,
+    });
+
+    const response = await command.execute(
+      {
+        options: {
+          message: 'Continue with latest cursor.',
+        },
+      } as any,
+      { history: [] } as any
+    );
+
+    expect(response).toMatchObject({
+      status: 'ok',
+      data: {
+        text: 'Recovered response',
+        sessionId: 'sess-latest',
+      },
+    });
+    expect(workflowInteractions.resolveActiveInteraction).toHaveBeenCalledTimes(2);
+    expect(workflowInteractions.dispatchChatTurn).toHaveBeenNthCalledWith(
+      1,
+      'sess-latest',
+      'Continue with latest cursor.',
+      'workflow:1:workflowChatInvocation_old'
+    );
+    expect(workflowInteractions.dispatchChatTurn).toHaveBeenNthCalledWith(
+      2,
+      'sess-latest',
+      'Continue with latest cursor.',
+      'workflow:1:workflowChatInvocation_new'
+    );
+  });
+
+  it('bypasses workflow interaction routing when explicitly requested', async () => {
+    const { command, stepService } = createDeps({
+      resolveLatestSessionForResume: async () => ({
+        id: 'sess-latest',
+        agentId: 'elena-rostova',
+      }),
+      getAgentAsync: async (id: string) => ({ id, name: 'Elena Rostova', role: 'ceo' }),
+      getLatestSession: async () => ({ id: 'sess-latest', agentId: 'elena-rostova' }),
+      resolveActiveInteraction: async () => ({
+        runId: 'workflow:1',
+        sessionId: 'sess-latest',
+        actorPath: 'workflowChatInvocation_business',
+        cursor: 'workflow:1:workflowChatInvocation_business',
+      }),
+    });
+
+    await command.execute(
+      {
+        options: {
+          message: 'Continue.',
+          skipWorkflowInteractionRouting: true,
+        },
+      } as any,
+      { history: [] } as any
+    );
+
+    expect(stepService.ensureTurnStartAsync).toHaveBeenCalledTimes(1);
+    expect(stepService.invokeTurnLlmAsync).toHaveBeenCalledTimes(1);
   });
 
   it('uses latest session agent when no agent is provided', async () => {
@@ -424,58 +555,23 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     );
   });
 
-  it('reuses cached workflowState history for same session instead of reloading DB', async () => {
+  it('loads session history from persistence for explicit session turns', async () => {
     const { command, sessionManager, stepService } = createDeps({
+      getSession: async (id: string) => ({ id, agentId: 'sarah-lee' }),
       getAgentAsync: async (id: string) => ({ id, name: 'Sarah Lee', role: 'architect' }),
-      getLatestSession: async () => ({ id: 'sess-agent', agentId: 'sarah-lee' }),
       getSessionMessages: async () => [{ content: 'db-history' } as any],
-      resolveLatestSessionForResume: async () => ({ id: 'sess-agent', agentId: 'sarah-lee' }),
     });
-
-    const ctx = {
-      history: [],
-      workflowState: {
-        chatRuntime: {
-          agentId: 'sarah-lee',
-          sessionId: 'sess-agent',
-          history: [{ content: 'cached-history' }],
-        },
-      },
-    } as any;
 
     const response = await command.execute(
       {
         options: { message: 'hello', sessionId: 'sess-agent' },
       } as any,
-      ctx
+      { history: [] } as any
     );
 
     expect(response.status).toBe('ok');
-    expect(sessionManager.getSessionMessages).toHaveBeenCalledTimes(0);
+    expect(sessionManager.getSessionMessages).toHaveBeenCalledWith('sess-agent');
     expect(stepService.prepareMessagesAsync).toHaveBeenCalled();
-  });
-
-  it('updates workflowState cache after successful turn', async () => {
-    const { command } = createDeps({
-      resolveLatestSessionForResume: async () => ({ id: 'sess-latest', agentId: 'sarah-lee' }),
-      getAgentAsync: async (id: string) => ({ id, name: 'Sarah Lee', role: 'architect' }),
-      getLatestSession: async () => ({ id: 'sess-agent', agentId: 'sarah-lee' }),
-      getSessionMessages: async () => [],
-    });
-
-    const ctx = { history: [], workflowState: {} } as any;
-    const response = await command.execute(
-      {
-        options: { message: 'hello' },
-      } as any,
-      ctx
-    );
-
-    expect(response.status).toBe('ok');
-    expect((ctx.workflowState as any).chatRuntime).toBeDefined();
-    expect((ctx.workflowState as any).chatRuntime.agentId).toBe('sarah-lee');
-    expect((ctx.workflowState as any).chatRuntime.sessionId).toBe('sess-agent');
-    expect(Array.isArray((ctx.workflowState as any).chatRuntime.history)).toBe(true);
   });
 
   it('uses an internal continuation as transient system context without persisting a human message', async () => {
@@ -512,15 +608,27 @@ describe('ChatDirectTurnCommand bootstrap', () => {
         id: 'session-michael',
         agentId: 'michael-brown',
       }),
+      getSession: async (id: string) =>
+        id === 'session-emily'
+          ? { id: 'session-emily', agentId: 'emily-davis' }
+          : id === 'session-michael'
+            ? { id: 'session-michael', agentId: 'michael-brown' }
+            : null,
       getAgentAsync: async (id: string) => ({
         id,
         name: id === 'michael-brown' ? 'Michael Brown' : 'Emily Davis',
         role: 'assistant',
       }),
-      getLatestSession: async () => ({
-        id: 'session-michael',
-        agentId: 'michael-brown',
-      }),
+      getLatestSession: async (agentId: string) =>
+        agentId === 'emily-davis'
+          ? {
+              id: 'session-emily',
+              agentId: 'emily-davis',
+            }
+          : {
+              id: 'session-michael',
+              agentId: 'michael-brown',
+            },
       getSessionMessages: async () => [],
     });
     stepService.invokeTurnLlmAsync.mockImplementation(
@@ -619,67 +727,6 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     expect(response.data).toMatchObject({ text: 'assistant output' });
   });
 
-  it('routes and persists every later developer turn to the cached handoff target', async () => {
-    const { command, stepService } = createDeps({
-      resolveLatestSessionForResume: async () => ({
-        id: 'session-michael',
-        agentId: 'michael-brown',
-      }),
-      getAgentAsync: async (id: string) => ({
-        id,
-        name: id === 'michael-brown' ? 'Michael Brown' : 'Emily Davis',
-        role: 'assistant',
-      }),
-      getLatestSession: async () => ({
-        id: 'session-michael',
-        agentId: 'michael-brown',
-      }),
-      getSessionMessages: async () => [],
-    });
-    let invocation = 0;
-    stepService.invokeTurnLlmAsync.mockImplementation(
-      async (_messages: unknown, _resolved: unknown, turnCtx: any) => {
-        invocation += 1;
-        if (invocation === 1) {
-          turnCtx.agent = { id: 'emily-davis', name: 'Emily Davis', role: 'HR Director' };
-          turnCtx.agentId = 'emily-davis';
-          turnCtx.sessionId = 'session-emily';
-          turnCtx.history = [];
-          return { fullResponse: 'handoff completed', structuredResults: [] };
-        }
-        expect(turnCtx.agent.id).toBe('emily-davis');
-        expect(turnCtx.sessionId).toBe('session-emily');
-        return { fullResponse: 'Emily continues.', structuredResults: [] };
-      }
-    );
-    const outerContext = { history: [], workflowState: {} } as any;
-
-    await command.execute({ options: { message: 'Let me talk to Emily.' } } as any, outerContext);
-    const second = await command.execute(
-      { options: { message: 'Here is the next request.' } } as any,
-      outerContext
-    );
-
-    expect(second).toMatchObject({
-      status: 'ok',
-      data: {
-        text: 'assistant output',
-        agentId: 'emily-davis',
-        sessionId: 'session-emily',
-      },
-    });
-    expect(stepService.persistUserMessageAsync).toHaveBeenCalledTimes(2);
-    expect(stepService.persistUserMessageAsync.mock.calls[1][1]).toMatchObject({
-      agent: { id: 'emily-davis' },
-      sessionId: 'session-emily',
-    });
-    expect(stepService.persistAssistantMessageAsync).toHaveBeenCalledOnce();
-    expect(stepService.persistAssistantMessageAsync.mock.calls[0][1]).toMatchObject({
-      agent: { id: 'emily-davis' },
-      sessionId: 'session-emily',
-    });
-  });
-
   it('executes slash command directly without invoking LLM send-turn pipeline', async () => {
     const { command, stepService, sessionManager, emitService, commandDispatcher } = createDeps({
       resolveLatestSessionForResume: async () => ({ id: 'sess-latest', agentId: 'michael-brown' }),
@@ -731,7 +778,6 @@ describe('ChatDirectTurnCommand bootstrap', () => {
       expect.anything()
     );
     expect(outerContext.invocationSurface).toBe('cli');
-    expect((outerContext.workflowState as any).chatRuntime.sessionId).toBe('session-after-slash');
     expect(response.data).toMatchObject({
       sessionId: 'session-after-slash',
       followUpMessage: expect.any(String),

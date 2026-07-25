@@ -81,10 +81,36 @@ export interface WorkflowLoopStep<TState> {
   skipWhen?: string;
 }
 
+export interface WorkflowChatStep<TState> {
+  kind: 'chat';
+  id: string;
+  agentId?: WorkflowArgValue;
+  chat: { systemPrompt: WorkflowArgValue; toolPolicy: { allow: string[] } };
+  done: { command: string; args?: Record<string, WorkflowArgValue> };
+  finalize: { command: string; args?: Record<string, WorkflowArgValue> };
+  applyResult?: (state: TState, output: unknown) => TState;
+}
+
+/** A durable human-input state. The UI renders this metadata and sends ANSWER. */
+export interface WorkflowQuestionStep<TState> {
+  kind: 'question';
+  id: string;
+  prompt: WorkflowArgValue;
+  interaction: {
+    type: 'text' | 'select';
+    options?: Array<{ value: string; label: string }>;
+  };
+  when?: string;
+  skipWhen?: string;
+  applyResult?: (state: TState, answer: unknown) => TState;
+}
+
 export type WorkflowStep<TState> =
   | WorkflowCommandStep<TState>
   | WorkflowExecuteStep<TState>
-  | WorkflowLoopStep<TState>;
+  | WorkflowLoopStep<TState>
+  | WorkflowChatStep<TState>
+  | WorkflowQuestionStep<TState>;
 
 export interface WorkflowDefinition<TState> extends Omit<ICommandDescriptor, 'key'> {
   readonly id: string;

@@ -21,6 +21,7 @@ export { CommandActorAdapterResolver } from './command-actor-adapter-resolver.js
 export { WORKFLOW_SERVICE_TOKENS } from './workflow-service-tokens.js';
 export { WorkflowActorHost } from './workflow-actor-host.js';
 export { WorkflowInteractionRouter } from './workflow-interaction-router.js';
+export { WorkflowOperationJournal } from './workflow-operation-journal.js';
 export {
   createDurableChatActor,
   type DurableChatActorContext,
@@ -41,6 +42,8 @@ export {
 export {
   WorkflowAbortError,
   type WorkflowArgValue,
+  type WorkflowChatStep,
+  type WorkflowQuestionStep,
   type WorkflowCommandStep,
   type WorkflowDefinition,
   type WorkflowExecuteStep,
@@ -49,6 +52,13 @@ export {
   type WorkflowResult,
   type WorkflowStep,
 } from './workflow-types.js';
+export { resolveWorkflowChatDefinition, type ResolvedWorkflowChatDefinition } from './workflow-chat-definition.js';
+export {
+  compileWorkflowChatStep,
+  createWorkflowChatActor,
+  type WorkflowChatActorInput,
+  type WorkflowChatCommandInvoker,
+} from './workflow-chat-compiler.js';
 
 export {
   evaluateWorkflowCondition,
