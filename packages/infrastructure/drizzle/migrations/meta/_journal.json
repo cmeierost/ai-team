@@ -36,6 +36,13 @@
       "when": 1784918400000,
       "tag": "0004_add_llm_message_metrics",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784944609000,
+      "tag": "0005_add_workflow_runs",
+      "breakpoints": true
     }
   ]
 }

@@ -26,6 +26,8 @@ export interface ChatRuntimeTurnInput {
   createNewSession?: boolean;
   options: {
     messageOrigin: 'developer' | 'internal';
+    workflowSystemPrompt?: string;
+    workflowToolAllowlist?: string[];
   };
 }
 
@@ -132,6 +134,8 @@ export interface ChatRuntimeRunInput extends ChatLoopInput {
   invocationSurface?: ExecutionContext['invocationSurface'];
   calledByHuman?: boolean;
   callerType?: ExecutionContext['callerType'];
+  workflowSystemPrompt?: string;
+  workflowToolAllowlist?: string[];
 }
 
 export interface IChatRuntime {
@@ -269,6 +273,7 @@ export class ChatRuntime implements IChatRuntime {
   ): WorkflowDefinition<ChatRuntimeState> {
     return {
       id: 'chat-runtime-loop',
+      version: '1',
       description: 'Run chat turn orchestration with workflow runner loop semantics',
       availableIn: { cli: false, chat: false, tool: false },
       return: {
@@ -323,6 +328,8 @@ export class ChatRuntime implements IChatRuntime {
                 createNewSession: state.createNewSession,
                 options: {
                   messageOrigin: state.currentMessageOrigin,
+                  workflowSystemPrompt: state.input.workflowSystemPrompt,
+                  workflowToolAllowlist: state.input.workflowToolAllowlist,
                 },
               }),
               applyResult: (state, raw) => {

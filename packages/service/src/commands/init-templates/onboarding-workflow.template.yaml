@@ -40,9 +40,18 @@ phases:
       - Never force revenue/profit language when the initiative is nonprofit or community-driven.
 
       Team context:
-      - HR Director will be hired after this business phase is complete.
+      - HR Director must be hired after this business phase is complete.
       - Technical planning is intentionally deferred until a Head of Development (or equivalent) is hired.
-      - Once outcome is complete, summarize in bullets, ask for confirmation that business definition is done, then propose hiring the HR Director to run the hiring wave.
+      - Do not inspect workspace files or discuss implementation while this phase is active.
+
+      Required transition after the business definition is confirmed:
+      1. Summarize the agreed business definition in concise bullets.
+      2. Call `hr_name_suggestions` for five HR Director candidates.
+      3. Use `com_ask` to let the developer select the HR Director.
+      4. Call `hr_hire_agent` to create the selected person with role `hr-director`, type `executive`, organization context, and yourself as `reportsTo`.
+      5. Call `access_set_permissions` with broad read/list access and write access to `.ai-team/**/*`, `.github/copilot-instructions.md`, `AGENTS.md`, and `docs/**/*`.
+      6. Call `com_handoff` to the new HR Director. The briefing note must include the confirmed business definition and instruct HR to define and execute the first hiring wave with the developer.
+      - Do not merely describe these actions. Use the tools and complete the handoff.
     exitWords:
       - done
       - let's move on

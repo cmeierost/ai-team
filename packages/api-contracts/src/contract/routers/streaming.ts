@@ -273,7 +273,9 @@ export interface ChatOptions {
   workflowMode?: boolean;
   workflowSystemPrompt?: string;
   workflowExitWords?: string[];
+  workflowToolAllowlist?: string[];
   suppressAutoIntroduction?: boolean;
+  introductionText?: string;
   disableProcessExit?: boolean;
 }
 
@@ -293,6 +295,19 @@ export interface FireOptions {
 export interface InitOptions {
   template?: string;
   force?: boolean;
+}
+
+export interface InitResult {
+  chat?: {
+    agentId: string;
+    createNewSession: true;
+    workflowMode: true;
+    workflowSystemPrompt: string;
+    workflowExitWords: string[];
+    workflowToolAllowlist: string[];
+    introductionText: string;
+    suppressAutoIntroduction: true;
+  };
 }
 
 export interface SetupOptions {

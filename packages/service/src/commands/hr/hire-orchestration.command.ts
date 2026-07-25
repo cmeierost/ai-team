@@ -45,7 +45,7 @@ const _hireOrchestrationCommandSchema = z.object({
 });
 
 export const HireOrchestrationCommandMetadata = {
-  key: 'hire',
+  key: 'hire_agent',
   description:
     'Create a new virtual team member with a defined role, optional personality/type/context-level, and optional rich introduction & personality profile markdown. Requires manage_agents permission.',
   availableIn: { tool: true },

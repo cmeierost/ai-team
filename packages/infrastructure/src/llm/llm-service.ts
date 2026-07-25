@@ -123,7 +123,7 @@ export class LlmService implements ILlmService {
 
   constructor(
     workspaceRoot: string,
-    private readonly teamConfig: TeamConfig,
+    private readonly teamConfigSource: TeamConfig | (() => TeamConfig),
     private readonly llmSettingsResolver: ILlmSettingsResolver,
     backendLogService: IBackendLogService
   ) {
@@ -161,12 +161,16 @@ export class LlmService implements ILlmService {
     skill?: Pick<Skill, 'llm'>,
     runtimeOverrides?: LlmChatOptions
   ): Promise<LlmChatOptions> {
-    if (!this.teamConfig) {
+    const teamConfig =
+      typeof this.teamConfigSource === 'function'
+        ? this.teamConfigSource()
+        : this.teamConfigSource;
+    if (!teamConfig) {
       throw new Error('No LLM configuration found. Run "ait init" to configure a provider.');
     }
 
     const resolved = this.llmSettingsResolver.resolveEffectiveLlmSettings(
-      this.teamConfig,
+      teamConfig,
       agent,
       skill,
       runtimeOverrides

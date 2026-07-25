@@ -88,6 +88,7 @@ interface ApprovalWorkflowState {
 export function createApprovalWorkflow(): WorkflowDefinition<ApprovalWorkflowState> {
   return {
     id: 'approval-workflow',
+    version: '1',
     description: 'Simple approval workflow that can be composed into larger processes',
     availableIn: { tool: true, cli: false, chat: false },
     prepare: (params: unknown) => params as ApprovalWorkflowState,
@@ -153,6 +154,7 @@ interface HiringProcessState {
 export function createHiringProcessWorkflow(): WorkflowDefinition<HiringProcessState> {
   return {
     id: 'hiring-process',
+    version: '1',
     description: 'Multi-stage hiring process that composes approval workflows',
     availableIn: { tool: true, cli: false, chat: false },
     prepare: (params: unknown) => params as HiringProcessState,

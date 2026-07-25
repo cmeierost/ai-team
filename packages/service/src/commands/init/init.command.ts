@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { InitOptions } from '@ai-team/api-contracts';
+import type { InitOptions, InitResult } from '@ai-team/api-contracts';
 import type {
   ICommand,
   CommandResponse,
@@ -13,6 +13,7 @@ import type { SetupCommand } from '../setup/setup.js';
 import type { TestConnectionCommand } from '../setup/test-connection.js';
 import type { IWorkflowRunnerFactory, WorkflowDefinition } from '../../workflow/index.js';
 import type { IEmitService } from '@ai-team/core';
+import type { OnboardingWorkflowResult } from '../hr/onboarding-workflow.js';
 
 type Params = z.infer<typeof InitICommand.schema>;
 const _initICommandSchema = z.object({
@@ -36,12 +37,13 @@ interface InitWorkflowState {
   aiTeamDir: string;
   shouldSkip: boolean;
   shouldClear: boolean;
+  onboarding?: OnboardingWorkflowResult;
 }
 
 const FORCE_KEEP = new Set(['config.json', '.env']);
 const INIT_RUNTIME_ARTIFACTS = new Set(['agents', 'logs', 'private', '.ide-server.json']);
 
-export class InitICommand implements ICommand<Params, void> {
+export class InitICommand implements ICommand<Params, InitResult> {
   static readonly schema = _initICommandSchema;
   readonly metadata = InitICommandMetadata;
 
@@ -58,9 +60,13 @@ export class InitICommand implements ICommand<Params, void> {
     payload: Params,
     _ctxOrUnused?: unknown,
     ctx?: any
-  ): Promise<CommandResponse<void>> {
+  ): Promise<CommandResponse<InitResult>> {
     const resolvedCtx = (ctx ?? _ctxOrUnused) as unknown as any;
-    const options = (payload.options ?? {}) as InitOptions;
+    const rawOptions = (payload.options ?? {}) as Partial<InitOptions>;
+    const options: InitOptions = {
+      ...(typeof rawOptions.template === 'string' ? { template: rawOptions.template } : {}),
+      ...(rawOptions.force === true ? { force: true } : {}),
+    };
 
     const initialState: InitWorkflowState = {
       workspaceRoot: this.workspaceRoot,
@@ -89,7 +95,33 @@ export class InitICommand implements ICommand<Params, void> {
       };
     }
 
-    return { status: 'ok' };
+    const agentId = result.state.onboarding?.ceoAgentId;
+    const workflowSystemPrompt = result.state.onboarding?.businessSystemPrompt;
+    const introductionText = result.state.onboarding?.businessOpeningMessage;
+    return {
+      status: 'ok',
+      data:
+        agentId && workflowSystemPrompt && introductionText
+          ? {
+              chat: {
+                agentId,
+                createNewSession: true,
+                workflowMode: true,
+                workflowSystemPrompt,
+                workflowExitWords: ['done', 'clear', 'finished'],
+                workflowToolAllowlist: [
+                  'com_ask',
+                  'hr_name_suggestions',
+                  'hr_hire_agent',
+                  'access_set_permissions',
+                  'com_handoff',
+                ],
+                introductionText,
+                suppressAutoIntroduction: true,
+              },
+            }
+          : {},
+    };
   }
 
   private async clearAiTeamDirectory(): Promise<void> {
@@ -118,6 +150,7 @@ export class InitICommand implements ICommand<Params, void> {
   private createWorkflowDefinition(): WorkflowDefinition<InitWorkflowState> {
     return {
       id: 'init-command',
+      version: '1',
       description: 'Initialize workspace with bootstrap files and onboarding',
       availableIn: { tool: true },
       steps: [
@@ -186,7 +219,7 @@ export class InitICommand implements ICommand<Params, void> {
         },
         {
           id: 'clear-existing',
-          skipWhen: 'shouldSkip === true || shouldClear !== true',
+          skipWhen: 'shouldClear !== true',
           execute: async (state) => {
             await this.clearAiTeamDirectory();
             return state;
@@ -227,8 +260,8 @@ export class InitICommand implements ICommand<Params, void> {
           id: 'run-onboarding',
           skipWhen: 'shouldSkip === true',
           execute: async (state) => {
-            await this.onboard.executeOnboarding({ options: {} }, state.signal);
-            return state;
+            const onboarding = await this.onboard.executeOnboarding({ options: {} }, state.signal);
+            return { ...state, onboarding };
           },
         },
       ],

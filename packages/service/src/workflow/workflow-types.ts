@@ -88,6 +88,11 @@ export type WorkflowStep<TState> =
 
 export interface WorkflowDefinition<TState> extends Omit<ICommandDescriptor, 'key'> {
   readonly id: string;
+  /**
+   * Snapshot compatibility version. Definitions created before durable runs
+   * default to "1" until their authors declare a later version.
+   */
+  readonly version?: string;
   /** Optional workflow-defined behavior for returning control to its parent. */
   readonly return?: WorkflowReturnDefinition;
   prepare?: (params: unknown) => TState;

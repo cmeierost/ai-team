@@ -61,6 +61,7 @@ import type { IMessagesRepository } from '../repositories/messages-repository.js
 import type { INotesRepository, INoteAttachmentReader } from '../repositories/notes-repository.js';
 import type { ISessionsRepository } from '../repositories/sessions-repository.js';
 import type { IPlanningRepository } from '../repositories/planning-repository.js';
+import type { IWorkflowRunRepository } from '../repositories/workflow-run-repository.js';
 import type { IChatStorage } from '../chat/chat-storage.js';
 import type { IChatManager } from '../chat/chat-context-manager.js';
 import type { IMessageStorage, IProposalStoreFactory } from '../storage/contracts.js';
@@ -77,6 +78,7 @@ export const CORE_SERVICE_TOKENS = {
   SessionsRepository: new Token<ISessionsRepository>('SessionsRepository'),
   NotesRepository: new Token<INotesRepository>('NotesRepository'),
   PlanningRepository: new Token<IPlanningRepository>('PlanningRepository'),
+  WorkflowRunRepository: new Token<IWorkflowRunRepository>('WorkflowRunRepository'),
 
   LlmService: new Token<ILlmService>('LlmService'),
   AgentManager: new Token<IAgentManager>('AgentManager'),

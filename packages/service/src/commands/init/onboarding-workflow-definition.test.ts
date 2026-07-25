@@ -146,11 +146,19 @@ phases:
     expect(business.agentRole).toBe('ceo');
     expect(business.strictSystemPrompt).toContain('You may address the developer by first name');
     expect(business.strictSystemPrompt).toContain('Address Clemens naturally by name');
-    expect(business.strictSystemPrompt).toContain('Your primary method is discovery through questions');
+    expect(business.strictSystemPrompt).toContain(
+      'Your primary method is discovery through questions'
+    );
     expect(business.strictSystemPrompt).toContain('Stay strictly in business mode');
     expect(business.strictSystemPrompt).toContain('Do not assume monetization');
     expect(business.strictSystemPrompt).toContain('Never force revenue/profit language');
-    expect(business.strictSystemPrompt).toContain('HR Director will be hired after this business phase is complete');
-    expect(business.strictSystemPrompt).toContain('Technical planning is intentionally deferred until a Head of Development');
+    expect(business.strictSystemPrompt).toContain(
+      'HR Director must be hired after this business phase is complete'
+    );
+    expect(business.strictSystemPrompt).toContain('Call `hr_name_suggestions`');
+    expect(business.strictSystemPrompt).toContain('Call `com_handoff`');
+    expect(business.strictSystemPrompt).toContain(
+      'Technical planning is intentionally deferred until a Head of Development'
+    );
   });
 });

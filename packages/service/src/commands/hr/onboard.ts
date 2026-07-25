@@ -1,10 +1,8 @@
 /**
- * Onboard command — CEO + HR Director creation, business definition, team hiring.
+ * Onboard command — bootstrap the workspace and create its first CEO.
  *
- * Requires LLM to be configured (via `setup` command first).
- * Creates the founding team, runs the business definition chat with the CEO,
- * then the team planning chat with the HR Director, and finally drops
- * into interactive CEO chat.
+ * Interactive chat belongs to the invoking adapter. The command returns the
+ * created CEO so a CLI, IDE, or web presenter can open its native chat surface.
  */
 
 import type {
@@ -19,6 +17,7 @@ import type {
 import { z } from 'zod';
 import type { OnboardOptions } from '@ai-team/api-contracts';
 import { CORE_SERVICE_TOKENS } from '../../types.js';
+import type { OnboardingWorkflowResult } from './onboarding-workflow.js';
 
 // ── OnboardCommand ────────────────────────────────────────────────────────────
 const _onboardICommandSchema = z.object({
@@ -27,7 +26,7 @@ const _onboardICommandSchema = z.object({
 
 export const OnboardICommandMetadata = {
   key: 'onboard',
-  description: 'Run team onboarding (CEO + HR + hiring)',
+  description: 'Bootstrap the workspace and create its founding CEO',
   availableIn: { cli: true, chat: true },
   group: 'hr',
   parameters: _onboardICommandSchema,
@@ -39,7 +38,7 @@ export interface OnboardCommandParams {
 
 type OnboardICommandParams = z.infer<typeof OnboardICommand.schema>;
 
-export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
+export class OnboardICommand implements ICommand<OnboardICommandParams, OnboardingWorkflowResult> {
   static readonly schema = _onboardICommandSchema;
   readonly metadata = OnboardICommandMetadata;
 
@@ -53,26 +52,26 @@ export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
     payload: OnboardICommandParams,
     ctxOrUnused?: unknown,
     ctx?: ExecutionContext
-  ): Promise<CommandResponse<void>> {
+  ): Promise<CommandResponse<OnboardingWorkflowResult>> {
     const resolvedCtx = ctx ??
       (ctxOrUnused as ExecutionContext | undefined) ?? {
         history: [],
       };
-    await this.executeOnboarding(
+    const data = await this.executeOnboarding(
       {
         options: (payload.options ?? {}) as OnboardOptions,
       },
       resolvedCtx.signal,
       resolvedCtx.invocationSurface ?? 'cli'
     );
-    return { status: 'ok' };
+    return { status: 'ok', data };
   }
 
   async executeOnboarding(
     _params: OnboardCommandParams = {},
     signal?: AbortSignal,
     invocationSurface: ExecutionContext['invocationSurface'] = 'cli'
-  ): Promise<void> {
+  ): Promise<OnboardingWorkflowResult> {
     if (!this.serviceContainer) {
       throw new Error('OnboardICommand requires IServiceContainer to run the onboarding workflow.');
     }
@@ -111,6 +110,12 @@ export class OnboardICommand implements ICommand<OnboardICommandParams, void> {
       }
     }
 
-    emitService.log('info', '--- Onboarding Complete ---');
+    const data = (commandResult as { data?: OnboardingWorkflowResult } | undefined)?.data;
+    if (!data?.ceoAgentId) {
+      throw new Error('Onboarding completed without creating a CEO agent.');
+    }
+
+    emitService.log('info', `CEO ${data.ceoName ?? data.ceoAgentId} is ready.`);
+    return data;
   }
 }

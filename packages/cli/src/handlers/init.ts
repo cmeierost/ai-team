@@ -1,35 +1,39 @@
-import type { InitOptions } from '@ai-team/api-contracts';
-import type { ITerminal } from '@ai-team/core';
+import type { InitOptions, InitResult } from '@ai-team/api-contracts';
 import type { ICliCommandClient } from '../cli-command-client.js';
-import type { InquirerQuestionService } from './question-responders.js';
-import { renderChat } from './chat.js';
 
-interface InitTuiDependencies {
-  terminal?: ITerminal;
-  questionService?: InquirerQuestionService;
-}
-
-/**
- * Run initialization in the shared chat TUI.
- *
- * The onboarding workflow selects and creates the CEO before starting its
- * business-definition phase. Keeping the complete command stream in the chat
- * renderer lets that session switch become visible immediately, without
- * tearing down one terminal UI and constructing another.
- */
 export async function renderInit(
   client: ICliCommandClient,
-  options: InitOptions,
-  dependencies: InitTuiDependencies = {}
-): Promise<void> {
-  await renderChat(
-    client,
-    undefined,
-    { oneShot: true },
-    false,
-    undefined,
-    'init',
-    { options },
-    dependencies
-  );
+  options: InitOptions
+): Promise<InitResult> {
+  let initResult: InitResult = {};
+
+  for await (const event of client.streamInteraction(
+    {
+      command: 'setup-init',
+      payload: { options },
+    },
+    {
+      invocationSurface: 'cli',
+      calledByHuman: true,
+    }
+  )) {
+    if (event.kind === 'token') {
+      process.stdout.write(event.text);
+    } else if (event.kind === 'log') {
+      const output = event.level === 'error' ? process.stderr : process.stdout;
+      output.write(`${event.message}\n`);
+    } else if (event.kind === 'error') {
+      throw new Error(event.message);
+    } else if (event.kind === 'result') {
+      const result = event.data as
+        | { status?: string; message?: string; data?: InitResult }
+        | undefined;
+      if (result?.status === 'error') {
+        throw new Error(result.message || 'Initialization failed.');
+      }
+      initResult = result?.data ?? {};
+    }
+  }
+
+  return initResult;
 }

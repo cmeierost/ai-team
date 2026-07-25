@@ -5,13 +5,12 @@ import type {
   ExecutionContext,
   CommandResponse,
   IPermissionStorage,
+  IAgentManager,
 } from '@ai-team/core';
 
 const setPermissionsParamsSchema = z.object({
   agentId: z.string().min(1).describe('Agent id whose permissions to set.'),
-  list: z
-    .array(z.string())
-    .describe('Glob patterns the agent may list (directory enumeration).'),
+  list: z.array(z.string()).describe('Glob patterns the agent may list (directory enumeration).'),
   read: z.array(z.string()).describe('Glob patterns the agent may read.'),
   write: z.array(z.string()).describe('Glob patterns the agent may write.'),
 });
@@ -39,12 +38,13 @@ export const SetPermissionsCommandMetadata = {
  * Thin wrapper over `IPermissionStorage.saveAsync()`. Used by onboarding
  * workflows after `create_agent` to grant the new agent appropriate access.
  */
-export class SetPermissionsCommand
-  implements ICommand<SetPermissionsParams, SetPermissionsResult>
-{
+export class SetPermissionsCommand implements ICommand<SetPermissionsParams, SetPermissionsResult> {
   readonly metadata = SetPermissionsCommandMetadata;
 
-  constructor(private readonly permissionStorage: IPermissionStorage) {}
+  constructor(
+    private readonly permissionStorage: IPermissionStorage,
+    private readonly agentManager?: Pick<IAgentManager, 'refreshAsync'>
+  ) {}
 
   async execute(
     params: SetPermissionsParams,
@@ -55,6 +55,7 @@ export class SetPermissionsCommand
       read: params.read,
       write: params.write,
     });
+    await this.agentManager?.refreshAsync();
     return { status: 'ok', data: { agentId: params.agentId } };
   }
 }

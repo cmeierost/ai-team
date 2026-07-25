@@ -5,14 +5,16 @@ import type {
 } from '@ai-team/core';
 
 export class ProviderConfigurationService implements IProviderConfigurationService {
-  constructor(private readonly teamConfig: TeamConfig) {}
+  constructor(private readonly teamConfigSource: TeamConfig | (() => TeamConfig)) {}
 
   getTeamConfig(): TeamConfig {
-    return this.teamConfig;
+    return typeof this.teamConfigSource === 'function'
+      ? this.teamConfigSource()
+      : this.teamConfigSource;
   }
 
   resolveDefaultProviderRef(): string | undefined {
-    const teamConfig = this.teamConfig;
+    const teamConfig = this.getTeamConfig();
     const registry = teamConfig?.providers;
     if (!registry || Object.keys(registry).length === 0) {
       return undefined;
@@ -31,7 +33,7 @@ export class ProviderConfigurationService implements IProviderConfigurationServi
   }
 
   resolveDefaultProvider(): ResolvedDefaultProvider | undefined {
-    const teamConfig = this.teamConfig;
+    const teamConfig = this.getTeamConfig();
     const registry = teamConfig?.providers;
     if (!registry || Object.keys(registry).length === 0) {
       return undefined;

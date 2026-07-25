@@ -315,7 +315,11 @@ function handleStatusEvent(ctx: ChatCtx, event: unknown): void {
         : 'The chat request failed.';
     applyProjection(
       ctx,
-      ctx.eventRegistry.handle({ kind: 'error', message } as any, ctx.eventState, ctx.extensionRegistry),
+      ctx.eventRegistry.handle(
+        { kind: 'error', message } as any,
+        ctx.eventState,
+        ctx.extensionRegistry
+      ),
       event
     );
   }
@@ -460,7 +464,11 @@ export async function renderChat(
     workspaceRoot
   );
 
-  const questionPresenter = new TuiQuestionPresenter(ctx.layout, ctx.tui, () => ctx.eventState.currentAgent);
+  const questionPresenter = new TuiQuestionPresenter(
+    ctx.layout,
+    ctx.tui,
+    () => ctx.eventState.currentAgent
+  );
   const detachQuestionPresenter = dependencies.questionService?.attachPresenter(questionPresenter);
   const abortQuestions = () =>
     questionPresenter.abort(abortControl.signal.reason ?? new Error('Chat aborted'));
@@ -470,21 +478,6 @@ export async function renderChat(
   let exitRequested = false;
 
   try {
-    const isEmbeddedWorkflow =
-      options.oneShot && requestCommand !== 'chat-chat' && options.message === undefined;
-
-    if (isEmbeddedWorkflow) {
-      await streamTurn(
-        ctx,
-        client,
-        requestCommand,
-        requestPayload ?? {},
-        workspaceRoot,
-        abortControl.signal
-      );
-      return;
-    }
-
     if (!options.oneShot && requestCommand === 'chat-chat') {
       const startupOk = await streamTurn(
         ctx,
@@ -495,7 +488,11 @@ export async function renderChat(
           options: {
             sessionId: options.sessionId,
             createNewSession: options.createNewSession,
-            introduction: true,
+            introduction:
+              options.suppressAutoIntroduction !== true || Boolean(options.introductionText),
+            introductionText: options.introductionText,
+            workflowMode: options.workflowMode,
+            workflowExitWords: options.workflowExitWords,
           },
         },
         workspaceRoot,
@@ -620,6 +617,12 @@ function buildTurnPayload(
       agentId: ctx.eventState.currentAgentId ?? servicePayload['agentId'],
       sessionId: ctx.sessionId ?? servicePayload['sessionId'],
       message,
+      ...(options.workflowSystemPrompt
+        ? { workflowSystemPrompt: options.workflowSystemPrompt }
+        : {}),
+      ...(options.workflowToolAllowlist
+        ? { workflowToolAllowlist: options.workflowToolAllowlist }
+        : {}),
     };
   }
   return {
@@ -627,5 +630,9 @@ function buildTurnPayload(
     message,
     sessionId: ctx.sessionId ?? options.sessionId,
     createNewSession: options.createNewSession,
+    ...(options.workflowSystemPrompt ? { workflowSystemPrompt: options.workflowSystemPrompt } : {}),
+    ...(options.workflowToolAllowlist
+      ? { workflowToolAllowlist: options.workflowToolAllowlist }
+      : {}),
   };
 }

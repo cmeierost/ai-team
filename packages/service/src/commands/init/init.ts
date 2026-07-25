@@ -6,7 +6,7 @@ import {
   saveAgentAccessPatterns,
   testLlmConnection,
 } from './init-compat.js';
-import type { InitOptions } from '@ai-team/api-contracts';
+import type { InitOptions, InitResult } from '@ai-team/api-contracts';
 import type { SessionManager } from '../../sessions/session-manager.js';
 import {
   createBootstrapInstructions,
@@ -53,10 +53,10 @@ export class InitCommand {
     params: InitCommandParams,
     signal?: AbortSignal,
     workflowState?: unknown
-  ): Promise<void> {
+  ): Promise<InitResult> {
     const { workspaceRoot, options } = params;
 
-    await runInitWorkflowAsync(
+    return runInitWorkflowAsync(
       workspaceRoot,
       options,
       this.emitService,

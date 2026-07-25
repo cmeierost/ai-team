@@ -51,6 +51,7 @@ const JsonWorkflowStepSchema = z.discriminatedUnion('kind', [
 
 export const JsonWorkflowSchema = z.object({
   id: z.string(),
+  version: z.string().min(1).default('1'),
   name: z.string(),
   description: z.string(),
   return: z
@@ -202,6 +203,7 @@ export class JsonWorkflowTool implements IWorkflowDefinitionProvider {
 
     const workflowDef: WorkflowDefinition<WorkflowState> = {
       id: def.id,
+      version: def.version,
       description: def.description,
       availableIn: {},
       return: def.return,

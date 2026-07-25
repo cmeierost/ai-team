@@ -43,40 +43,6 @@ function clientWith(events: StreamEvent<'chat'>[]): ICliCommandClient {
 const timestamp = '2026-07-23T10:00:00.000Z';
 
 describe('new chat TUI projection', () => {
-  it('executes an embedded init workflow immediately without prompting for a chat message', async () => {
-    const terminal = new FakeTerminal();
-    const streamInteraction = vi.fn(async function* (request: unknown) {
-      yield { command: 'init', kind: 'done', timestamp } as StreamEvent<'chat'>;
-    });
-    const client = {
-      getCommands: () => [],
-      streamInteraction,
-    } as unknown as ICliCommandClient;
-
-    await renderChat(
-      client,
-      undefined,
-      { oneShot: true },
-      false,
-      undefined,
-      'init',
-      { options: { force: true } },
-      { terminal }
-    );
-
-    expect(streamInteraction).toHaveBeenCalledWith(
-      {
-        command: 'init',
-        payload: { options: { force: true } },
-      },
-      expect.objectContaining({
-        invocationSurface: 'cli',
-        calledByHuman: true,
-        signal: expect.any(AbortSignal),
-      })
-    );
-  });
-
   it('renders user input and streamed agent tokens from service events', async () => {
     const terminal = new FakeTerminal();
     const client = clientWith([
@@ -419,9 +385,7 @@ describe('new chat TUI projection', () => {
     );
 
     expect(commands).toEqual(['chat-chat-startup', 'chat-chat']);
-    expect(terminal.writes.join('')).toContain(
-      '(gpt-5.2) - session-1'
-    );
+    expect(terminal.writes.join('')).toContain('(gpt-5.2) - session-1');
   });
 
   it('runs startup for bare chat so the service can choose the CEO and session', async () => {
@@ -470,10 +434,7 @@ describe('new chat TUI projection', () => {
       { terminal }
     );
 
-    expect(requests.map((request) => request.command)).toEqual([
-      'chat-chat-startup',
-      'chat-chat',
-    ]);
+    expect(requests.map((request) => request.command)).toEqual(['chat-chat-startup', 'chat-chat']);
     expect(requests[0]?.payload).toMatchObject({
       employeeId: undefined,
       options: { createNewSession: false, introduction: true },
@@ -484,6 +445,64 @@ describe('new chat TUI projection', () => {
     });
     expect(terminal.writes.join('')).toContain('main');
     expect(terminal.writes.join('')).toContain('session-new-ceo');
+  });
+
+  it('uses the workflow introduction and injects workflow context into the first turn', async () => {
+    const terminal = new FakeTerminal();
+    const requests: Array<{ command: string; payload?: Record<string, any> }> = [];
+    const client: ICliCommandClient = {
+      getCommands: () => [],
+      streamInteraction: async function* (request) {
+        requests.push(request as { command: string; payload?: Record<string, any> });
+        if (request.command === 'chat-chat-startup') {
+          yield {
+            command: request.command,
+            kind: 'session_switched',
+            timestamp,
+            agentId: 'elena-rodriguez',
+            sessionId: 'session-onboarding',
+          };
+        }
+        yield { command: request.command, kind: 'done', timestamp };
+      },
+    };
+
+    await renderChat(
+      client,
+      'elena-rodriguez',
+      {
+        message: 'We serve small teams.',
+        createNewSession: true,
+        workflowMode: true,
+        workflowSystemPrompt: 'Ask one focused business question at a time.',
+        workflowExitWords: ['done'],
+        workflowToolAllowlist: ['com_ask'],
+        suppressAutoIntroduction: true,
+        introductionText: "Hi Clemens, let's define the business.",
+      },
+      false,
+      undefined,
+      'chat-chat',
+      { agentId: 'elena-rodriguez' },
+      { terminal }
+    );
+
+    expect(requests[0]).toMatchObject({
+      command: 'chat-chat-startup',
+      payload: {
+        options: {
+          introduction: true,
+          introductionText: "Hi Clemens, let's define the business.",
+          workflowMode: true,
+          workflowExitWords: ['done'],
+        },
+      },
+    });
+    expect(requests[1]?.payload).toMatchObject({
+      message: 'We serve small teams.',
+      workflowSystemPrompt: 'Ask one focused business question at a time.',
+      workflowToolAllowlist: ['com_ask'],
+    });
   });
 
   it('adopts a newly persisted startup session before the first turn', async () => {

@@ -495,6 +495,16 @@ export interface ICommandDispatcher {
 }
 
 export interface IWorkflowRunner {
+  start<TState>(
+    definition: unknown,
+    initialState: TState,
+    options?: {
+      signal?: AbortSignal;
+      executionContext?: ExecutionContext;
+      commands?: Record<string, { execute(params: unknown, ctx?: unknown): Promise<unknown> }>;
+    }
+  ): Promise<IWorkflowRunHandle<TState>>;
+
   run<TState>(
     definition: unknown,
     initialState: TState,
@@ -504,6 +514,29 @@ export interface IWorkflowRunner {
       commands?: Record<string, { execute(params: unknown, ctx?: unknown): Promise<unknown> }>;
     }
   ): Promise<{ state: TState; aborted: boolean }>;
+}
+
+/**
+ * A command invocation after workflow-owned inputs and execution context have
+ * been resolved. It deliberately contains no actor or service implementation.
+ */
+export interface PreparedCommandInvocation {
+  commandKey: string;
+  params: unknown;
+  context: ExecutionContext;
+  /** Stable across restore/retry for one workflow step invocation. */
+  idempotencyKey: string;
+}
+
+export interface IWorkflowRunHandle<TState> {
+  readonly id: string;
+  getStatus(): 'active' | 'completed' | 'cancelled' | 'failed';
+  getSnapshotView(): { state: TState; aborted: boolean; stepId?: string };
+  getPersistedSnapshot(): unknown;
+  dispatch(event: unknown): Promise<void>;
+  checkpoint(): Promise<unknown>;
+  cancel(): Promise<void>;
+  waitForDone(): Promise<{ state: TState; aborted: boolean }>;
 }
 
 export interface IWorkflowRunnerFactory {

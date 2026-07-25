@@ -28,6 +28,7 @@ export type PrepareOnboardingParams = z.infer<typeof prepareOnboardingParamsSche
 export interface PrepareOnboardingResult {
   developerName?: string;
   businessSystemPrompt: string;
+  businessIntroLines: string[];
   planningSystemPrompt: string;
   ceoIntroduction: string;
   hrIntroduction: string;
@@ -94,6 +95,7 @@ export class PrepareOnboardingCommand implements ICommand<
       data: {
         developerName,
         businessSystemPrompt: buildPhaseSystemPrompt(businessPhase),
+        businessIntroLines: businessPhase.introLines,
         planningSystemPrompt: buildPhaseSystemPrompt(planningPhase),
         ceoIntroduction,
         hrIntroduction,

@@ -49,6 +49,9 @@ Quick runtime briefing for coding agents. Keep this file short; use linked docs 
 - The root session persists the thread's active session, return stack, and navigation timestamp. Explicit-session resume uses `IThreadManager`'s persisted cursor; bare `ait chat` opens the exact session with the latest real message or persisted tool activity, excluding mirrored handoff copies and using persisted row order to break timestamp ties. `ait chat <agent>` always creates a new root session for that agent. See `docs/implementation/chat-startup-resume.md`.
 - Mirrored handoff summaries share one `handoffId` and appear once in the presentation transcript. Never pass the full thread transcript to an agent model.
 - Startup selection and handoff transitions are service-owned; adapters pass intent and render typed events, including `cancelled` command outcomes.
+- `ait init` completes setup through CEO creation, then returns a typed CEO chat
+  handoff. The CLI opens the existing chat TUI from that result; workflow steps
+  must not implement their own terminal input loop.
 
 ## Command parameter invariant
 

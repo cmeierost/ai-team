@@ -67,6 +67,7 @@ function createFireWorkflowDefinition(
 ): WorkflowDefinition<FireWorkflowState> {
   return {
     id: 'fire',
+    version: '1',
     description: 'Fire an AI agent and remove their agent file',
     availableIn: { cli: true, chat: false, tool: false },
     steps: [

@@ -1,34 +1,113 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ICliCommandClient } from '../cli-command-client.js';
-
-const chatApi = vi.hoisted(() => ({
-  renderChat: vi.fn(async () => undefined),
-}));
-
-vi.mock('./chat.js', () => chatApi);
-
 import { renderInit } from './init.js';
 
 describe('init command', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+  it('dispatches the init workflow with explicit nested options', async () => {
+    const streamInteraction = vi.fn(async function* () {
+      yield {
+        command: 'setup-init',
+        kind: 'done',
+        timestamp: new Date().toISOString(),
+      } as any;
+    });
+
+    await renderInit(
+      {
+        getCommands: () => [],
+        streamInteraction,
+      } as unknown as ICliCommandClient,
+      { force: false }
+    );
+
+    expect(streamInteraction).toHaveBeenCalledWith(
+      {
+        command: 'setup-init',
+        payload: { options: { force: false } },
+      },
+      {
+        invocationSurface: 'cli',
+        calledByHuman: true,
+      }
+    );
   });
 
-  it('runs init as an embedded workflow in the shared chat TUI', async () => {
-    const client = {} as ICliCommandClient;
-    const questionService = { attachPresenter: vi.fn() } as any;
+  it('surfaces an error command result', async () => {
+    const streamInteraction = vi.fn(async function* () {
+      yield {
+        command: 'setup-init',
+        kind: 'result',
+        timestamp: new Date().toISOString(),
+        data: { status: 'error', message: 'Onboarding failed' },
+      } as any;
+    });
 
-    await renderInit(client, { force: true }, { questionService });
+    await expect(
+      renderInit(
+        {
+          getCommands: () => [],
+          streamInteraction,
+        } as unknown as ICliCommandClient,
+        {}
+      )
+    ).rejects.toThrow('Onboarding failed');
+  });
 
-    expect(chatApi.renderChat).toHaveBeenCalledWith(
-      client,
-      undefined,
-      { oneShot: true },
-      false,
-      undefined,
-      'init',
-      { options: { force: true } },
-      { questionService }
-    );
+  it('returns the CEO chat handoff from the init result', async () => {
+    const streamInteraction = vi.fn(async function* () {
+      yield {
+        command: 'setup-init',
+        kind: 'result',
+        timestamp: new Date().toISOString(),
+        data: {
+          status: 'ok',
+          data: {
+            chat: {
+              agentId: 'elena-rodriguez',
+              createNewSession: true,
+              workflowMode: true,
+              workflowSystemPrompt: 'Define the business with the developer.',
+              workflowExitWords: ['done', 'clear', 'finished'],
+              workflowToolAllowlist: [
+                'com_ask',
+                'hr_name_suggestions',
+                'hr_hire_agent',
+                'access_set_permissions',
+                'com_handoff',
+              ],
+              introductionText: 'Elena: Let us define the business.',
+              suppressAutoIntroduction: true,
+            },
+          },
+        },
+      } as any;
+    });
+
+    await expect(
+      renderInit(
+        {
+          getCommands: () => [],
+          streamInteraction,
+        } as unknown as ICliCommandClient,
+        {}
+      )
+    ).resolves.toEqual({
+      chat: {
+        agentId: 'elena-rodriguez',
+        createNewSession: true,
+        workflowMode: true,
+        workflowSystemPrompt: 'Define the business with the developer.',
+        workflowExitWords: ['done', 'clear', 'finished'],
+        workflowToolAllowlist: [
+          'com_ask',
+          'hr_name_suggestions',
+          'hr_hire_agent',
+          'access_set_permissions',
+          'com_handoff',
+        ],
+        introductionText: 'Elena: Let us define the business.',
+        suppressAutoIntroduction: true,
+      },
+    });
   });
 });

@@ -105,6 +105,7 @@ export class HireWorkflow {
   getDefinition(): WorkflowDefinition<HireWorkflowState> {
     return {
       id: HireWorkflowMetadata.key,
+      version: '1',
       description: HireWorkflowMetadata.description,
       availableIn: HireWorkflowMetadata.availableIn,
       prepare: (params: unknown) => this.prepare(params),

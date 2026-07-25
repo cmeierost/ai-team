@@ -246,3 +246,21 @@ export const planningTaskDelegations = sqliteTable('planning_task_delegations', 
   accepted: integer('accepted').notNull().default(0),
   acceptedAt: text('accepted_at'),
 });
+
+export const workflowRuns = sqliteTable('workflow_runs', {
+  id: text('id').primaryKey(),
+  definitionId: text('definition_id').notNull(),
+  definitionVersion: text('definition_version').notNull(),
+  status: text('status').notNull(),
+  inputJson: text('input_json').notNull(),
+  snapshotJson: text('snapshot_json').notNull(),
+  snapshotSequence: integer('snapshot_sequence').notNull().default(0),
+  rootSessionId: text('root_session_id'),
+  activeSessionId: text('active_session_id'),
+  outputJson: text('output_json'),
+  failureJson: text('failure_json'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  completedAt: text('completed_at'),
+  cancelledAt: text('cancelled_at'),
+});

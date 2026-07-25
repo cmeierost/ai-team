@@ -17,15 +17,16 @@ tags:
   - terminal
   - testing
 createdAt: 2026-07-23T11:46:32.6615697+02:00
-updatedAt: 2026-07-23T20:25:47.0000000+02:00
+updatedAt: 2026-07-25T00:12:52.6944315+02:00
 ---
 
 ## Goal
 
 Make the unfinished `@ai-team/tui` and CLI chat refactor usable and testable. Use
 `earendil-works/pi/packages/tui` as an architectural reference while preserving
-ai-team's workflow, handoff, question, and command behavior. Coordinate with the
-existing workflow-v2 migration task rather than introducing another chat runtime.
+ai-team's workflow, handoff, question, and command behavior. Coordinate with
+`stabilize-xstate-actor-workflow-engine` rather than introducing another chat
+runtime or placing workflow state in the TUI.
 Keep `packages/core` and `packages/service` unchanged unless a failing contract
 proves that a minimal shared-layer correction is necessary, and retain Web UI
 compatibility throughout.

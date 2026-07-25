@@ -14,23 +14,17 @@ import type {
 } from '@ai-team/api-contracts';
 import type {
   ICommandRegistry,
+  ICommandDescriptor,
   IServiceContainer,
   ExecutionContext,
   ICommand,
   IEmitService,
 } from '@ai-team/core';
 import { CORE_SERVICE_TOKENS } from '../types.js';
-import {
-  resolveCommandArgs,
-  parseArgsIntelligently,
-  getPathValue,
-  setPathValue,
-} from './command-adapters.js';
 import { CommandRegistry } from './command-registry.js';
-import { CommandParameterCompletionService } from './command-parameter-completion-service.js';
+import { CommandInvocationPreparer } from './command-invocation-preparer.js';
 import { DynamicSlashCommandFactory, type DynamicSlashEntry } from './dynamic-slash/catalog.js';
 import { registerBuiltInCommands, registerHelpCommand } from './register-builtin-commands.js';
-import { ZodSchemaTools } from '../utils/zod-schema.js';
 
 function createMinimalExecutionContext(ctx?: Partial<ExecutionContext>): ExecutionContext {
   return {
@@ -49,14 +43,13 @@ export class CommandDispatcher implements ICommandDispatcher {
     (workspaceRoot: string, payload: unknown, ctx: ExecutionContext) => Promise<CommandResponse>
   > = new Map();
   private readonly _directCommands: Map<string, ICommand<unknown, unknown>> = new Map();
-  private readonly parameterCompletionService: CommandParameterCompletionService;
-  private readonly schemaTools = new ZodSchemaTools();
+  private readonly invocationPreparer: CommandInvocationPreparer;
 
   constructor(
     private readonly registry: ICommandRegistry,
     private readonly resolver: IServiceContainer
   ) {
-    this.parameterCompletionService = new CommandParameterCompletionService(resolver);
+    this.invocationPreparer = new CommandInvocationPreparer(resolver);
   }
 
   private resolveWorkspaceRoot(): string {
@@ -65,6 +58,24 @@ export class CommandDispatcher implements ICommandDispatcher {
     } catch {
       return '';
     }
+  }
+
+  private findRegistryEntry(key: string): {
+    registry: ICommandRegistry;
+    descriptor: ICommandDescriptor;
+  } | undefined {
+    const localDescriptor = this.registry.get(key);
+    if (localDescriptor) return { registry: this.registry, descriptor: localDescriptor };
+
+    const sharedRegistry = this.resolver.tryResolve(
+      CORE_SERVICE_TOKENS.CommandRegistry
+    ) as ICommandRegistry | undefined;
+    if (!sharedRegistry || sharedRegistry === this.registry) return undefined;
+
+    const sharedDescriptor = sharedRegistry.get(key);
+    return sharedDescriptor
+      ? { registry: sharedRegistry, descriptor: sharedDescriptor }
+      : undefined;
   }
 
   register(entry: {
@@ -115,18 +126,13 @@ export class CommandDispatcher implements ICommandDispatcher {
 
     const minimalCtx = createMinimalExecutionContext(ctx);
     try {
-      const payloadWithContextDefaults = this.applyContextDefaultsFromSchema(
+      const prepared = await this.invocationPreparer.prepare(
+        command as ICommand<unknown, unknown>,
         command.metadata,
         payload,
         minimalCtx
-      ) as TIn;
-
-      const resolvedParams = resolveCommandArgs(
-        command as ICommand<unknown, unknown>,
-        payloadWithContextDefaults,
-        minimalCtx
-      ) as TIn;
-      const result = await command.execute(resolvedParams, minimalCtx);
+      );
+      const result = await command.execute(prepared.params as TIn, prepared.context);
       if (result && typeof result === 'object' && 'status' in result) {
         const r = result as CommandResponse<TOut>;
         return { ...r, message: r.message ?? '' };
@@ -174,40 +180,20 @@ export class CommandDispatcher implements ICommandDispatcher {
       return directHandler('', payload, executionContext);
     }
 
-    const descriptor = this.registry.get(key);
-    if (!descriptor) {
+    const registryEntry = this.findRegistryEntry(key);
+    if (!registryEntry) {
       return this.unknownCommandResponse(key);
     }
+    const { registry, descriptor } = registryEntry;
 
-    const cmd = this.registry.resolve(key, this.resolver);
+    const cmd = registry.resolve(key, this.resolver);
     if (!cmd) {
       return this.unknownCommandResponse(key);
     }
 
     try {
-      const parsed =
-        typeof payload === 'string'
-          ? parseArgsIntelligently(payload, descriptor.parameters, descriptor.input)
-          : payload;
-      const withContextDefaults = this.applyContextDefaultsFromSchema(
-        descriptor,
-        parsed,
-        executionContext
-      );
-      const withRuntimeDefaults = this.applyRuntimeBindingsFromMetadata(
-        cmd,
-        withContextDefaults,
-        executionContext
-      );
-
-      const completed = await this.parameterCompletionService.complete(
-        descriptor,
-        withRuntimeDefaults,
-        executionContext
-      );
-
-      const resolvedParams = resolveCommandArgs(cmd, completed, executionContext);
-      const result = await cmd.execute(resolvedParams, executionContext);
+      const prepared = await this.invocationPreparer.prepare(cmd, descriptor, payload, executionContext);
+      const result = await cmd.execute(prepared.params, prepared.context);
       if (isCommandExecutionResponse(result)) {
         return this.formatHumanCommandResponse(result, cmd, executionContext);
       }
@@ -217,108 +203,16 @@ export class CommandDispatcher implements ICommandDispatcher {
     }
   }
 
-  private applyContextDefaultsFromSchema(
-    descriptor: { parameters?: unknown },
-    payload: unknown,
-    ctx: ExecutionContext
-  ): unknown {
-    if (!descriptor.parameters) {
-      return payload;
-    }
-
-    const schema = this.schemaTools.toJsonSchema(descriptor.parameters);
-    if (!schema || typeof schema !== 'object') {
-      return payload;
-    }
-
-    const properties = (schema as { properties?: unknown }).properties;
-    if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
-      return payload;
-    }
-
-    const propertyNames = Object.keys(properties as Record<string, unknown>);
-    const fromContext: Record<string, unknown> = {};
-
-    for (const propertyName of propertyNames) {
-      const contextValue = (ctx as unknown as Record<string, unknown>)[propertyName];
-      if (contextValue !== undefined) {
-        fromContext[propertyName] = contextValue;
-      }
-    }
-
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      return fromContext;
-    }
-
-    const merged = {
-      ...fromContext,
-      ...(payload as Record<string, unknown>),
-    };
-
-    // "payload overrides context" only when payload value is defined.
-    // If payload carries `undefined`, keep the context-derived value.
-    for (const propertyName of propertyNames) {
-      if ((payload as Record<string, unknown>)[propertyName] === undefined) {
-        if (fromContext[propertyName] !== undefined) {
-          merged[propertyName] = fromContext[propertyName];
-        }
-      }
-    }
-
-    return merged;
-  }
-
-  private applyRuntimeBindingsFromMetadata(
-    cmd: ICommand<unknown, unknown>,
-    payload: unknown,
-    ctx: ExecutionContext
-  ): unknown {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      return payload;
-    }
-
-    const resolved = { ...(payload as Record<string, unknown>) };
-
-    for (const contextParam of cmd.metadata.input?.contextParameters ?? []) {
-      if (getPathValue(resolved, contextParam) !== undefined) continue;
-      const contextValue = getPathValue(ctx, contextParam);
-      if (contextValue !== undefined) {
-        setPathValue(resolved, contextParam, contextValue);
-      }
-    }
-
-    for (const [targetPath, binding] of Object.entries(cmd.metadata.workflowInputBindings ?? {})) {
-      if (getPathValue(resolved, targetPath) !== undefined) continue;
-      if (binding.fromLastResult && ctx.workflowLastResult !== undefined) {
-        const value = getPathValue(ctx.workflowLastResult, binding.fromLastResult);
-        if (value !== undefined) {
-          setPathValue(resolved, targetPath, value);
-        }
-      }
-      if (
-        binding.fromWorkflowData &&
-        ctx.workflowState !== undefined &&
-        getPathValue(resolved, targetPath) === undefined
-      ) {
-        const value = getPathValue(ctx.workflowState, binding.fromWorkflowData);
-        if (value !== undefined) {
-          setPathValue(resolved, targetPath, value);
-        }
-      }
-    }
-
-    return resolved;
-  }
-
   private async dispatchByKeyAsync(
     key: string,
     params: unknown,
     ctx?: ExecutionContext
   ): Promise<CommandResponse<unknown>> {
-    const descriptor = this.registry.get(key);
-    if (!descriptor) {
+    const registryEntry = this.findRegistryEntry(key);
+    if (!registryEntry) {
       return this.unknownCommandResponse(key);
     }
+    const { registry, descriptor } = registryEntry;
 
     const directHandler = this._directHandlers.get(key);
     if (directHandler) {
@@ -328,33 +222,12 @@ export class CommandDispatcher implements ICommandDispatcher {
 
     try {
       const executionContext = ctx ?? createMinimalExecutionContext();
-      const parsed =
-        typeof params === 'string'
-          ? parseArgsIntelligently(params, descriptor.parameters, descriptor.input)
-          : params;
-      const cmd = this.registry.resolve(key, this.resolver);
+      const cmd = registry.resolve(key, this.resolver);
       if (!cmd) {
         return this.unknownCommandResponse(key);
       }
-      const withContextDefaults = this.applyContextDefaultsFromSchema(
-        descriptor,
-        parsed,
-        executionContext
-      );
-      const withRuntimeDefaults = this.applyRuntimeBindingsFromMetadata(
-        cmd,
-        withContextDefaults,
-        executionContext
-      );
-
-      const completed = await this.parameterCompletionService.complete(
-        descriptor,
-        withRuntimeDefaults,
-        executionContext
-      );
-
-      const resolvedParams = resolveCommandArgs(cmd, completed, executionContext);
-      const result = await cmd.execute(resolvedParams, executionContext);
+      const prepared = await this.invocationPreparer.prepare(cmd, descriptor, params, executionContext);
+      const result = await cmd.execute(prepared.params, prepared.context);
       if (isCommandExecutionResponse(result)) {
         return { ...result, message: result.message ?? '' };
       }

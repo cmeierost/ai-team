@@ -1,9 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { InitOptions } from '@ai-team/api-contracts';
+import type { InitOptions, InitResult } from '@ai-team/api-contracts';
 import type { ExecutionContext } from '@ai-team/core';
 import type { IEmitService } from '@ai-team/core';
 import type { WorkflowDefinition, IWorkflowRunnerFactory } from '../../workflow/index.js';
+import type { OnboardingWorkflowResult } from '../hr/onboarding-workflow.js';
 
 export interface InitWorkflowState {
   workspaceRoot: string;
@@ -13,10 +14,14 @@ export interface InitWorkflowState {
   aiTeamDir: string;
   shouldSkip: boolean;
   shouldClear: boolean;
+  onboarding?: OnboardingWorkflowResult;
 }
 
 interface OnboardExecutor {
-  execute(params: { options?: Record<string, never> }, signal?: AbortSignal): Promise<void>;
+  execute(
+    params: { options?: Record<string, never> },
+    signal?: AbortSignal
+  ): Promise<OnboardingWorkflowResult>;
 }
 
 interface SetupExecutor {
@@ -71,6 +76,7 @@ export function createInitWorkflowDefinition(
 ): WorkflowDefinition<InitWorkflowState> {
   return {
     id: 'init-command',
+    version: '1',
     description: 'Initialize workspace with bootstrap files and onboarding',
     availableIn: { tool: true },
     steps: [
@@ -136,7 +142,7 @@ export function createInitWorkflowDefinition(
       },
       {
         id: 'clear-existing',
-        skipWhen: 'shouldSkip === true || shouldClear !== true',
+        skipWhen: 'shouldClear !== true',
         execute: async (state) => {
           await clearAiTeamDirectory(state.workspaceRoot, emitService);
           return state;
@@ -177,8 +183,8 @@ export function createInitWorkflowDefinition(
         id: 'run-onboarding',
         skipWhen: 'shouldSkip === true',
         execute: async (state) => {
-          await deps.onboard.execute({ options: {} }, state.signal);
-          return state;
+          const onboarding = await deps.onboard.execute({ options: {} }, state.signal);
+          return { ...state, onboarding };
         },
       },
     ],
@@ -193,7 +199,7 @@ export async function runInitWorkflowAsync(
   workflowState: unknown | undefined,
   deps: InitWorkflowDependencies,
   workflowRunnerFactory: IWorkflowRunnerFactory
-): Promise<void> {
+): Promise<InitResult> {
   const initialState: InitWorkflowState = {
     workspaceRoot,
     options,
@@ -217,4 +223,30 @@ export async function runInitWorkflowAsync(
   if (result.aborted) {
     throw new Error(result.abortedError ?? 'Initialization workflow aborted.');
   }
+
+  const agentId = result.state.onboarding?.ceoAgentId;
+  const workflowSystemPrompt = result.state.onboarding?.businessSystemPrompt;
+  const introductionText = result.state.onboarding?.businessOpeningMessage;
+  return {
+    ...(agentId && workflowSystemPrompt && introductionText
+      ? {
+          chat: {
+            agentId,
+            createNewSession: true as const,
+            workflowMode: true as const,
+            workflowSystemPrompt,
+            workflowExitWords: ['done', 'clear', 'finished'],
+            workflowToolAllowlist: [
+              'com_ask',
+              'hr_name_suggestions',
+              'hr_hire_agent',
+              'access_set_permissions',
+              'com_handoff',
+            ],
+            introductionText,
+            suppressAutoIntroduction: true as const,
+          },
+        }
+      : {}),
+  };
 }

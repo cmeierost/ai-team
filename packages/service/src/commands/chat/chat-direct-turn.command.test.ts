@@ -61,7 +61,12 @@ function createDeps(overrides: {
     ensureTurnStartAsync: vi.fn(async () => undefined),
     persistUserMessageAsync: vi.fn(async () => undefined),
     prepareMessagesAsync: vi.fn(async () => []),
-    resolveSkillsAndToolsAsync: vi.fn(async () => ({ skills: [], tools: [] })),
+    resolveSkillsAndToolsAsync: vi.fn(async () => ({
+      skills: [],
+      teamRoster: [],
+      allTools: [],
+      toolDefs: [],
+    })),
     invokeTurnLlmAsync: vi.fn(async () => ({
       fullResponse: 'assistant output',
       structuredResults: [],
@@ -90,16 +95,16 @@ function createDeps(overrides: {
       return undefined;
     }),
     getCommands: vi.fn(
-      overrides.getCommands ?? (() => [
-        { key: 'help', group: 'system', aliases: ['help'], availableIn: { chat: true } },
-      ])
+      overrides.getCommands ??
+        (() => [{ key: 'help', group: 'system', aliases: ['help'], availableIn: { chat: true } }])
     ),
     dispatch: vi.fn(
-      overrides.dispatchSlash ?? (async (_key: string, _payload: unknown, _ctx: unknown) => ({
-        status: 'ok',
-        message: 'Help output',
-        data: 'Help output',
-      }))
+      overrides.dispatchSlash ??
+        (async (_key: string, _payload: unknown, _ctx: unknown) => ({
+          status: 'ok',
+          message: 'Help output',
+          data: 'Help output',
+        }))
     ),
   } as any;
 
@@ -243,6 +248,50 @@ function createDeps(overrides: {
 }
 
 describe('ChatDirectTurnCommand bootstrap', () => {
+  it('adds workflow instructions as a system message and limits exposed tools', async () => {
+    const { command, stepService } = createDeps({
+      resolveLatestSessionForResume: async () => ({
+        id: 'sess-latest',
+        agentId: 'elena-rostova',
+      }),
+      getAgentAsync: async (id: string) => ({ id, name: 'Elena Rostova', role: 'ceo' }),
+      getLatestSession: async () => ({ id: 'sess-latest', agentId: 'elena-rostova' }),
+    });
+    stepService.resolveSkillsAndToolsAsync.mockResolvedValue({
+      skills: [],
+      teamRoster: [],
+      allTools: [],
+      toolDefs: [
+        { name: 'com_ask', description: 'Ask' },
+        { name: 'fs_read', description: 'Read files' },
+      ],
+    });
+
+    await command.execute(
+      {
+        options: {
+          message: 'We build tools for small teams.',
+          workflowSystemPrompt: 'Stay in business discovery mode.',
+          workflowToolAllowlist: ['com_ask'],
+        },
+      } as any,
+      { history: [] } as any
+    );
+
+    expect(stepService.invokeTurnLlmAsync).toHaveBeenCalledWith(
+      [
+        {
+          role: 'system',
+          content: 'Stay in business discovery mode.',
+        },
+      ],
+      expect.objectContaining({
+        toolDefs: [{ name: 'com_ask', description: 'Ask' }],
+      }),
+      expect.anything()
+    );
+  });
+
   it('uses latest session agent when no agent is provided', async () => {
     const { command, sessionManager, agentManager } = createDeps({
       resolveLatestSessionForResume: async () => ({ id: 'sess-latest', agentId: 'sarah-lee' }),
@@ -338,7 +387,10 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     });
     expect((response.data as any).followUpMessage).toBeUndefined();
     expect(bootstrapResolver.updateCachedRuntimeState).not.toHaveBeenCalled();
-    expect(sessionManager.appendToolCallRequest).toHaveBeenCalledWith('old-session', expect.anything());
+    expect(sessionManager.appendToolCallRequest).toHaveBeenCalledWith(
+      'old-session',
+      expect.anything()
+    );
     expect(sessionManager.appendToolCallResult).toHaveBeenCalledWith(
       'old-session',
       expect.any(String),
@@ -546,7 +598,10 @@ describe('ChatDirectTurnCommand bootstrap', () => {
     });
     stepService.invokeTurnLlmAsync
       .mockRejectedValueOnce(new Error('LLM returned an empty response'))
-      .mockResolvedValueOnce({ fullResponse: 'I own the CLI surface. What would you like to discuss?', structuredResults: [] });
+      .mockResolvedValueOnce({
+        fullResponse: 'I own the CLI surface. What would you like to discuss?',
+        structuredResults: [],
+      });
 
     const response = await command.execute(
       {
@@ -710,10 +765,7 @@ describe('ChatDirectTurnCommand bootstrap', () => {
       data: {},
     });
 
-    await command.execute(
-      { options: { message } } as any,
-      { history: [] } as any
-    );
+    await command.execute({ options: { message } } as any, { history: [] } as any);
 
     expect(commandDispatcher.dispatch).toHaveBeenCalledWith(
       'chat-run',

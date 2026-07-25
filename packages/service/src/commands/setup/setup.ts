@@ -91,7 +91,9 @@ export class SetupCommand {
     const baseUrl = setup.baseUrl?.toLowerCase() ?? '';
     if (baseUrl.includes('api.openai.com')) return 'openai';
     if (baseUrl.includes('localhost')) return 'local';
-    return 'personal-openai';
+    throw new Error(
+      'Custom OpenAI-compatible providers require an explicit provider key. Re-run setup and choose a provider name.'
+    );
   }
 
   private static buildProviderRegistrationFromSetup(setup: LlmSetupResult): {
@@ -185,7 +187,13 @@ export class SetupCommand {
       });
       if (!reconfigure) {
         this.emitService.log('info', 'Keeping existing LLM configuration.');
-        return { llmConfig: existingResolvedLlm.config, reusedExistingLlm: true };
+        return {
+          llmConfig: {
+            ...existingResolvedLlm.config,
+            providerRef: existingResolvedLlm.providerRef,
+          },
+          reusedExistingLlm: true,
+        };
       }
     }
 

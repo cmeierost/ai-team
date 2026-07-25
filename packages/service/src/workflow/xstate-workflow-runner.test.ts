@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { IBackendLogService, IServiceContainer } from '@ai-team/core';
+import { createActor } from 'xstate';
+import type {
+  IBackendLogService,
+  IServiceContainer,
+  IWorkflowRunRepository,
+  WorkflowRunRecord,
+} from '@ai-team/core';
 import { CORE_SERVICE_TOKENS } from '@ai-team/core';
-import { WorkflowRunner } from './xstate-workflow-runner.js';
+import { CommandActorAdapterResolver } from './command-actor-adapter-resolver.js';
+import { WORKFLOW_SERVICE_TOKENS } from './workflow-service-tokens.js';
+import { WorkflowRunner, WorkflowRunnerFactory } from './xstate-workflow-runner.js';
 import type { WorkflowDefinition } from './workflow-types.js';
 
 interface LoopState {
@@ -12,9 +20,35 @@ const noOpBackendLogService: IBackendLogService = {
   write: () => {},
 };
 
-function createResolver(backendLogService?: IBackendLogService): IServiceContainer {
+class MemoryWorkflowRunRepository implements IWorkflowRunRepository {
+  readonly records = new Map<string, WorkflowRunRecord>();
+
+  async save(record: WorkflowRunRecord): Promise<void> {
+    this.records.set(record.id, structuredClone(record));
+  }
+
+  async get(runId: string): Promise<WorkflowRunRecord | null> {
+    const record = this.records.get(runId);
+    return record ? structuredClone(record) : null;
+  }
+
+  async findActiveBySession(sessionId: string): Promise<WorkflowRunRecord | null> {
+    return (
+      [...this.records.values()].find(
+        (record) => record.status === 'active' && record.activeSessionId === sessionId
+      ) ?? null
+    );
+  }
+}
+
+function createResolver(
+  backendLogService?: IBackendLogService,
+  workflowRunRepository?: IWorkflowRunRepository,
+  commands: Record<string, unknown> = {},
+  commandActorAdapters?: CommandActorAdapterResolver
+): IServiceContainer {
   const toolManager = {
-    get: () => undefined,
+    get: (key: string) => commands[key],
   };
 
   const resolver = {
@@ -25,6 +59,9 @@ function createResolver(backendLogService?: IBackendLogService): IServiceContain
       if (token === CORE_SERVICE_TOKENS.BackendLogService) {
         return backendLogService ?? noOpBackendLogService;
       }
+      if (token === CORE_SERVICE_TOKENS.WorkflowRunRepository && workflowRunRepository) {
+        return workflowRunRepository;
+      }
       throw new Error(`Unexpected token: ${String(token)}`);
     },
     tryResolve: (token: unknown) => {
@@ -33,6 +70,12 @@ function createResolver(backendLogService?: IBackendLogService): IServiceContain
       }
       if (token === CORE_SERVICE_TOKENS.ToolManager) {
         return toolManager;
+      }
+      if (token === CORE_SERVICE_TOKENS.WorkflowRunRepository) {
+        return workflowRunRepository;
+      }
+      if (token === WORKFLOW_SERVICE_TOKENS.CommandActorAdapterResolver) {
+        return commandActorAdapters;
       }
       return undefined;
     },
@@ -87,6 +130,120 @@ function createLoopDefinition(): WorkflowDefinition<LoopState> {
 }
 
 describe('WorkflowRunner logging', () => {
+  it('starts a durable run through the factory and keeps run() as its completion wrapper', async () => {
+    const repository = new MemoryWorkflowRunRepository();
+    const runner = new WorkflowRunnerFactory(createResolver(undefined, repository)).create();
+    const definition: WorkflowDefinition<{ count: number }> = {
+      id: 'durable-runner-start',
+      version: '2026.7',
+      description: 'Durable workflow runner start test',
+      availableIn: { cli: false, chat: false, tool: false },
+      steps: [
+        {
+          id: 'increment',
+          command: 'increment',
+          applyResult: (state, raw) => ({ ...state, count: Number(raw) }),
+        },
+      ],
+    };
+
+    const handle = await runner.start(definition, { count: 0 }, {
+      executionContext: { history: [], sessionId: 'session-durable-runner' },
+      commands: { increment: { execute: async () => 1 } },
+    });
+
+    await expect(handle.waitForDone()).resolves.toEqual({ state: { count: 1 }, aborted: false });
+    expect(handle.id).toMatch(/^durable-runner-start:/);
+    expect([...repository.records.values()]).toEqual([
+      expect.objectContaining({
+        id: handle.id,
+        status: 'completed',
+        definitionId: 'durable-runner-start',
+        definitionVersion: '2026.7',
+        activeSessionId: 'session-durable-runner',
+      }),
+    ]);
+  });
+
+  it('invokes a branded workflow command as a child actor instead of calling execute()', async () => {
+    const childDefinition: WorkflowDefinition<{ value: string }> = {
+      id: 'child-workflow-command',
+      version: '1',
+      description: 'Child workflow command actor test',
+      availableIn: { cli: false, chat: false, tool: true },
+      toResult: (state) => ({ completed: state.value }),
+      steps: [
+        {
+          id: 'set-value',
+          execute: async () => ({ value: 'from-child' }),
+        },
+      ],
+    };
+    const commands: Record<string, unknown> = {};
+    const commandActorAdapters = new CommandActorAdapterResolver();
+    const factory = new WorkflowRunnerFactory(
+      createResolver(undefined, undefined, commands, commandActorAdapters)
+    );
+    const childCommand = factory.asCommand(childDefinition);
+    commands.child_workflow = childCommand;
+    const execute = vi.spyOn(childCommand, 'execute');
+    const runner = factory.create();
+
+    const result = await runner.run(
+      {
+        id: 'parent-workflow-command',
+        version: '1',
+        description: 'Parent invokes a workflow command',
+        availableIn: { cli: false, chat: false, tool: false },
+        steps: [
+          {
+            id: 'invoke-child',
+            command: 'child_workflow',
+            applyResult: (state, raw) => ({ ...state, child: raw }),
+          },
+        ],
+      },
+      {}
+    );
+
+    expect(result).toEqual({ state: { child: { completed: 'from-child' } }, aborted: false });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('keeps host dependencies out of persisted workflow context', () => {
+    const runner = new WorkflowRunner(createResolver(undefined), noOpBackendLogService);
+    const machine = (runner as any).compileMachine(
+      {
+        id: 'serializable-workflow-context',
+        description: 'Ensure actor snapshots only retain workflow state.',
+        availableIn: { cli: false, chat: false, tool: false },
+        steps: [],
+      },
+      {
+        container: createResolver(undefined),
+        options: { commands: {} },
+      }
+    );
+    const actor = createActor(machine, {
+      input: {
+        initialState: { ready: true },
+        workflowId: 'serializable-workflow-context',
+        workflowInstanceId: 'serializable-workflow-context:1',
+      },
+    }).start();
+
+    const context = actor.getPersistedSnapshot().context as Record<string, unknown>;
+
+    expect(context).toMatchObject({
+      state: { ready: true },
+      workflowId: 'serializable-workflow-context',
+      workflowInstanceId: 'serializable-workflow-context:1',
+    });
+    expect(context).not.toHaveProperty('container');
+    expect(context).not.toHaveProperty('options');
+    expect(JSON.stringify(actor.getPersistedSnapshot())).not.toContain('ToolManager');
+  });
+
   it('exposes the workflow return command and parent frame to step commands', async () => {
     const execute = vi.fn(async (_params: unknown, ctx: any) => {
       expect(ctx.workflowReturn).toEqual({

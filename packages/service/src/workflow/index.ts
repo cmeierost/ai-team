@@ -10,6 +10,16 @@ export {
   type WorkflowRunOptions,
 } from './xstate-workflow-runner.js';
 
+export {
+  workflowCommand,
+  isWorkflowCommand,
+  type IWorkflowCommand,
+} from './workflow-command.js';
+export { OrdinaryCommandActorAdapter } from './command-actor-adapter.js';
+export { WorkflowCommandActorAdapter } from './workflow-command-actor-adapter.js';
+export { CommandActorAdapterResolver } from './command-actor-adapter-resolver.js';
+export { WORKFLOW_SERVICE_TOKENS } from './workflow-service-tokens.js';
+
 // Workflow composition examples and utilities
 export {
   createApprovalWorkflow,

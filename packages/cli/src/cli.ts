@@ -16,10 +16,7 @@ import {
 } from '@ai-team/core';
 
 import { CliCommandClient } from './cli-command-client.js';
-import {
-  ServiceDomainError,
-  type ServiceErrorInputRequest,
-} from '@ai-team/service';
+import { ServiceDomainError, type ServiceErrorInputRequest } from '@ai-team/service';
 import { createQuestionResponders } from './handlers/question-responders.js';
 import { runCommandStream } from './handlers/stream-runner.js';
 import { registerCliResultHandlers } from './handlers/result-renderers.js';
@@ -443,12 +440,29 @@ class CliApplication {
     };
 
     return {
-      init: (options) =>
-        renderInit(
+      init: async (options) => {
+        const result = await renderInit(this.deps.commandClient, {
+          force: options?.force === true,
+        });
+        if (!result.chat) {
+          return;
+        }
+
+        const { agentId, ...chatOptions } = result.chat;
+        return renderChat(
           this.deps.commandClient,
-          { force: options?.force === true },
+          agentId,
+          chatOptions,
+          false,
+          undefined,
+          'chat-chat',
+          {
+            agentId,
+            ...chatOptions,
+          },
           { questionService: cliQuestionService }
-        ),
+        );
+      },
       chat: runChat,
       serve: (options) => launchServer(options, this.deps.workspaceRoot),
       'serve.ui': (options) => launchServerWithUi(options, this.deps.workspaceRoot),

@@ -18,6 +18,7 @@ import { NotesRepository } from './repositories/notes-repository.js';
 import { MessagesRepository } from './repositories/messages-repository.js';
 import { SessionsRepository } from './repositories/sessions-repository.js';
 import { PlanningRepository } from './repositories/planning-repository.js';
+import { WorkflowRunRepository } from './repositories/workflow-run-repository.js';
 import { LlmService } from './llm/index.js';
 import { ConfigurationStorage } from './agent/configuration-storage.js';
 import { PathPermissionChecker } from './context/path-permission-checker.js';
@@ -103,10 +104,9 @@ export function registerInfrastructureCoreServices(
   );
   container.registerSingleton(tokens.LlmService, (c) => {
     const configStorage = c.resolve(tokens.ConfigurationStorage);
-    const teamConfig = configStorage.get();
     return new LlmService(
       c.resolve(tokens.WorkspaceRoot),
-      teamConfig,
+      () => configStorage.get(),
       c.resolve(tokens.LlmSettingsResolver),
       c.resolve(tokens.BackendLogService)
     ) as unknown as ILlmService;
@@ -139,8 +139,11 @@ export function registerInfrastructureCoreServices(
   );
   container.registerSingleton(tokens.ProviderConfigurationService, (c) => {
     const configStorage = c.resolve(tokens.ConfigurationStorage);
-    const teamConfig = configStorage.get();
-    return new ProviderConfigurationService(teamConfig);
+    return new ProviderConfigurationService(() => configStorage.get());
+  });
+  container.registerSingleton(tokens.WorkflowRunRepository, (c) => {
+    const b = c.resolve(tokens.MessageStorage) as SqliteBackend;
+    return new WorkflowRunRepository(b.ensureReadyAsync, b.getDb);
   });
   container.registerSingleton(
     tokens.LlmSettingsResolver,

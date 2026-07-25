@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { setup, fromPromise, createActor, assign, toPromise, type AnyActorLogic, type InspectionEvent } from 'xstate';
+import { setup, fromPromise, assign, type AnyActorLogic, type InspectionEvent } from 'xstate';
 import type {
   RuntimeStreamEvent,
   WorkflowDefinitionApiResponse,
@@ -13,6 +13,8 @@ import {
   type CommandResponse,
   type IServiceContainer,
   type IToolManager,
+  type IWorkflowRunRepository,
+  type WorkflowRunRecord,
   CORE_SERVICE_TOKENS,
 } from '@ai-team/core';
 import type {
@@ -25,13 +27,16 @@ import type {
   WorkflowReturnDefinition,
 } from './workflow-types.js';
 import { WorkflowAbortError } from './workflow-types.js';
-import type { ToolManager } from '../tooling/manager/tool-manager.js';
 import {
   evaluateWorkflowCondition,
   resolveTemplateData,
   resolveTemplateExpressions,
 } from './workflow-param-resolver.js';
 import { workflowDefinitionJsonToYaml } from './definition-format.js';
+import { WorkflowActorHost } from './workflow-actor-host.js';
+import { isWorkflowCommand, workflowCommand, type IWorkflowCommand } from './workflow-command.js';
+import { CommandActorAdapterResolver } from './command-actor-adapter-resolver.js';
+import { WORKFLOW_SERVICE_TOKENS } from './workflow-service-tokens.js';
 
 export interface IWorkflowLocalCommand {
   execute(params: any, ctx?: any): Promise<unknown>;
@@ -45,6 +50,12 @@ export interface WorkflowRunOptions {
 }
 
 export interface IWorkflowRunner {
+  start<TState>(
+    definition: WorkflowDefinition<TState>,
+    initialState: TState,
+    options?: WorkflowRunOptions
+  ): Promise<WorkflowRunHandle<TState>>;
+
   run<TState>(
     definition: WorkflowDefinition<TState>,
     initialState: TState,
@@ -52,12 +63,39 @@ export interface IWorkflowRunner {
   ): Promise<WorkflowResult<TState>>;
 }
 
+export interface WorkflowRunHandle<TState> {
+  readonly id: string;
+  getStatus(): 'active' | 'completed' | 'cancelled' | 'failed';
+  getSnapshotView(): { state: TState; aborted: boolean; stepId?: string };
+  getPersistedSnapshot(): unknown;
+  dispatch(event: unknown): Promise<void>;
+  checkpoint(): Promise<unknown>;
+  cancel(): Promise<void>;
+  waitForDone(): Promise<WorkflowResult<TState>>;
+}
+
+class EphemeralWorkflowRunRepository implements IWorkflowRunRepository {
+  private readonly records = new Map<string, WorkflowRunRecord>();
+
+  async save(record: WorkflowRunRecord): Promise<void> {
+    this.records.set(record.id, structuredClone(record));
+  }
+
+  async get(runId: string): Promise<WorkflowRunRecord | null> {
+    return this.records.get(runId) ?? null;
+  }
+
+  async findActiveBySession(sessionId: string): Promise<WorkflowRunRecord | null> {
+    return (
+      [...this.records.values()].find(
+        (record) => record.status === 'active' && record.activeSessionId === sessionId
+      ) ?? null
+    );
+  }
+}
+
 interface WorkflowMachineContext<TState> {
   state: TState;
-  container: IServiceContainer;
-  backendLogService?: IBackendLogService;
-  toolManager?: ToolManager;
-  options?: WorkflowRunOptions;
   workflowId: string;
   workflowInstanceId: string;
   aborted: boolean;
@@ -76,16 +114,24 @@ interface CommandExecutionInput {
 }
 
 export class WorkflowRunner implements IWorkflowRunner {
+  private readonly actorHost: WorkflowActorHost;
+  private readonly commandActorAdapters: CommandActorAdapterResolver;
+
   constructor(
     private readonly container: IServiceContainer,
-    private readonly backendLogService: IBackendLogService
-  ) {}
+    private readonly backendLogService: IBackendLogService,
+    actorHost?: WorkflowActorHost,
+    commandActorAdapters?: CommandActorAdapterResolver
+  ) {
+    this.actorHost = actorHost ?? new WorkflowActorHost(new EphemeralWorkflowRunRepository());
+    this.commandActorAdapters = commandActorAdapters ?? new CommandActorAdapterResolver();
+  }
 
-  async run<TState>(
+  async start<TState>(
     definition: WorkflowDefinition<TState>,
     initialState: TState,
     options?: WorkflowRunOptions
-  ): Promise<WorkflowResult<TState>> {
+  ): Promise<WorkflowRunHandle<TState>> {
     const workflowInstanceId = `${definition.id}:${randomUUID()}`;
 
     this.logWorkflowRunDebug({
@@ -97,7 +143,10 @@ export class WorkflowRunner implements IWorkflowRunner {
     });
 
     // Create the machine
-    const machine = this.compileMachine(definition);
+    const machine = this.compileMachine(definition, {
+      container: this.container,
+      options,
+    });
 
     // Create XState inspector — only log events the state subscription doesn't already cover.
     // The subscription handles state transitions; the inspector adds invoke lifecycle (actor
@@ -113,20 +162,13 @@ export class WorkflowRunner implements IWorkflowRunner {
       }
     };
 
-    // Create and start the actor
-    const actor = createActor(machine, {
-      input: {
-        initialState,
-        container: this.container,
-        options,
-        workflowId: definition.id,
-        workflowInstanceId,
-      },
-      inspect,
-    });
-
     let previousStateValue = '';
-    const subscription = actor.subscribe((snapshot) => {
+    const onSnapshot = (rawSnapshot: unknown) => {
+      const snapshot = rawSnapshot as {
+        value: unknown;
+        status: string;
+        context: WorkflowMachineContext<TState>;
+      };
       const currentStateValue = this.serializeStateValue(snapshot.value);
       if (currentStateValue === previousStateValue) {
         return;
@@ -141,10 +183,27 @@ export class WorkflowRunner implements IWorkflowRunner {
         loopIterations: { ...context.loopIterations },
       });
       previousStateValue = currentStateValue;
+    };
+
+    const actorHandle = await this.actorHost.start<
+      { initialState: TState; workflowId: string; workflowInstanceId: string },
+      unknown
+    >({
+      runId: workflowInstanceId,
+      definitionId: definition.id,
+      definitionVersion: definition.version ?? '1',
+      actorLogic: machine,
+      input: {
+        initialState,
+        workflowId: definition.id,
+        workflowInstanceId,
+      },
+      activeSessionId: options?.executionContext?.sessionId,
+      inspect,
+      onSnapshot,
     });
 
     const signalWasAlreadyAborted = options?.signal?.aborted === true;
-    actor.start();
 
     // Handle abort signal
     let abortHandler: (() => void) | undefined;
@@ -159,7 +218,11 @@ export class WorkflowRunner implements IWorkflowRunner {
 
         // Capture current snapshot BEFORE stopping the actor
         try {
-          const snapshot = actor.getSnapshot();
+          const snapshot = actorHandle.getSnapshot() as {
+            value: unknown;
+            status: string;
+            context: WorkflowMachineContext<TState>;
+          };
           const ctx = snapshot.context as WorkflowMachineContext<TState>;
           this.logWorkflowRunDebug({
             phase: 'run-abort-requested',
@@ -180,7 +243,7 @@ export class WorkflowRunner implements IWorkflowRunner {
           });
         }
 
-        actor.stop();
+        void actorHandle.cancel();
         reject(new WorkflowAbortError(options.signal?.reason));
       };
 
@@ -192,13 +255,18 @@ export class WorkflowRunner implements IWorkflowRunner {
       options.signal.addEventListener('abort', abortHandler, { once: true });
     });
 
-    try {
+    const waitForDone = async (): Promise<WorkflowResult<TState>> => {
+      try {
       // Wait for the actor to complete and get the final snapshot
-      await Promise.race([toPromise(actor), abortPromise]);
+      await Promise.race([actorHandle.waitForDone(), abortPromise]);
       if (abortRequested || options?.signal?.aborted) {
         throw new WorkflowAbortError(options?.signal?.reason);
       }
-      const snapshot = actor.getSnapshot();
+      const snapshot = actorHandle.getSnapshot() as {
+        value: unknown;
+        status: string;
+        context: WorkflowMachineContext<TState>;
+      };
 
       // Access the context from the snapshot
       const context = snapshot.context as WorkflowMachineContext<TState>;
@@ -237,12 +305,16 @@ export class WorkflowRunner implements IWorkflowRunner {
         state: context.state,
         aborted: context.aborted,
       };
-    } catch (error) {
+      } catch (error) {
       if (error instanceof WorkflowAbortError) {
         // Try to get the last known state from the actor before it was stopped
         let lastState = initialState;
         try {
-          const snapshot = actor.getSnapshot();
+          const snapshot = actorHandle.getSnapshot() as {
+            value: unknown;
+            status: string;
+            context: WorkflowMachineContext<TState>;
+          };
           const ctx = snapshot.context as WorkflowMachineContext<TState>;
           lastState = ctx.state ?? initialState;
         } catch {
@@ -273,7 +345,11 @@ export class WorkflowRunner implements IWorkflowRunner {
 
       // Check if the machine transitioned to #aborted (step-level onError).
       // Log the captured error so it's visible on the console.
-      const snapshot = actor.getSnapshot();
+      const snapshot = actorHandle.getSnapshot() as {
+        value: unknown;
+        status: string;
+        context: WorkflowMachineContext<TState>;
+      };
       const ctx = snapshot.context as WorkflowMachineContext<TState>;
       if (ctx.aborted && ctx.abortedError) {
         this.logWorkflowAbortError(ctx, ctx.abortedError);
@@ -294,27 +370,56 @@ export class WorkflowRunner implements IWorkflowRunner {
         error: this.toErrorMessage(error),
       });
       throw error;
-    } finally {
-      subscription.unsubscribe();
-      if (abortHandler && options?.signal) {
-        options.signal.removeEventListener('abort', abortHandler);
+      } finally {
+        if (abortHandler && options?.signal) {
+          options.signal.removeEventListener('abort', abortHandler);
+        }
       }
-    }
+    };
+
+    return {
+      id: actorHandle.id,
+      getStatus: () => actorHandle.getStatus(),
+      getSnapshotView: () => {
+        const snapshot = actorHandle.getSnapshot() as {
+          context: WorkflowMachineContext<TState>;
+        };
+        return {
+          state: snapshot.context.state,
+          aborted: snapshot.context.aborted,
+          ...(snapshot.context.abortedStepId ? { stepId: snapshot.context.abortedStepId } : {}),
+        };
+      },
+      getPersistedSnapshot: () => actorHandle.getPersistedSnapshot(),
+      dispatch: (event) => actorHandle.dispatch(event),
+      checkpoint: () => actorHandle.checkpoint(),
+      cancel: () => actorHandle.cancel(),
+      waitForDone,
+    };
   }
 
-  private compileMachine<TState>(definition: WorkflowDefinition<TState>) {
-    const actors = this.compileActors(definition);
+  async run<TState>(
+    definition: WorkflowDefinition<TState>,
+    initialState: TState,
+    options?: WorkflowRunOptions
+  ): Promise<WorkflowResult<TState>> {
+    return (await this.start(definition, initialState, options)).waitForDone();
+  }
+
+  private compileMachine<TState>(
+    definition: WorkflowDefinition<TState>,
+    dependencies: WorkflowRuntimeDependencies
+  ) {
+    const actors = this.compileActors(definition, dependencies);
     const guards = this.compileGuards(definition);
-    const states = this.compileStates(definition);
+    const states = this.compileStates(definition, dependencies);
 
     return setup({
       types: {} as {
         context: WorkflowMachineContext<TState>;
         input: {
           initialState: TState;
-          container: IServiceContainer;
-          options?: WorkflowRunOptions;
-          workflowId: string;
+            workflowId: string;
           workflowInstanceId: string;
         };
       },
@@ -324,9 +429,6 @@ export class WorkflowRunner implements IWorkflowRunner {
       id: definition.id,
       context: ({ input }) => ({
         state: input.initialState,
-        container: input.container,
-        backendLogService: this.backendLogService,
-        options: input.options,
         workflowId: input.workflowId,
         workflowInstanceId: input.workflowInstanceId,
         aborted: false,
@@ -337,12 +439,19 @@ export class WorkflowRunner implements IWorkflowRunner {
         workflowLastResult: undefined,
       }),
       initial: definition.steps[0]?.id ?? 'completed',
+      output: ({ context }) => ({
+        aborted: context.aborted,
+        ...(context.abortedError ? { abortedError: context.abortedError } : {}),
+        state: context.state,
+        data: context.aborted ? undefined : this.toWorkflowDefinitionOutput(definition, context.state),
+      }),
       states,
     });
   }
 
   private compileActors<TState>(
-    definition: WorkflowDefinition<TState>
+    definition: WorkflowDefinition<TState>,
+    dependencies: WorkflowRuntimeDependencies
   ): Record<string, AnyActorLogic> {
     const actors: Record<string, AnyActorLogic> = {
       // Generic command executor
@@ -358,8 +467,8 @@ export class WorkflowRunner implements IWorkflowRunner {
 
         // Resolve command (check overrides first, then ToolManager)
         const cmd =
-          context.options?.commands?.[commandToken] ??
-          this.getToolManager(context.container).get(commandToken);
+          dependencies.options?.commands?.[commandToken] ??
+          this.getToolManager(dependencies.container).get(commandToken);
 
         if (!cmd) {
           this.logWorkflowDebug(context, {
@@ -394,20 +503,27 @@ export class WorkflowRunner implements IWorkflowRunner {
 
     // Create actors for execute steps (inline functions)
     for (const step of definition.steps) {
+      if ('command' in step) {
+        this.addWorkflowCommandActor(actors, step.command, step.id, dependencies);
+      }
       if ('execute' in step && !('command' in step)) {
         const executeStep = step as WorkflowExecuteStep<TState>;
         actors[`execute_${step.id}`] = fromPromise(
           async ({
             input,
           }: {
-            input: { state: TState; ctx: ExecutionContext; container: IServiceContainer };
+            input: { state: TState; ctx: ExecutionContext };
           }) => {
             this.logExecutionContextDebug(input.ctx, {
               phase: 'execute-start',
             });
             const startedAt = Date.now();
             try {
-              const result = await executeStep.execute(input.state, input.ctx, input.container);
+              const result = await executeStep.execute(
+                input.state,
+                input.ctx,
+                dependencies.container
+              );
               this.logExecutionContextDebug(input.ctx, {
                 phase: 'execute-complete',
                 elapsedMs: Date.now() - startedAt,
@@ -428,7 +544,7 @@ export class WorkflowRunner implements IWorkflowRunner {
       // Handle loop steps recursively
       if ('kind' in step && step.kind === 'loop') {
         const loopStep = step as WorkflowLoopStep<TState>;
-        this.addLoopActors(actors, loopStep, definition.id);
+        this.addLoopActors(actors, loopStep, definition.id, dependencies);
       }
     }
 
@@ -438,23 +554,31 @@ export class WorkflowRunner implements IWorkflowRunner {
   private addLoopActors<TState>(
     actors: Record<string, AnyActorLogic>,
     loopStep: WorkflowLoopStep<TState>,
-    workflowId: string
+    workflowId: string,
+    dependencies: WorkflowRuntimeDependencies
   ): void {
     for (const step of loopStep.steps) {
+      if ('command' in step) {
+        this.addWorkflowCommandActor(actors, step.command, `${loopStep.id}_${step.id}`, dependencies);
+      }
       if ('execute' in step && !('command' in step)) {
         const executeStep = step as WorkflowExecuteStep<TState>;
         actors[`execute_${loopStep.id}_${step.id}`] = fromPromise(
           async ({
             input,
           }: {
-            input: { state: TState; ctx: ExecutionContext; container: IServiceContainer };
+            input: { state: TState; ctx: ExecutionContext };
           }) => {
             this.logExecutionContextDebug(input.ctx, {
               phase: 'execute-start',
             });
             const startedAt = Date.now();
             try {
-              const result = await executeStep.execute(input.state, input.ctx, input.container);
+              const result = await executeStep.execute(
+                input.state,
+                input.ctx,
+                dependencies.container
+              );
               this.logExecutionContextDebug(input.ctx, {
                 phase: 'execute-complete',
                 elapsedMs: Date.now() - startedAt,
@@ -474,9 +598,60 @@ export class WorkflowRunner implements IWorkflowRunner {
 
       // Handle nested loops
       if ('kind' in step && step.kind === 'loop') {
-        this.addLoopActors(actors, step as WorkflowLoopStep<TState>, workflowId);
+        this.addLoopActors(actors, step as WorkflowLoopStep<TState>, workflowId, dependencies);
       }
     }
+  }
+
+  private addWorkflowCommandActor(
+    actors: Record<string, AnyActorLogic>,
+    commandToken: string,
+    stepId: string,
+    dependencies: WorkflowRuntimeDependencies
+  ): void {
+    const command = this.resolveWorkflowCommand(commandToken, dependencies);
+    if (!command) return;
+
+    const adapter = this.commandActorAdapters.resolveWorkflow(command);
+    if (!adapter) return;
+
+    actors[this.getWorkflowCommandActorSource(stepId)] = adapter.toActorLogic(command, (definition) =>
+        this.compileMachine(definition, dependencies)
+      );
+  }
+
+  private getCommandActorSource(
+    commandToken: string,
+    stepId: string,
+    dependencies: WorkflowRuntimeDependencies
+  ): string {
+    return this.resolveWorkflowCommand(commandToken, dependencies)
+      ? this.getWorkflowCommandActorSource(stepId)
+      : 'executeCommand';
+  }
+
+  private getWorkflowCommandActorSource(stepId: string): string {
+    return `workflowCommand_${stepId}`;
+  }
+
+  private resolveWorkflowCommand(
+    commandToken: string,
+    dependencies: WorkflowRuntimeDependencies
+  ): IWorkflowCommand | undefined {
+    const command =
+      dependencies.options?.commands?.[commandToken] ??
+      this.getToolManager(dependencies.container).get(commandToken);
+    return command && isWorkflowCommand(command as ICommand) ? (command as IWorkflowCommand) : undefined;
+  }
+
+  private toWorkflowDefinitionOutput<TState>(
+    definition: WorkflowDefinition<TState>,
+    state: TState
+  ): unknown {
+    if (definition.result !== undefined) {
+      return resolveTemplateData(definition.result, state as Record<string, unknown>);
+    }
+    return definition.toResult ? definition.toResult(state) : state;
   }
 
   private compileGuards<TState>(definition: WorkflowDefinition<TState>): Record<string, any> {
@@ -518,7 +693,10 @@ export class WorkflowRunner implements IWorkflowRunner {
     }
   }
 
-  private compileStates<TState>(definition: WorkflowDefinition<TState>): Record<string, any> {
+  private compileStates<TState>(
+    definition: WorkflowDefinition<TState>,
+    dependencies: WorkflowRuntimeDependencies
+  ): Record<string, any> {
     const states: Record<string, any> = {};
 
     for (let i = 0; i < definition.steps.length; i++) {
@@ -526,11 +704,23 @@ export class WorkflowRunner implements IWorkflowRunner {
       const nextStepId = definition.steps[i + 1]?.id ?? 'completed';
 
       if ('kind' in step && step.kind === 'loop') {
-        states[step.id] = this.compileLoopState(step as WorkflowLoopStep<TState>, nextStepId);
+        states[step.id] = this.compileLoopState(
+          step as WorkflowLoopStep<TState>,
+          nextStepId,
+          dependencies
+        );
       } else if ('command' in step) {
-        states[step.id] = this.compileCommandState(step as WorkflowCommandStep<TState>, nextStepId);
+        states[step.id] = this.compileCommandState(
+          step as WorkflowCommandStep<TState>,
+          nextStepId,
+          dependencies
+        );
       } else if ('execute' in step) {
-        states[step.id] = this.compileExecuteState(step as WorkflowExecuteStep<TState>, nextStepId);
+        states[step.id] = this.compileExecuteState(
+          step as WorkflowExecuteStep<TState>,
+          nextStepId,
+          dependencies
+        );
       }
     }
 
@@ -550,7 +740,11 @@ export class WorkflowRunner implements IWorkflowRunner {
     return states;
   }
 
-  private compileCommandState<TState>(step: WorkflowCommandStep<TState>, nextStepId: string): any {
+  private compileCommandState<TState>(
+    step: WorkflowCommandStep<TState>,
+    nextStepId: string,
+    dependencies: WorkflowRuntimeDependencies
+  ): any {
     const hasConditions = this.hasStepConditions(step);
 
     return {
@@ -563,11 +757,11 @@ export class WorkflowRunner implements IWorkflowRunner {
           ]
         : undefined,
       invoke: {
-        src: 'executeCommand',
+        src: this.getCommandActorSource(step.command, step.id, dependencies),
         input: ({ context }: { context: WorkflowMachineContext<TState> }) => ({
           commandToken: step.command,
           params: this.resolveParams(step, context.state),
-          ctx: this.createExecutionContext(context, step.id),
+          ctx: this.createExecutionContext(context, step.id, dependencies.options),
           context,
         }),
         onDone: {
@@ -593,7 +787,11 @@ export class WorkflowRunner implements IWorkflowRunner {
     };
   }
 
-  private compileExecuteState<TState>(step: WorkflowExecuteStep<TState>, nextStepId: string): any {
+  private compileExecuteState<TState>(
+    step: WorkflowExecuteStep<TState>,
+    nextStepId: string,
+    dependencies: WorkflowRuntimeDependencies
+  ): any {
     const hasConditions = this.hasStepConditions(step);
 
     return {
@@ -609,8 +807,7 @@ export class WorkflowRunner implements IWorkflowRunner {
         src: `execute_${step.id}`,
         input: ({ context }: { context: WorkflowMachineContext<TState> }) => ({
           state: context.state,
-          ctx: this.createExecutionContext(context, step.id),
-          container: context.container,
+          ctx: this.createExecutionContext(context, step.id, dependencies.options),
         }),
         onDone: {
           target: nextStepId,
@@ -630,7 +827,11 @@ export class WorkflowRunner implements IWorkflowRunner {
     };
   }
 
-  private compileLoopState<TState>(loopStep: WorkflowLoopStep<TState>, nextStepId: string): any {
+  private compileLoopState<TState>(
+    loopStep: WorkflowLoopStep<TState>,
+    nextStepId: string,
+    dependencies: WorkflowRuntimeDependencies
+  ): any {
     const loopBodyStates: Record<string, any> = {};
     const firstBodyStepId = loopStep.steps[0]?.id;
 
@@ -643,19 +844,22 @@ export class WorkflowRunner implements IWorkflowRunner {
         loopBodyStates[step.id] = this.compileLoopCommandState(
           step as WorkflowCommandStep<TState>,
           nextBodyStepId,
-          loopStep.id
+          loopStep.id,
+          dependencies
         );
       } else if ('execute' in step) {
         loopBodyStates[step.id] = this.compileLoopExecuteState(
           step as WorkflowExecuteStep<TState>,
           nextBodyStepId,
-          loopStep.id
+          loopStep.id,
+          dependencies
         );
       } else if ('kind' in step && step.kind === 'loop') {
         // Nested loop - recursively compile
         loopBodyStates[step.id] = this.compileLoopState(
           step as WorkflowLoopStep<TState>,
-          nextBodyStepId
+          nextBodyStepId,
+          dependencies
         );
       }
     }
@@ -701,7 +905,8 @@ export class WorkflowRunner implements IWorkflowRunner {
   private compileLoopCommandState<TState>(
     step: WorkflowCommandStep<TState>,
     nextStepId: string,
-    loopId: string
+    loopId: string,
+    dependencies: WorkflowRuntimeDependencies
   ): any {
     const stepId = `${loopId}_${step.id}`;
     const hasConditions = this.hasStepConditions(step);
@@ -716,11 +921,11 @@ export class WorkflowRunner implements IWorkflowRunner {
           ]
         : undefined,
       invoke: {
-        src: 'executeCommand',
+        src: this.getCommandActorSource(step.command, stepId, dependencies),
         input: ({ context }: { context: WorkflowMachineContext<TState> }) => ({
           commandToken: step.command,
           params: this.resolveParams(step, context.state, context.loopIterations[loopId]),
-          ctx: this.createExecutionContext(context, stepId),
+          ctx: this.createExecutionContext(context, stepId, dependencies.options),
           context,
         }),
         onDone: {
@@ -749,7 +954,8 @@ export class WorkflowRunner implements IWorkflowRunner {
   private compileLoopExecuteState<TState>(
     step: WorkflowExecuteStep<TState>,
     nextStepId: string,
-    loopId: string
+    loopId: string,
+    dependencies: WorkflowRuntimeDependencies
   ): any {
     const stepId = `${loopId}_${step.id}`;
     const hasConditions = this.hasStepConditions(step);
@@ -767,8 +973,7 @@ export class WorkflowRunner implements IWorkflowRunner {
         src: `execute_${loopId}_${step.id}`,
         input: ({ context }: { context: WorkflowMachineContext<TState> }) => ({
           state: context.state,
-          ctx: this.createExecutionContext(context, stepId),
-          container: context.container,
+          ctx: this.createExecutionContext(context, stepId, dependencies.options),
         }),
         onDone: {
           target: nextStepId,
@@ -915,9 +1120,10 @@ export class WorkflowRunner implements IWorkflowRunner {
 
   private createExecutionContext<TState>(
     context: WorkflowMachineContext<TState>,
-    stepId: string
+    stepId: string,
+    options?: WorkflowRunOptions
   ): ExecutionContext {
-    const base = context.options?.executionContext ?? { history: [] };
+    const base = options?.executionContext ?? { history: [] };
     const parentFrame = base.workflowId
       ? {
           workflowId: base.workflowId,
@@ -948,7 +1154,7 @@ export class WorkflowRunner implements IWorkflowRunner {
 
     return {
       ...base,
-      ...(context.options?.signal !== undefined ? { signal: context.options.signal } : {}),
+      ...(options?.signal !== undefined ? { signal: options.signal } : {}),
       workflowId: context.workflowId,
       workflowInstanceId: context.workflowInstanceId,
       stepId,
@@ -968,8 +1174,7 @@ export class WorkflowRunner implements IWorkflowRunner {
     context: WorkflowMachineContext<TState>,
     errorMessage: string
   ): void {
-    const backendLogService =
-      context.backendLogService ?? this.backendLogService;
+    const backendLogService = this.backendLogService;
     if (!backendLogService) {
       return;
     }
@@ -1044,8 +1249,7 @@ export class WorkflowRunner implements IWorkflowRunner {
     context: WorkflowMachineContext<TState>,
     entry: Record<string, unknown>
   ): void {
-    const backendLogService =
-      context.backendLogService ?? this.backendLogService;
+    const backendLogService = this.backendLogService;
     if (!backendLogService) {
       return;
     }
@@ -1123,6 +1327,7 @@ export function workflowDescriptor<TState>(
 
   const {
     id,
+    version: _version,
     aliases: _aliases,
     tags: _tags,
     return: _return,
@@ -1142,12 +1347,21 @@ export class WorkflowRunnerFactory implements IWorkflowRunnerFactory {
 
   create(): IWorkflowRunner {
     const backendLogService = this.container.resolve(CORE_SERVICE_TOKENS.BackendLogService) as IBackendLogService;
-    return new WorkflowRunner(this.container, backendLogService);
+    const workflowRunRepository = this.container.tryResolve(
+      CORE_SERVICE_TOKENS.WorkflowRunRepository
+    ) as IWorkflowRunRepository | undefined;
+    const actorHost = workflowRunRepository ? new WorkflowActorHost(workflowRunRepository) : undefined;
+    const commandActorAdapters = this.container.tryResolve(
+      WORKFLOW_SERVICE_TOKENS.CommandActorAdapterResolver
+    ) as CommandActorAdapterResolver | undefined;
+
+    return new WorkflowRunner(this.container, backendLogService, actorHost, commandActorAdapters);
   }
 
-  asCommand<TState>(definition: WorkflowDefinition<TState>): ICommand {
+  asCommand<TState>(definition: WorkflowDefinition<TState>): IWorkflowCommand {
     const {
       id,
+      version: _version,
       steps: _steps,
       prepare: _prepare,
       toResult: _toResult,
@@ -1162,9 +1376,13 @@ export class WorkflowRunnerFactory implements IWorkflowRunnerFactory {
     };
 
     return {
+      [workflowCommand]: true,
+      definitionId: definition.id,
+      definitionVersion: definition.version ?? '1',
       metadata: { ...descriptorFields, key: id },
       execute: (params: unknown, ctx: ExecutionContext): Promise<CommandResponse<unknown>> =>
         this.#runAsCommand(definition, params, ctx),
+      getWorkflowDefinition: () => definition as WorkflowDefinition<unknown>,
       ...definitionProvider,
     };
   }
@@ -1256,4 +1474,9 @@ function workflowDefinitionToDocument<TState>(
       : {}),
     states,
   };
+}
+
+interface WorkflowRuntimeDependencies {
+  container: IServiceContainer;
+  options?: WorkflowRunOptions;
 }

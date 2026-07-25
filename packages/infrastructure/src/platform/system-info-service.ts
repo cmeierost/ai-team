@@ -13,7 +13,17 @@ export class SystemInfoService implements ISystemInfoService {
         stdio: ['pipe', 'pipe', 'ignore'],
       }).trim();
     } catch {
-      // Not a git repo or git unavailable.
+      try {
+        // `rev-parse HEAD` fails in a newly initialized repository until its
+        // first commit. The symbolic ref still contains the unborn branch.
+        branch = execSync('git symbolic-ref --short HEAD', {
+          cwd: workspaceRoot,
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'ignore'],
+        }).trim();
+      } catch {
+        // Not a git repo or git unavailable.
+      }
     }
 
     let packageInfo: SystemInfo['package'] = null;

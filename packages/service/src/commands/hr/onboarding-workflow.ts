@@ -1,7 +1,6 @@
 import { z } from 'zod';
-import type { ChatMessage, ExecutionContext, ICommand, ICommandDescriptor } from '@ai-team/core';
+import type { ExecutionContext, ICommand, ICommandDescriptor } from '@ai-team/core';
 import type { WorkflowDefinition, IWorkflowRunnerFactory } from '../../workflow/index.js';
-import { runWorkflowPhaseAsync } from './workflow-phase.js';
 
 const onboardingWorkflowParamsSchema = z.object({
   workspaceRoot: z.string().optional(),
@@ -12,16 +11,15 @@ export type OnboardingWorkflowParams = z.infer<typeof onboardingWorkflowParamsSc
 export interface OnboardingWorkflowResult {
   ceoAgentId?: string;
   ceoName?: string;
-  hrAgentId?: string;
-  hrName?: string;
-  businessTranscriptPath?: string;
-  hireMessages: ChatMessage[];
+  businessSystemPrompt?: string;
+  businessOpeningMessage?: string;
 }
 
 export interface OnboardingWorkflowState extends OnboardingWorkflowParams {
   prepare_context?: {
     developerName?: string;
     businessSystemPrompt: string;
+    businessIntroLines: string[];
     planningSystemPrompt: string;
     ceoIntroduction: string;
     hrIntroduction: string;
@@ -35,27 +33,10 @@ export interface OnboardingWorkflowState extends OnboardingWorkflowParams {
   pick_ceo?: { type: string; kind: string; answer: string };
   hire_ceo?: { agentId: string; name: string; role: string };
   ceo_permissions?: { agentId: string };
-  business_chat?: { messages: ChatMessage[] };
-  business_transcript?: { filePath: string };
-  hr_names?: { suggestions: string[] };
-  pick_hr?: { type: string; kind: string; answer: string };
-  hire_hr?: { agentId: string; name: string; role: string };
-  hr_permissions?: { agentId: string };
-  hire_choice?: { type: string; kind: string; answer: string };
-  hire_summary?: { content: string };
-  hire_session?: { messages: ChatMessage[] };
 }
 
 const CEO_WRITE_PATTERNS = [
   '.ai-team/**/*',
-  '.github/copilot-instructions.md',
-  'AGENTS.md',
-  'docs/**/*',
-];
-const HR_WRITE_PATTERNS = [
-  '.ai-team/**/*',
-  '.ai-team/skills-catalog/**/*',
-  '.github/skills/**/*',
   '.github/copilot-instructions.md',
   'AGENTS.md',
   'docs/**/*',
@@ -94,9 +75,20 @@ async function dispatchTool<T>(
   return assertOk<T>(await dispatcher.dispatch(key, payload, ctx), key);
 }
 
+function buildBusinessOpeningMessage(state: OnboardingWorkflowState): string | undefined {
+  const lines = state.prepare_context?.businessIntroLines ?? [];
+  if (lines.length === 0) return undefined;
+
+  const ceoName = state.hire_ceo?.name ?? state.pick_ceo?.answer ?? 'CEO';
+  return lines
+    .map((line) => line.replaceAll('{{ceoName}}', ceoName))
+    .join('\n\n')
+    .trim();
+}
+
 export const OnboardingWorkflowMetadata = {
   key: 'onboard_workflow',
-  description: 'End-to-end founding-team onboarding: bootstrap, CEO, business chat, HR, hiring.',
+  description: 'Bootstrap the workspace and create the founding CEO before chat takes over.',
   availableIn: { tool: true },
   group: 'hr',
   parameters: onboardingWorkflowParamsSchema,
@@ -111,13 +103,16 @@ export const OnboardingWorkflowMetadata = {
  * - `init_bootstrap_files` seeds workspace templates/docs
  * - `init_prepare_onboarding` loads templates and derives prompt/introduction artifacts
  *
- * This workflow can be used standalone or composed with other workflows.
+ * This setup workflow deliberately ends after CEO creation. Interactive chat is
+ * a presentation concern and is started by the invoking adapter from the
+ * returned CEO identity.
  */
 export function createOnboardingWorkflowDefinition(
   dispatcher: CommandDispatcherLike
 ): WorkflowDefinition<OnboardingWorkflowState> {
   return {
     id: OnboardingWorkflowMetadata.key,
+    version: '1',
     description: OnboardingWorkflowMetadata.description,
     availableIn: OnboardingWorkflowMetadata.availableIn,
     prepare: (params: unknown) => {
@@ -130,10 +125,8 @@ export function createOnboardingWorkflowDefinition(
     toResult: (state: OnboardingWorkflowState): OnboardingWorkflowResult => ({
       ceoAgentId: state.hire_ceo?.agentId,
       ceoName: state.hire_ceo?.name,
-      hrAgentId: state.hire_hr?.agentId,
-      hrName: state.hire_hr?.name,
-      businessTranscriptPath: state.business_transcript?.filePath,
-      hireMessages: state.hire_session?.messages ?? [],
+      businessSystemPrompt: state.prepare_context?.businessSystemPrompt,
+      businessOpeningMessage: buildBusinessOpeningMessage(state),
     }),
     steps: [
       {
@@ -141,7 +134,7 @@ export function createOnboardingWorkflowDefinition(
         execute: async (state, ctx) => {
           const bootstrap = await dispatchTool<{ workspaceRoot: string }>(
             dispatcher,
-            'init_bootstrap_files',
+            'init-bootstrap_files',
             { workspaceRoot: state.workspaceRoot },
             ctx
           );
@@ -153,7 +146,7 @@ export function createOnboardingWorkflowDefinition(
         execute: async (state, ctx) => {
           const prepare_context = await dispatchTool<OnboardingWorkflowState['prepare_context']>(
             dispatcher,
-            'init_prepare_onboarding',
+            'init-prepare_onboarding',
             { workspaceRoot: state.workspaceRoot },
             ctx
           );
@@ -165,7 +158,7 @@ export function createOnboardingWorkflowDefinition(
         execute: async (state, ctx) => {
           const ceo_names = await dispatchTool<{ suggestions: string[] }>(
             dispatcher,
-            'hr_name_suggestions',
+            'hr-name_suggestions',
             { roleLabel: 'CEO', excludeNames: [], count: 5 },
             ctx
           );
@@ -184,7 +177,7 @@ export function createOnboardingWorkflowDefinition(
           }));
           const pick_ceo = await dispatchTool<{ type: string; kind: string; answer: string }>(
             dispatcher,
-            'com_ask',
+            'com-ask',
             {
               kind: 'select',
               message: 'Which candidate should we hire as CEO?',
@@ -198,11 +191,12 @@ export function createOnboardingWorkflowDefinition(
       {
         id: 'hire_ceo',
         execute: async (state, ctx) => {
+          const ceoName = state.pick_ceo!.answer;
           const hire_ceo = await dispatchTool<{ agentId: string; name: string; role: string }>(
             dispatcher,
-            'hr_hire',
+            'hr-hire_agent',
             {
-              name: state.pick_ceo!.answer,
+              name: ceoName,
               role: 'ceo',
               type: 'executive',
               contextLevel: 'organization',
@@ -211,7 +205,10 @@ export function createOnboardingWorkflowDefinition(
                 expertise_level: 'executive',
                 mentoring: true,
               },
-              introduction: state.prepare_context!.ceoIntroduction,
+              introduction: state.prepare_context!.ceoIntroduction.replaceAll(
+                '{{pick_ceo.answer}}',
+                ceoName
+              ),
               personalityProfile: state.prepare_context!.ceoPersonalityProfile,
             },
             ctx
@@ -224,7 +221,7 @@ export function createOnboardingWorkflowDefinition(
         execute: async (state, ctx) => {
           const ceo_permissions = await dispatchTool<{ agentId: string }>(
             dispatcher,
-            'access_set_permissions',
+            'access-set_permissions',
             {
               agentId: state.hire_ceo!.agentId,
               list: BROAD_READ,
@@ -234,197 +231,6 @@ export function createOnboardingWorkflowDefinition(
             ctx
           );
           return { ...state, ceo_permissions };
-        },
-      },
-      {
-        id: 'business_chat',
-        execute: async (state, ctx, services) => {
-          const messages = await runWorkflowPhaseAsync(
-            {
-              agentId: state.hire_ceo!.agentId,
-              systemPrompt: state.prepare_context!.businessSystemPrompt,
-              exitWords: ['done', 'clear', 'finished'],
-              toolAllowlist: ['com_ask'],
-            },
-            ctx,
-            services
-          );
-
-          return {
-            ...state,
-            business_chat: { messages },
-          };
-        },
-      },
-      {
-        id: 'business_transcript',
-        execute: async (state, ctx) => {
-          const business_transcript = await dispatchTool<{ filePath: string }>(
-            dispatcher,
-            'docs_save_transcript',
-            {
-              relativePath: '.ai-team/business-definition.md',
-              title: 'Business Definition',
-              intro: [
-                'This file captures the business-definition phase between the developer and CEO.',
-                'It is generated by onboarding workflow step `business_transcript`.',
-              ],
-              messages: state.business_chat?.messages ?? [],
-              agentLabel: `${state.pick_ceo?.answer ?? 'CEO'} (ceo)`,
-              developerLabel: state.prepare_context?.developerName ?? 'Developer',
-            },
-            ctx
-          );
-          return { ...state, business_transcript };
-        },
-      },
-      {
-        id: 'hire_choice',
-        execute: async (state, ctx) => {
-          const hire_choice = await dispatchTool<{ type: string; kind: string; answer: string }>(
-            dispatcher,
-            'com_ask',
-            {
-              kind: 'select',
-              message: 'What would you like to do next?',
-              choices: [
-                { name: 'Hire people now', value: 'hire' },
-                { name: 'Skip hiring for now', value: 'skip' },
-              ],
-            },
-            ctx
-          );
-          return { ...state, hire_choice };
-        },
-      },
-      {
-        id: 'hr_names',
-        skipWhen: 'hire_choice.answer !== "hire"',
-        execute: async (state, ctx) => {
-          const hr_names = await dispatchTool<{ suggestions: string[] }>(
-            dispatcher,
-            'hr_name_suggestions',
-            {
-              roleLabel: 'Head of Human Resources',
-              excludeNames: [state.pick_ceo?.answer].filter((name): name is string =>
-                Boolean(name && name.length)
-              ),
-              count: 5,
-            },
-            ctx
-          );
-          if (!hr_names.suggestions.length) {
-            throw new Error('No HR name suggestions were generated.');
-          }
-          return { ...state, hr_names };
-        },
-      },
-      {
-        id: 'pick_hr',
-        skipWhen: 'hire_choice.answer !== "hire"',
-        execute: async (state, ctx) => {
-          const choices = (state.hr_names?.suggestions ?? []).map((candidate) => ({
-            name: candidate,
-            value: candidate,
-          }));
-          const pick_hr = await dispatchTool<{ type: string; kind: string; answer: string }>(
-            dispatcher,
-            'com_ask',
-            {
-              kind: 'select',
-              message: 'Which candidate should we hire as HR Director?',
-              choices,
-            },
-            ctx
-          );
-          return { ...state, pick_hr };
-        },
-      },
-      {
-        id: 'hire_hr',
-        skipWhen: 'hire_choice.answer !== "hire"',
-        execute: async (state, ctx) => {
-          const hire_hr = await dispatchTool<{ agentId: string; name: string; role: string }>(
-            dispatcher,
-            'hr_hire',
-            {
-              name: state.pick_hr!.answer,
-              role: 'hr-director',
-              type: 'executive',
-              contextLevel: 'organization',
-              reportsTo: state.hire_ceo!.agentId,
-              personality: {
-                communication_style: 'supportive',
-                expertise_level: 'executive',
-                mentoring: true,
-              },
-              introduction: state.prepare_context!.hrIntroduction,
-              personalityProfile: state.prepare_context!.hrPersonalityProfile,
-            },
-            ctx
-          );
-          return { ...state, hire_hr };
-        },
-      },
-      {
-        id: 'hr_permissions',
-        skipWhen: 'hire_choice.answer !== "hire"',
-        execute: async (state, ctx) => {
-          const hr_permissions = await dispatchTool<{ agentId: string }>(
-            dispatcher,
-            'access_set_permissions',
-            {
-              agentId: state.hire_hr!.agentId,
-              list: BROAD_READ,
-              read: BROAD_READ,
-              write: HR_WRITE_PATTERNS,
-            },
-            ctx
-          );
-          return { ...state, hr_permissions };
-        },
-      },
-      {
-        id: 'hire_summary',
-        skipWhen: 'hire_choice.answer !== "hire"',
-        execute: async (state, ctx) => {
-          const hire_summary = await dispatchTool<{ content: string }>(
-            dispatcher,
-            'llm_call',
-            {
-              systemPrompt:
-                'You summarize a business definition conversation into one concise paragraph (3-5 sentences). Focus on: business purpose, target users, technical direction. Return only the summary text.',
-              userPrompt: `Summarize this conversation transcript: ${JSON.stringify(state.business_chat?.messages ?? [])}`,
-              maxTokens: 300,
-              temperature: 0.5,
-            },
-            ctx
-          );
-          return { ...state, hire_summary };
-        },
-      },
-      {
-        id: 'hire_session',
-        skipWhen: 'hire_choice.answer !== "hire"',
-        execute: async (state, ctx) => {
-          const hire_session = await dispatchTool<{ messages: ChatMessage[] }>(
-            dispatcher,
-            'hr_hire_workflow',
-            {
-              hrAgentId: state.hire_hr!.agentId,
-              requesterAgentId: state.hire_ceo!.agentId,
-              instructions:
-                `## Business context\n\n${state.hire_summary?.content ?? ''}\n\n` +
-                `## Hire mandate\n\n${state.prepare_context?.planningSystemPrompt ?? ''}`,
-              openingMessage:
-                `Welcome ${state.pick_hr?.answer ?? 'HR Director'}. ` +
-                'Read the hire request and start hiring the team. ' +
-                'Use `hr_hire` for each new member, `access_set_permissions` to grant access, and say `done` when finished.',
-            },
-            ctx
-          );
-
-          return { ...state, hire_session };
         },
       },
     ],
@@ -480,13 +286,18 @@ export class OnboardingWorkflowCommand implements ICommand<
         executionContext: ctx,
       });
 
+    if (result.aborted) {
+      return {
+        status: 'error',
+        message: result.abortedError ?? 'Onboarding workflow aborted.',
+      };
+    }
+
     const data: OnboardingWorkflowResult = {
       ceoAgentId: result.state.hire_ceo?.agentId,
       ceoName: result.state.hire_ceo?.name,
-      hrAgentId: result.state.hire_hr?.agentId,
-      hrName: result.state.hire_hr?.name,
-      businessTranscriptPath: result.state.business_transcript?.filePath,
-      hireMessages: result.state.hire_session?.messages ?? [],
+      businessSystemPrompt: result.state.prepare_context?.businessSystemPrompt,
+      businessOpeningMessage: buildBusinessOpeningMessage(result.state),
     };
 
     return {

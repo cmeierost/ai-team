@@ -35,6 +35,10 @@ import {
 } from '../commands/orchestration/onboarding-prepare.tool.js';
 import { HireWorkflowCommand, HireWorkflowMetadata } from '../commands/hr/hire-workflow.js';
 import {
+  HireOrchestrationCommand,
+  HireOrchestrationCommandMetadata,
+} from '../commands/hr/hire-orchestration.command.js';
+import {
   OnboardingWorkflowCommand,
   OnboardingWorkflowMetadata,
 } from '../commands/hr/onboarding-workflow.js';
@@ -127,11 +131,14 @@ import { LlmInvokeService } from '../llm/llm-invoke.js';
 import { createCommandDispatcher } from '../command-dispatcher/command-dispatcher.js';
 import { AgentRuntimeIdentityResolver } from '../commands/chat/agent-runtime-identity.js';
 import { HandoffSubWorkflow } from '../workflow/chat/handoff-subworkflow.js';
-import {
-  InteractionService,
-} from '../interaction/interaction-service.js';
+import { InteractionService } from '../interaction/interaction-service.js';
 import type { ChatOptions, IInteractionService, WorkflowCallbacks } from '@ai-team/api-contracts';
-import { CommandChatRuntime, WorkflowRunnerFactory } from '../workflow/index.js';
+import {
+  CommandActorAdapterResolver,
+  CommandChatRuntime,
+  WorkflowRunnerFactory,
+  WORKFLOW_SERVICE_TOKENS,
+} from '../workflow/index.js';
 import { GovernanceService } from '../governance/governance-service.js';
 import { AgentToolsService } from '../commands/tools/tools-service.js';
 import {
@@ -201,11 +208,7 @@ export function buildInteractionService(
     }
   };
 
-  return new InteractionService(
-    workspaceRoot,
-    runChat,
-    c.resolve(CORE_SERVICE_TOKENS.EmitService)
-  );
+  return new InteractionService(workspaceRoot, runChat, c.resolve(CORE_SERVICE_TOKENS.EmitService));
 }
 
 export function registerServiceLayerServices(
@@ -253,6 +256,11 @@ export function registerServiceLayerServices(
         c.resolve(CORE_SERVICE_TOKENS.NoteAttachmentReader),
         c.resolve(CORE_SERVICE_TOKENS.LlmService)
       )
+  );
+
+  container.registerScoped(
+    WORKFLOW_SERVICE_TOKENS.CommandActorAdapterResolver,
+    () => new CommandActorAdapterResolver()
   );
 
   container.registerScoped(
@@ -315,12 +323,13 @@ export function registerServiceLayerServices(
     );
     registry.register(
       FsWriteToolMetadata,
-      (r) => new FsWriteTool(
-        r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
-        r.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory),
-        r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker),
-        r.resolve(CORE_SERVICE_TOKENS.IdeAdapterFactory)
-      )
+      (r) =>
+        new FsWriteTool(
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceRoot),
+          r.resolve(CORE_SERVICE_TOKENS.WorkspaceFsFactory),
+          r.resolve(CORE_SERVICE_TOKENS.PathPermissionChecker),
+          r.resolve(CORE_SERVICE_TOKENS.IdeAdapterFactory)
+        )
     );
     // File system access tools
     registry.register(
@@ -488,11 +497,23 @@ export function registerServiceLayerServices(
     );
     registry.register(
       SetPermissionsCommandMetadata,
-      (r) => new SetPermissionsCommand(r.resolve(CORE_SERVICE_TOKENS.PermissionStorage))
+      (r) =>
+        new SetPermissionsCommand(
+          r.resolve(CORE_SERVICE_TOKENS.PermissionStorage),
+          r.resolve(CORE_SERVICE_TOKENS.AgentManager)
+        )
     );
     registry.register(
       NameSuggestionsCommandMetadata,
       (r) => new NameSuggestionsCommand(r.resolve(CORE_SERVICE_TOKENS.LlmService))
+    );
+    registry.register(
+      HireOrchestrationCommandMetadata,
+      (r) =>
+        new HireOrchestrationCommand(
+          r.resolve(CORE_SERVICE_TOKENS.AgentManager),
+          r.resolve(CORE_SERVICE_TOKENS.MarkdownSectionService)
+        )
     );
 
     // Workflow tools registered as explicit native commands.

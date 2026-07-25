@@ -79,6 +79,36 @@ describe('IntroductionRenderer', () => {
 });
 
 describe('IntroductionCommand', () => {
+  it('uses an explicit workflow introduction instead of the agent greeting', async () => {
+    const appendMessage = vi.fn(async () => undefined);
+    const command = new IntroductionCommand(
+      { recordInteractionAsync: vi.fn(async () => undefined) },
+      markdownSectionService,
+      { appendMessage } as any,
+      { emit: vi.fn() } as any
+    );
+
+    await command.execute({
+      agent: {
+        id: 'elena-rodriguez',
+        name: 'Elena Rodriguez',
+        role: 'ceo',
+        markdown: '## Greeting\n\nThis generic greeting must not be used.',
+      } as any,
+      history: [],
+      developerName: 'Clemens',
+      sessionId: 'sess-workflow',
+      text: "Hi Clemens, let's define the business.",
+    });
+
+    expect(appendMessage).toHaveBeenCalledWith(
+      'sess-workflow',
+      expect.objectContaining({
+        content: "Hi Clemens, let's define the business.",
+      })
+    );
+  });
+
   it('persists the introduction for the standard transcript renderer', async () => {
     const recordInteractionAsync = vi.fn(async () => undefined);
     const appendMessage = vi.fn(async () => undefined);

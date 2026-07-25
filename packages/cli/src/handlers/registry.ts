@@ -84,6 +84,16 @@ function loadServiceCliCommandRegistry(): CliCommandMetadata[] {
       description: command.description,
       llmCallable: Boolean(command.availableIn.tool),
       directCli: true,
+      ...(path.join('.') === 'init'
+        ? {
+            options: [
+              {
+                flags: '--force',
+                description: 'Fully reinitialize the AI Team workspace',
+              },
+            ],
+          }
+        : {}),
       // Slash aliases may intentionally be the bare command key (for example
       // `/help` for `/system help`). Commander rejects aliases identical to
       // the CLI leaf command, so omit only those redundant CLI aliases.

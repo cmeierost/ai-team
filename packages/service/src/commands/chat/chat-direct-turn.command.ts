@@ -33,6 +33,8 @@ const chatDirectTurnParamsSchema = z.object({
     messageOrigin: z.enum(['developer', 'internal']).optional(),
     sessionId: z.string().optional(),
     createNewSession: z.boolean().optional(),
+    workflowSystemPrompt: z.string().optional(),
+    workflowToolAllowlist: z.array(z.string()).optional(),
   }),
 });
 
@@ -140,11 +142,24 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
       this.plugins,
       turnContext
     );
-    const resolved = await this.stepService.resolveSkillsAndToolsAsync(
+    if (payload.options.workflowSystemPrompt?.trim()) {
+      messages.unshift({
+        role: 'system',
+        content: payload.options.workflowSystemPrompt.trim(),
+      });
+    }
+    let resolved = await this.stepService.resolveSkillsAndToolsAsync(
       payload.options.message,
       this.plugins,
       turnContext
     );
+    if (payload.options.workflowToolAllowlist) {
+      const allowed = new Set(payload.options.workflowToolAllowlist);
+      resolved = {
+        ...resolved,
+        toolDefs: resolved.toolDefs.filter((tool) => allowed.has(tool.name)),
+      };
+    }
 
     try {
       const sessionBeforeLlm = turnContext.sessionId;
@@ -225,10 +240,7 @@ export class ChatDirectTurnCommand implements ICommand<ChatDirectTurnParams, Cha
             turnContext,
             invocation.metrics
           )
-        : await this.stepService.persistAssistantMessageAsync(
-            invocation.fullResponse,
-            turnContext
-          );
+        : await this.stepService.persistAssistantMessageAsync(invocation.fullResponse, turnContext);
       const parsed = await this.stepService.parseTurnResultAsync(
         invocation.structuredResults,
         invocation.fullResponse,

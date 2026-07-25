@@ -15,6 +15,7 @@ export interface IntroductionCommandInput {
   history: ChatMessage[];
   developerName?: string;
   sessionId: string;
+  text?: string;
 }
 
 export class IntroductionRenderer {
@@ -71,7 +72,7 @@ export class IntroductionCommand {
   }
 
   async execute(input: IntroductionCommandInput): Promise<void> {
-    const text = this.renderer.render(input.agent, input.developerName);
+    const text = input.text?.trim() || this.renderer.render(input.agent, input.developerName);
 
     const agentMsg: ChatMessage = {
       timestamp: new Date().toISOString(),
